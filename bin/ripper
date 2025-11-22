@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: ripper
+# Category: search
+# Description: Interactive ripgrep+fzf search with live preview and jump-to-editor.
+# Usage:
+#   ripper <pattern> [path...]
+#
+# Examples:
+#   ripper todo
+#   ripper UMAFCoreEngine.swift Sources
+#
+# Requirements: rg (ripgrep), fzf, bat, plus code or $EDITOR is recommended.
+
+if ! command -v rg >/dev/null 2>&1; then
+  printf 'Error: ripper requires ripgrep (rg). Install via: brew install ripgrep\n' >&2
+  exit 1
+fi
+
+if ! command -v fzf >/dev/null 2>&1; then
+  printf 'Error: ripper requires fzf. Install via: brew install fzf\n' >&2
+  exit 1
+fi
+
+if ! command -v bat >/dev/null 2>&1; then
+  printf 'Error: ripper requires bat. Install via: brew install bat\n' >&2
+  exit 1
+fi
+
+if [ "$#" -lt 1 ]; then
+  printf 'Usage: ripper <pattern> [path...]\n' >&2
+  exit 1
+fi
+
+pattern="$1"
+shift || true
+
+# Default search path: current directory
+paths=("$@")
+if [ "${#paths[@]}" -eq 0 ]; then
+  paths=(.)
+fi
+
+# Run ripgrep and pipe into fzf with preview using bat.
+# Output format: file:line:column_or_text...
+selection="$(
+  rg --line-number --no-heading --color=always "$pattern" "${paths[@]}" 2>/dev/null \
+    | fzf --ansi --delimiter ':' \
+          --prompt="ripper> " \
+          --header="Pattern: $pattern   (ENTER to open in editor, ESC to cancel)" \
+          --preview 'bat --style=numbers --color=always --line-range {2}: {2} {1}' \
+          --preview-window=up,60%,border-bottom
+)" || exit 0  # fzf cancelled
+
+# Parse out file and line number from "file:line:..."
+file="$(printf '%s' "$selection" | cut -d':' -f1)"
+line="$(printf '%s' "$selection" | cut -d':' -f2)"
+
+if [ ! -f "$file" ]; then
+  printf 'Error: selected file no longer exists: %s\n' "$file" >&2
+  exit 1
+fi
+
+# Prefer VS Code if available, otherwise $EDITOR, otherwise less
+if command -v code >/dev/null 2>&1; then
+  code -g "${file}:${line}"
+elif [ -n "${EDITOR:-}" ]; then
+  "$EDITOR" "+${line}" "$file"
+else
+  less "+${line}g" "$file"
+fi

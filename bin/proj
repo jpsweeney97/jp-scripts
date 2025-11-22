@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: proj
+# Category: nav
+# Description: Fuzzy-jump to frequently used directories via zoxide + fzf.
+# Usage:
+#   proj              # interactively pick a dir, print its path
+#   proj --code       # pick a dir, open it in VS Code, print its path
+#
+# Notes:
+#   - Use with: cd "$(proj)"
+#   - Requires zoxide, fzf; eza for previews if available.
+
+if ! command -v zoxide >/dev/null 2>&1; then
+  printf 'Error: proj requires zoxide. Install via: brew install zoxide\n' >&2
+  exit 1
+fi
+
+if ! command -v fzf >/dev/null 2>&1; then
+  printf 'Error: proj requires fzf. Install via: brew install fzf\n' >&2
+  exit 1
+fi
+
+OPEN_CODE=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --code)
+      OPEN_CODE=true
+      shift
+      ;;
+    -h|--help)
+      sed -n '4,40p' "$0"
+      exit 0
+      ;;
+    *)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      sed -n '4,40p' "$0" >&2
+      exit 1
+      ;;
+  esac
+done
+
+dirs="$(zoxide query -l 2>/dev/null || true)"
+if [ -z "$dirs" ]; then
+  printf 'proj: no zoxide data yet. cd around a bit first.\n' >&2
+  exit 0
+fi
+
+preview_cmd='ls -la {} 2>/dev/null'
+if command -v eza >/dev/null 2>&1; then
+  preview_cmd='eza -lha --group-directories-first --color=always {} 2>/dev/null'
+fi
+
+selection="$(
+  printf '%s\n' "$dirs" \
+    | fzf --ansi \
+          --height=80% \
+          --reverse \
+          --prompt='proj> ' \
+          --header='Select a directory (zoxide). Use cd "$(proj)" to jump.' \
+          --preview="$preview_cmd" \
+          --preview-window=right,60%,border-left
+)" || exit 0
+
+dir="$selection"
+if [ -z "$dir" ]; then
+  exit 0
+fi
+
+if [ "$OPEN_CODE" = true ]; then
+  if command -v code >/dev/null 2>&1; then
+    code "$dir"
+  else
+    printf 'Warning: VS Code (code) not found; skipping editor open.\n' >&2
+  fi
+fi
+
+printf '%s\n' "$dir"

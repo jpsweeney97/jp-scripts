@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: hist
+# Category: meta
+# Description: Fuzzy-search your full zsh history (most recent first, de-duplicated).
+# Usage:
+#   hist              # pick a command, print it to stdout
+#   hist --exec       # pick a command and execute it
+#
+# Notes:
+#   - Reads $HISTFILE or defaults to ~/.zsh_history.
+#   - Assumes zsh-style history; strips extended-history metadata if present.
+#   - Uses fzf for interactive selection.
+
+if ! command -v fzf >/dev/null 2>&1; then
+  printf 'Error: hist requires fzf. Install via: brew install fzf\n' >&2
+  exit 1
+fi
+
+EXEC=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --exec)
+      EXEC=true
+      shift
+      ;;
+    -h|--help)
+      sed -n '4,40p' "$0"
+      exit 0
+      ;;
+    *)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      sed -n '4,40p' "$0" >&2
+      exit 1
+      ;;
+  esac
+done
+
+HISTFILE_PATH="${HISTFILE:-"$HOME/.zsh_history"}"
+
+if [ ! -f "$HISTFILE_PATH" ]; then
+  printf 'Error: history file not found at %s\n' "$HISTFILE_PATH" >&2
+  exit 1
+fi
+
+# Build the history stream:
+# - reverse so most recent is first (tail -r on macOS, fall back to tac/cat)
+# - strip zsh extended-history prefix ": <epoch>:<duration>;"
+# - drop empty lines
+# - de-duplicate so only the most recent instance of each command remains
+hist_stream="$(
+  { tail -r "$HISTFILE_PATH" 2>/dev/null \
+      || tac "$HISTFILE_PATH" 2>/dev/null \
+      || cat "$HISTFILE_PATH"; } \
+    | LC_ALL=C sed -E 's/^: [0-9]+:[0-9]+;//' \
+    | awk 'NF && !seen[$0]++'
+)"
+
+if [ -z "$hist_stream" ]; then
+  printf 'No history entries found in %s\n' "$HISTFILE_PATH" >&2
+  exit 0
+fi
+
+selected="$(
+  printf '%s\n' "$hist_stream" \
+    | fzf --ansi \
+          --height=80% \
+          --reverse \
+          --prompt='hist> ' \
+          --header='Search history (most recent first). ENTER=select, ESC=cancel.' \
+          --preview-window=hidden \
+          --preview ' '
+)" || exit 0  # fzf cancelled
+
+# Trim leading/trailing whitespace for safety
+selected="$(printf '%s' "$selected" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')"
+
+if [ -z "$selected" ]; then
+  exit 0
+fi
+
+if [ "$EXEC" = true ]; then
+  printf 'Executing: %s\n' "$selected" >&2
+  # shellcheck disable=SC2086
+  eval "$selected"
+else
+  printf '%s\n' "$selected"
+fi

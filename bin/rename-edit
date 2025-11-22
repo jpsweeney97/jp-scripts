@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: rename-edit
+# Category: files
+# Description: Bulk rename files/directories by editing a list in your editor.
+# Usage:
+#   rename-edit [path]
+#   rename-edit --recursive [path]
+#
+# Notes:
+#   - Lists entries relative to the target dir, one per line.
+#   - You may change names, but not add/remove lines.
+#   - Dry-run preview before applying mv commands.
+
+TARGET="."
+RECURSIVE=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --recursive|-r)
+      RECURSIVE=true
+      shift
+      ;;
+    -h|--help)
+      sed -n '4,40p' "$0"
+      exit 0
+      ;;
+    *)
+      TARGET="$1"
+      shift
+      ;;
+  esac
+done
+
+if [ ! -d "$TARGET" ]; then
+  printf 'Error: "%s" is not a directory.\n' "$TARGET" >&2
+  exit 1
+fi
+
+if [ -n "${EDITOR:-}" ]; then
+  EDITOR_CMD="$EDITOR"
+elif command -v code >/dev/null 2>&1; then
+  EDITOR_CMD="code -w"
+else
+  EDITOR_CMD="nano"
+fi
+
+cd "$TARGET"
+
+# Build list of entries
+if [ "$RECURSIVE" = true ]; then
+  # relative paths, skip leading "./"
+  mapfile -t entries < <(find . -mindepth 1 -print | sed 's|^\./||' | LC_ALL=C sort)
+else
+  mapfile -t entries < <(find . -mindepth 1 -maxdepth 1 -print | sed 's|^\./||' | LC_ALL=C sort)
+fi
+
+if [ "${#entries[@]}" -eq 0 ]; then
+  printf 'rename-edit: no files or directories to rename under %s\n' "$TARGET"
+  exit 0
+fi
+
+orig="$(mktemp "${TMPDIR:-/tmp}/rename-edit.orig.XXXXXX")"
+edit="$(mktemp "${TMPDIR:-/tmp}/rename-edit.edit.XXXXXX")"
+
+cleanup() {
+  rm -f "$orig" "$edit"
+}
+trap cleanup EXIT INT TERM
+
+printf '%s\n' "${entries[@]}" >"$orig"
+cp "$orig" "$edit"
+
+# Let user edit the list
+# shellcheck disable=SC2086
+$EDITOR_CMD "$edit"
+
+# Read back
+mapfile -t old_list <"$orig"
+mapfile -t new_list <"$edit"
+
+if [ "${#old_list[@]}" -ne "${#new_list[@]}" ]; then
+  printf 'Error: line count changed (%d -> %d). Aborting.\n' "${#old_list[@]}" "${#new_list[@]}" >&2
+  exit 1
+fi
+
+changes=()
+for i in "${!old_list[@]}"; do
+  old="${old_list[$i]}"
+  new="${new_list[$i]}"
+  if [ "$old" != "$new" ]; then
+    changes+=("$old|$new")
+  fi
+done
+
+if [ "${#changes[@]}" -eq 0 ]; then
+  printf 'No changes detected; nothing to do.\n'
+  exit 0
+fi
+
+printf 'Proposed renames (dry-run):\n\n'
+for c in "${changes[@]}"; do
+  old="${c%%|*}"
+  new="${c#*|}"
+  printf '  %s -> %s\n' "$old" "$new"
+done
+
+printf '\nApply these renames? [y/N]: '
+read -r reply
+case "$reply" in
+  y|Y|yes|YES) ;;
+  *) printf 'Aborted; no changes made.\n'; exit 0 ;;
+esac
+
+for c in "${changes[@]}"; do
+  old="${c%%|*}"
+  new="${c#*|}"
+  if [ ! -e "$old" ]; then
+    printf 'Warning: original path missing, skipping: %s\n' "$old" >&2
+    continue
+  fi
+  printf 'mv "%s" "%s"\n' "$old" "$new"
+  mv -- "$old" "$new"
+done
+
+printf 'rename-edit: done.\n'

@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: jpcom
+# Category: meta
+# Description: List all custom JP commands and what they do.
+# Usage:
+#   jpcom                 # list all commands
+#   jpcom grep <pattern>  # search names and descriptions for a pattern
+#   jpcom cat <category>  # list only commands in a given category
+
+# Resolve repo root relative to this script (bin/ -> repo root)
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REGISTRY_PATH="$REPO_ROOT/registry/commands.json"
+
+if ! command -v jq >/dev/null 2>&1; then
+  printf 'Error: jq is required for jpcom. Install with: brew install jq\n' >&2
+  exit 1
+fi
+
+if [ ! -f "$REGISTRY_PATH" ]; then
+  printf 'Error: registry not found at %s\n' "$REGISTRY_PATH" >&2
+  exit 1
+fi
+
+print_all() {
+  jq -r '
+    .commands
+    | sort_by(.category, .name)
+    | (["Command","Category","Description"] | @tsv),
+      (map([.name, .category, .description] | @tsv)[])
+  ' "$REGISTRY_PATH" | column -t -s "	"
+}
+
+grep_commands() {
+  local pattern="$1"
+  jq -r '
+    .commands
+    | map(select(
+        (.name | test($p; "i")) or
+        (.description | test($p; "i")) or
+        (.category | test($p; "i"))
+      ))
+    | sort_by(.category, .name)
+    | (["Command","Category","Description"] | @tsv),
+      (map([.name, .category, .description] | @tsv)[])
+  ' --arg p "$pattern" "$REGISTRY_PATH" | column -t -s "	"
+}
+
+cat_filter() {
+  local cat="$1"
+  jq -r '
+    .commands
+    | map(select(.category == $c))
+    | sort_by(.name)
+    | (["Command","Category","Description"] | @tsv),
+      (map([.name, .category, .description] | @tsv)[])
+  ' --arg c "$cat" "$REGISTRY_PATH" | column -t -s "	"
+}
+
+case "${1-}" in
+  "" )
+    print_all
+    ;;
+  grep )
+    if [ "${2-}" = "" ]; then
+      printf 'Usage: jpcom grep <pattern>\n' >&2
+      exit 1
+    fi
+    grep_commands "$2"
+    ;;
+  cat )
+    if [ "${2-}" = "" ]; then
+      printf 'Usage: jpcom cat <category>\n' >&2
+      exit 1
+    fi
+    cat_filter "$2"
+    ;;
+  * )
+    printf 'Usage:\n' >&2
+    printf '  jpcom                 # list all commands\n' >&2
+    printf '  jpcom grep <pattern>  # search names/descriptions/categories\n' >&2
+    printf '  jpcom cat <category>  # filter by category\n' >&2
+    exit 1
+    ;;
+esac

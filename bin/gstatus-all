@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gstatus-all
+# Category: git
+# Description: Summarize git status for all repos under a root directory.
+# Usage:
+#   gstatus-all                 # scan $HOME/Projects (default)
+#   gstatus-all --root DIR      # scan DIR instead
+#   gstatus-all --root DIR --depth N   # control search depth (default 3)
+#
+# Notes:
+# - Shows branch, upstream, ahead/behind, and dirty/clean per repo.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gstatus-all [--root DIR] [--depth N]
+
+Summarize git repos under a root directory.
+
+Options:
+  --root DIR   Root directory to scan (default: $HOME/Projects)
+  --depth N    Max directory depth for repo discovery (default: 3)
+  -h, --help   Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+ROOT="${HOME}/Projects"
+DEPTH=3
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --root)
+      if [ "${2-}" = "" ]; then
+        printf 'Error: --root requires a directory.\n' >&2
+        exit 1
+      fi
+      ROOT="$2"
+      shift 2
+      ;;
+    --depth)
+      if [ "${2-}" = "" ]; then
+        printf 'Error: --depth requires a number.\n' >&2
+        exit 1
+      fi
+      DEPTH="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      printf 'Error: unexpected argument: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+if [ ! -d "$ROOT" ]; then
+  printf 'Error: root directory does not exist: %s\n' "$ROOT" >&2
+  exit 1
+fi
+
+printf 'Scanning for git repos under: %s (max depth %s)\n\n' "$ROOT" "$DEPTH"
+
+# Find .git directories and derive repo roots
+mapfile -t GIT_DIRS < <(find "$ROOT" -maxdepth "$DEPTH" -type d -name '.git' 2>/dev/null | LC_ALL=C sort)
+
+if [ "${#GIT_DIRS[@]}" -eq 0 ]; then
+  printf 'No git repositories found under %s\n' "$ROOT"
+  exit 0
+fi
+
+for gitdir in "${GIT_DIRS[@]}"; do
+  repo="${gitdir%/.git}"
+
+  if [ ! -d "$repo" ]; then
+    continue
+  fi
+
+  # Guard: repo might be unreadable
+  if ! cd "$repo" >/dev/null 2>&1; then
+    printf '[SKIP] %s (unreadable)\n' "$repo"
+    continue
+  fi
+
+  name="$(basename "$repo")"
+  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+
+  upstream_ref="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  ahead='0'
+  behind='0'
+  if [ -n "$upstream_ref" ]; then
+    counts="$(git rev-list --left-right --count "${upstream_ref}...HEAD" 2>/dev/null || printf '0 0')"
+    behind="$(printf '%s' "$counts" | awk '{print $1}')"
+    ahead="$(printf  '%s' "$counts" | awk '{print $2}')"
+  fi
+
+  dirty='clean'
+  if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+    dirty='dirty'
+  fi
+
+  printf '[%s] %s\n' "$name" "$repo"
+  printf '  branch:   %s\n' "$branch"
+  if [ -n "$upstream_ref" ]; then
+    printf '  upstream: %s (ahead %s, behind %s)\n' "$upstream_ref" "$ahead" "$behind"
+  else
+    printf '  upstream: (none)\n'
+  fi
+  printf '  state:    %s\n' "$dirty"
+
+  # Show first few lines of short status for context
+  short_status="$(git status -sb 2>/dev/null || true)"
+  if [ -n "$short_status" ]; then
+    printf '  status:\n'
+    printf '%s\n' "$short_status" | sed -n '1,4s/^/    /p'
+  fi
+
+  printf '\n'
+done

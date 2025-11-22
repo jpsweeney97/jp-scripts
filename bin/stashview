@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: stashview
+# Category: git
+# Description: Interactive git stash browser with apply/pop/drop actions.
+# Usage:
+#   stashview             # pick stash, show patch only
+#   stashview --apply     # pick stash, git stash apply
+#   stashview --pop       # pick stash, git stash pop
+#   stashview --drop      # pick stash, git stash drop
+#
+# Notes:
+#   - Must be run inside a git repo.
+#   - Uses fzf with a patch preview (git stash show -p).
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git not found.\n' >&2
+  exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: stashview must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+if ! command -v fzf >/dev/null 2>&1; then
+  printf 'Error: stashview requires fzf. Install via: brew install fzf\n' >&2
+  exit 1
+fi
+
+ACTION="show"
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --apply) ACTION="apply"; shift ;;
+    --pop)   ACTION="pop";   shift ;;
+    --drop)  ACTION="drop";  shift ;;
+    -h|--help)
+      sed -n '4,40p' "$0"
+      exit 0
+      ;;
+    *)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      sed -n '4,40p' "$0" >&2
+      exit 1
+      ;;
+  esac
+done
+
+stash_list="$(git stash list 2>/dev/null || true)"
+if [ -z "$stash_list" ]; then
+  printf 'No stashes found.\n'
+  exit 0
+fi
+
+preview='ref=$(printf "%s" {} | awk "{print \$1}"); git stash show -p "$ref" --color=always 2>/dev/null || git stash show "$ref" 2>/dev/null'
+
+selection="$(
+  printf '%s\n' "$stash_list" \
+    | fzf --ansi \
+          --height=80% \
+          --reverse \
+          --prompt='stashview> ' \
+          --header='Select a stash (ENTER). Default: show patch.' \
+          --preview="$preview" \
+          --preview-window=down,60%,border-top
+)" || exit 0
+
+ref="$(printf '%s\n' "$selection" | awk '{print $1}')"
+[ -z "$ref" ] && exit 0
+
+case "$ACTION" in
+  show)
+    git stash show -p "$ref" --color=always | ${PAGER:-less} -R
+    ;;
+  apply)
+    printf 'Applying %s\n' "$ref"
+    git stash apply "$ref"
+    ;;
+  pop)
+    printf 'Popping %s\n' "$ref"
+    git stash pop "$ref"
+    ;;
+  drop)
+    printf 'About to drop %s\n' "$ref"
+    printf 'Proceed? [y/N]: '
+    read -r reply
+    case "$reply" in
+      y|Y|yes|YES) git stash drop "$ref" ;;
+      *) printf 'Aborted.\n' ;;
+    esac
+    ;;
+esac

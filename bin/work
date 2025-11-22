@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: work
+# Category: meta
+# Description: Run workspace setup scripts from ~/.config/jp-work.d.
+# Usage:
+#   work              # list available workspaces
+#   work <name>       # run ~/.config/jp-work.d/<name>.sh
+#
+# Notes:
+#   - Each workspace is a shell script named <name>.sh in ~/.config/jp-work.d.
+#   - First commented line (starting with "# ") is used as description in the list.
+
+WORK_DIR="${WORK_DIR:-"$HOME/.config/jp-work.d"}"
+
+if [ ! -d "$WORK_DIR" ]; then
+  mkdir -p "$WORK_DIR"
+fi
+
+list_workspaces() {
+  shopt -s nullglob
+  local files=("$WORK_DIR"/*.sh)
+  if [ "${#files[@]}" -eq 0 ]; then
+    printf 'No workspaces defined yet.\n' >&2
+    printf 'Create scripts like: %s/example.sh\n' "$WORK_DIR"
+    return
+  fi
+  printf '%-16s %s\n' "Name" "Description"
+  printf '%s\n' "-----------------------------------------"
+  for f in "${files[@]}"; do
+    name="$(basename "$f" .sh)"
+    desc="$(grep -m1 '^# ' "$f" 2>/dev/null | sed 's/^# //')"
+    [ -z "$desc" ] && desc="(no description)"
+    printf '%-16s %s\n' "$name" "$desc"
+  done
+}
+
+if [ "$#" -eq 0 ]; then
+  list_workspaces
+  exit 0
+fi
+
+if [ "$#" -gt 1 ]; then
+  printf 'Usage: work [name]\n' >&2
+  exit 1
+fi
+
+name="$1"
+script="$WORK_DIR/$name.sh"
+
+if [ ! -f "$script" ]; then
+  printf 'Workspace not found: %s\n' "$script" >&2
+  exit 1
+fi
+
+printf 'Running workspace: %s (%s)\n' "$name" "$script"
+
+# Run in a new subshell; workspace script can cd, start servers, etc.
+# shellcheck disable=SC1090
+bash "$script"

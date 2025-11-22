@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gpatch
+# Category: git
+# Description: Apply a unified diff from the clipboard or a file, with a safety check.
+# Usage:
+#   gpatch                 # read patch from clipboard, check, apply, show diff stat
+#   gpatch --check-only    # read from clipboard, only run git apply --check
+#   gpatch <patch-file>    # read from given file instead of clipboard
+#   gpatch --check-only <patch-file>
+#
+# Notes:
+# - Must be run inside a git repo.
+# - Uses macOS pbpaste when reading from clipboard.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gpatch [--check-only] [patch-file]
+
+Apply a unified diff patch from the clipboard (default) or from a file.
+
+Options:
+  --check-only    Only run "git apply --check"; do not modify the working tree
+  -h, --help      Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+# Ensure we are in a git repo
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: gpatch must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+CHECK_ONLY=false
+PATCH_FILE=""
+
+# Parse args
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --check-only)
+      CHECK_ONLY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [ -n "$PATCH_FILE" ]; then
+        printf 'Error: multiple patch-file arguments provided.\n' >&2
+        usage >&2
+        exit 1
+      fi
+      PATCH_FILE="$1"
+      shift
+      ;;
+  esac
+done
+
+TMPFILE=""
+cleanup() {
+  if [ -n "$TMPFILE" ] && [ -f "$TMPFILE" ]; then
+    rm -f "$TMPFILE"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+# Source: clipboard or file
+if [ -z "$PATCH_FILE" ]; then
+  if ! command -v pbpaste >/dev/null 2>&1; then
+    printf 'Error: no patch file provided and pbpaste is not available.\n' >&2
+    exit 1
+  fi
+  TMPFILE="$(mktemp "${TMPDIR:-/tmp}/gpatch.XXXXXX")"
+  pbpaste > "$TMPFILE"
+  PATCH_FILE="$TMPFILE"
+fi
+
+if [ ! -s "$PATCH_FILE" ]; then
+  printf 'Error: patch file is empty: %s\n' "$PATCH_FILE" >&2
+  exit 1
+fi
+
+printf 'gpatch: using patch file %s\n' "$PATCH_FILE"
+
+# Safety check
+if ! git apply --check "$PATCH_FILE"; then
+  printf '\nPatch did NOT apply cleanly. Working tree unchanged.\n' >&2
+  exit 1
+fi
+
+printf 'Patch validation succeeded (git apply --check).\n'
+
+if [ "$CHECK_ONLY" = true ]; then
+  printf 'CHECK-ONLY mode: not applying patch.\n'
+  exit 0
+fi
+
+# Apply patch
+git apply "$PATCH_FILE"
+printf 'Patch applied. Showing diff stat vs HEAD (if any):\n\n'
+git diff --stat || true

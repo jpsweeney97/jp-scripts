@@ -1,0 +1,52 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: port-kill
+# Category: system
+# Description: Find and kill processes listening on a given TCP port.
+# Usage:
+#   port-kill 3000        # gentle kill (SIGTERM)
+#   port-kill 8080 --force  # force kill (SIGKILL)
+
+if [ "$#" -lt 1 ]; then
+  printf 'Usage: port-kill <port> [--force]\n' >&2
+  exit 1
+fi
+
+PORT="$1"
+shift || true
+
+SIG="TERM"
+if [ "${1-}" = "--force" ]; then
+  SIG="KILL"
+fi
+
+if ! command -v lsof >/dev/null 2>&1; then
+  printf 'Error: lsof not found.\n' >&2
+  exit 1
+fi
+
+output="$(lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+
+if [ -z "$output" ]; then
+  printf 'No processes are listening on TCP port %s.\n' "$PORT"
+  exit 0
+fi
+
+printf 'Processes listening on TCP port %s:\n\n' "$PORT"
+printf '%s\n\n' "$output"
+
+pids="$(printf '%s\n' "$output" | awk 'NR>1 {print $2}' | sort -u)"
+
+printf 'About to send SIG%s to PIDs: %s\n' "$SIG" "$pids"
+printf 'Proceed? [y/N]: '
+read -r reply
+case "$reply" in
+  y|Y|yes|YES) ;;
+  *) printf 'Aborted.\n'; exit 0 ;;
+esac
+
+for pid in $pids; do
+  printf 'killing PID %s with SIG%s\n' "$pid" "$SIG"
+  kill -s "$SIG" "$pid" || printf '  (failed to kill PID %s)\n' "$pid" >&2
+done

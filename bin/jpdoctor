@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: jpdoctor
+# Category: meta
+# Description: Check for presence/versions of key CLI tools and suggest Homebrew installs.
+# Usage:
+#   jpdoctor
+
+# Each entry: command|brew_formula|category|note
+TOOLS=(
+  "fzf|fzf|search|Fuzzy finder (history, files)."
+  "jq|jq|text|JSON processor."
+  "yq|yq|text|YAML processor."
+  "rg|ripgrep|search|Fast grep-like search."
+  "fd|fd|search|Fast find-like search."
+  "pandoc|pandoc|docs|Document converter."
+  "bat|bat|text|Pager/cat with syntax highlighting."
+  "sd|sd|text|Search & replace (regex-friendly)."
+  "zoxide|zoxide|nav|Smart directory jumping (cd on rails)."
+  "eza|eza|fs|Modern ls replacement."
+  "ffmpeg|ffmpeg|media|Audio/video Swiss army knife."
+  "convert|imagemagick|media|ImageMagick image converter."
+  "yt-dlp|yt-dlp|media|YouTube/media downloader."
+  "htop|htop|system|Interactive process viewer."
+  "btop|btop|system|Fancy system monitor."
+  "ncdu|ncdu|system|Disk usage explorer."
+  "mas|mas|system|Mac App Store CLI."
+  "blueutil|blueutil|macos|Bluetooth control."
+  "SwitchAudioSource|switchaudio-osx|macos|Audio input/output switcher."
+  "entr|entr|dev|Run commands when files change."
+  "parallel|parallel|dev|GNU parallel for running jobs in parallel."
+  "sponge|moreutils|dev|Soak stdin then write once (from moreutils)."
+  "ts|moreutils|dev|Timestamp lines (from moreutils)."
+  "gh|gh|dev|GitHub CLI."
+  "pup|pup|web|HTML parser with CSS selectors."
+  "stow|stow|config|Dotfile symlink manager."
+  "gsed|gnu-sed|text|GNU sed (stronger than BSD sed)."
+  "lazygit|lazygit|git|TUI for git."
+  "lazydocker|lazydocker|docker|TUI for Docker."
+  "direnv|direnv|env|Per-directory environment loader."
+  "hyperfine|hyperfine|bench|Command-line benchmark tool."
+)
+
+get_version() {
+  local cmd="$1"
+  local out=""
+
+  case "$cmd" in
+    ffmpeg)
+      out="$(ffmpeg -version 2>/dev/null | head -n 1 || true)"
+      ;;
+    convert)
+      out="$(convert -version 2>/dev/null | head -n 1 || true)"
+      ;;
+    mas)
+      out="$(mas version 2>/dev/null | head -n 1 || true)"
+      ;;
+    SwitchAudioSource)
+      out="$(SwitchAudioSource -h 2>&1 | head -n 1 || true)"
+      ;;
+    sponge|ts)
+      # These are stream filters from moreutils; they don't have a safe --version
+      # flag and will block waiting for stdin, so we skip version detection.
+      out=""
+      ;;
+    *)
+      out="$("$cmd" --version 2>/dev/null | head -n 1 || true)"
+      ;;
+  esac
+
+  printf '%s' "$out" | tr -d '\r'
+}
+
+
+printf '%-16s %-9s %-10s %-16s %-10s %s\n' \
+  "COMMAND" "STATUS" "VERSION" "FORMULA" "CATEGORY" "NOTE"
+printf '%s\n' "--------------------------------------------------------------------------------------------"
+
+missing_formulae=""
+installed_count=0
+missing_count=0
+
+for entry in "${TOOLS[@]}"; do
+  IFS='|' read -r cmd formula category note <<< "$entry"
+
+  if command -v "$cmd" >/dev/null 2>&1; then
+    status="INSTALLED"
+    installed_count=$((installed_count + 1))
+    version="$(get_version "$cmd")"
+    [ -z "$version" ] && version="-"
+  else
+    status="missing"
+    missing_count=$((missing_count + 1))
+    version="-"
+
+    # Build a space-separated list of unique missing formulas
+    case " $missing_formulae " in
+      *" $formula "*) : ;;  # already present
+      *)
+        missing_formulae="$missing_formulae $formula"
+        ;;
+    esac
+  fi
+
+  printf '%-16s %-9s %-10s %-16s %-10s %s\n' \
+    "$cmd" "$status" "$version" "$formula" "$category" "$note"
+done
+
+printf '\nSummary: %d installed, %d missing (from this list).\n' "$installed_count" "$missing_count"
+
+if command -v brew >/dev/null 2>&1 && [ -n "$missing_formulae" ]; then
+  printf '\nTo install missing tools via Homebrew (safe to copy/paste):\n\n'
+  printf '  brew install%s\n' "$missing_formulae"
+elif [ -n "$missing_formulae" ]; then
+  printf '\nHomebrew not found on PATH; cannot suggest brew install line.\n'
+fi

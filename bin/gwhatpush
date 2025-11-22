@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gwhatpush
+# Category: git
+# Description: Show what "git push" would send for the current branch.
+# Usage:
+#   gwhatpush                 # full summary (status + commits + diffstat)
+#   gwhatpush --commits-only  # only show commits that would be pushed
+#   gwhatpush --stat-only     # only show diffstat vs upstream
+#   gwhatpush --help          # show help
+#
+# Notes:
+# - Must be run inside a git repo.
+# - Requires an upstream configured for the current HEAD.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gwhatpush [--commits-only|--stat-only]
+
+Show what "git push" would send for the current branch.
+
+Options:
+  --commits-only   Only show commits that would be pushed
+  --stat-only      Only show diffstat vs upstream
+  -h, --help       Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: gwhatpush must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+COMMITS_ONLY=false
+STAT_ONLY=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --commits-only)
+      COMMITS_ONLY=true
+      shift
+      ;;
+    --stat-only)
+      STAT_ONLY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      printf 'Error: unexpected argument: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+
+UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+if [ -z "$UPSTREAM_REF" ]; then
+  printf 'gwhatpush: No upstream configured for %s.\n' "$BRANCH" >&2
+  printf 'Hint: git push -u <remote> <branch> or git branch --set-upstream-to=<remote>/<branch>\n' >&2
+  exit 1
+fi
+
+REMOTE="${UPSTREAM_REF%%/*}"
+REMOTE_BRANCH="${UPSTREAM_REF#*/}"
+
+COUNTS="$(git rev-list --left-right --count "${UPSTREAM_REF}...HEAD" 2>/dev/null || printf '0 0')"
+BEHIND="$(printf '%s' "$COUNTS" | awk '{print $1}')"
+AHEAD="$(printf  '%s' "$COUNTS" | awk '{print $2}')"
+
+if [ "$COMMITS_ONLY" = false ] && [ "$STAT_ONLY" = false ]; then
+  printf 'gwhatpush: current branch: %s\n' "$BRANCH"
+  printf '           upstream:      %s (%s/%s)\n' "$UPSTREAM_REF" "$REMOTE" "$REMOTE_BRANCH"
+  printf '           ahead/behind:  %s ahead / %s behind\n' "$AHEAD" "$BEHIND"
+  printf '\nWorking tree summary (git status -sb):\n\n'
+  git status -sb || true
+  printf '\n'
+fi
+
+if [ "$AHEAD" -eq 0 ]; then
+  if [ "$COMMITS_ONLY" = false ] && [ "$STAT_ONLY" = false ]; then
+    printf 'No commits to push: HEAD is not ahead of %s.\n' "$UPSTREAM_REF"
+  fi
+  exit 0
+fi
+
+if [ "$STAT_ONLY" = false ]; then
+  printf 'Commits that would be pushed (newer than %s):\n\n' "$UPSTREAM_REF"
+  git log --oneline "${UPSTREAM_REF}..HEAD" || true
+  printf '\n'
+fi
+
+if [ "$COMMITS_ONLY" = true ]; then
+  exit 0
+fi
+
+printf 'Diffstat for commits to be pushed (%s..HEAD):\n\n' "$UPSTREAM_REF"
+git diff --stat "${UPSTREAM_REF}..HEAD" || true

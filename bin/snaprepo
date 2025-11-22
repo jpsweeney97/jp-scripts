@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: snaprepo
+# Category: git
+# Description: Create a clean zip snapshot of the current git repo using cleanzip.
+# Usage:
+#   snaprepo             # snapshot current repo with default naming
+#   snaprepo --dry-run   # show what cleanzip would do, but don't create zip
+#   snaprepo --include-env   # include .env and key/cert files (default is exclude)
+#   snaprepo --force     # overwrite existing zip if it exists
+#
+# Notes:
+# - Must be run somewhere inside a git repository.
+# - Uses cleanzip under the hood for excludes and naming.
+# - Output zip is written next to the repo root.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  snaprepo [options]
+
+Create a clean zip snapshot of the current git repo using cleanzip.
+
+Options:
+      --dry-run       Show what would be archived, but do not create the zip
+      --include-env   Include .env and key/cert files (excluded by default)
+      --force         Overwrite existing output zip if it exists
+  -h, --help          Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+if ! command -v cleanzip >/dev/null 2>&1; then
+  printf 'Error: cleanzip command not found. Ensure jp-scripts/bin is on PATH and cleanzip is installed.\n' >&2
+  exit 1
+fi
+
+DRY_RUN=false
+INCLUDE_ENV=false
+FORCE=false
+
+# Parse options
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --include-env)
+      INCLUDE_ENV=true
+      shift
+      ;;
+    --force)
+      FORCE=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      printf 'Error: snaprepo does not take positional arguments. Run inside a git repo.\n' >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Find repo root
+if ! REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  printf 'Error: snaprepo must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+printf 'snaprepo: repo root is %s\n' "$REPO_ROOT"
+
+# Build flags to pass to cleanzip
+CLEAZIP_ARGS=()
+
+if [ "$DRY_RUN" = "true" ]; then
+  CLEAZIP_ARGS+=( --dry-run )
+fi
+
+if [ "$INCLUDE_ENV" = "true" ]; then
+  CLEAZIP_ARGS+=( --include-env )
+fi
+
+if [ "$FORCE" = "true" ]; then
+  CLEAZIP_ARGS+=( --force )
+fi
+
+# Delegate to cleanzip
+cleanzip "${CLEAZIP_ARGS[@]}" "$REPO_ROOT"

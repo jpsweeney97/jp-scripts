@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: cleanzip
+# Category: files
+# Description: Create a "clean" zip archive of a directory, excluding build, cache, junk, and secret files.
+# Usage:
+#   cleanzip [options] [SOURCE_DIR]
+#
+#   SOURCE_DIR defaults to the current directory if omitted.
+#
+# Options:
+#   -o, --output PATH   Explicit output .zip path (default: YYYY-MM-DD__slug__v1.zip next to SOURCE_DIR)
+#       --include-env   Include .env and key/cert files (excluded by default)
+#       --dry-run       Show what would be included, but do not create the zip
+#       --force         Overwrite existing output zip if it exists
+#   -h, --help          Show this help text
+
+usage() {
+  cat <<'EOF'
+Usage:
+  cleanzip [options] [SOURCE_DIR]
+
+Create a "clean" zip archive of SOURCE_DIR, excluding build, cache, junk, and secret files.
+
+Options:
+  -o, --output PATH   Explicit output .zip path (default: YYYY-MM-DD__slug__v1.zip next to SOURCE_DIR)
+      --include-env   Include .env and key/cert files (excluded by default)
+      --dry-run       Show what would be included, but do not create the zip
+      --force         Overwrite existing output zip if it exists
+  -h, --help          Show this help text
+EOF
+}
+
+slugify() {
+  # Lowercase, spaces/underscores -> -, strip non [a-z0-9-], collapse dashes.
+  printf '%s' "$1" \
+    | tr '[:upper:]' '[:lower:]' \
+    | tr ' _' '-' \
+    | sed 's/[^a-z0-9-]//g' \
+    | sed 's/-\{2,\}/-/g' \
+    | sed 's/^-//' \
+    | sed 's/-$//'
+}
+
+if ! command -v zip >/dev/null 2>&1; then
+  printf 'Error: zip command not found. Install via: brew install zip\n' >&2
+  exit 1
+fi
+
+OUTPUT_PATH=""
+INCLUDE_ENV=false
+DRY_RUN=false
+FORCE=false
+SOURCE_DIR=""
+
+# Parse arguments
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o|--output)
+      if [ "${2-}" = "" ]; then
+        printf 'Error: --output requires a path\n' >&2
+        exit 1
+      fi
+      OUTPUT_PATH="$2"
+      shift 2
+      ;;
+    --include-env)
+      INCLUDE_ENV=true
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN=true
+      shift
+      ;;
+    --force)
+      FORCE=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      if [ -n "$SOURCE_DIR" ]; then
+        printf 'Error: multiple SOURCE_DIR arguments provided.\n' >&2
+        usage >&2
+        exit 1
+      fi
+      SOURCE_DIR="$1"
+      shift
+      ;;
+  esac
+done
+
+# Default to current directory
+if [ -z "$SOURCE_DIR" ]; then
+  SOURCE_DIR="."
+fi
+
+if [ ! -d "$SOURCE_DIR" ]; then
+  printf 'Error: "%s" is not a directory or does not exist.\n' "$SOURCE_DIR" >&2
+  exit 1
+fi
+
+SOURCE_ABS="$(cd -- "$SOURCE_DIR" && pwd)"
+
+if [ "$SOURCE_ABS" = "/" ]; then
+  printf 'Refusing to archive root directory (/). Pick a safer path.\n' >&2
+  exit 1
+fi
+
+SRC_PARENT="$(dirname "$SOURCE_ABS")"
+SRC_NAME="$(basename "$SOURCE_ABS")"
+
+# Determine output path
+if [ -z "$OUTPUT_PATH" ]; then
+  SLUG="$(slugify "$SRC_NAME")"
+  if [ -z "$SLUG" ]; then
+    SLUG="project"
+  fi
+  DATE_STR="$(LC_ALL=C date +%Y-%m-%d)"
+  ZIP_BASENAME="${DATE_STR}__${SLUG}__v1.zip"
+  ZIP_PATH="${SRC_PARENT}/${ZIP_BASENAME}"
+else
+  case "$OUTPUT_PATH" in
+    /*)
+      ZIP_PATH="$OUTPUT_PATH"
+      ;;
+    *)
+      ZIP_PATH="$(pwd)/$OUTPUT_PATH"
+      ;;
+  esac
+fi
+
+TMPFILE="$(mktemp "${TMPDIR:-/tmp}/cleanzip.XXXXXX")"
+cleanup() {
+  rm -f "$TMPFILE"
+}
+trap cleanup EXIT INT TERM
+
+# Directories to prune entirely
+PRUNE_DIRS=(
+  "$SRC_NAME/.git"
+  "$SRC_NAME/.build"
+  "$SRC_NAME/.swiftpm"
+  "$SRC_NAME/DerivedData"
+  "$SRC_NAME/build"
+  "$SRC_NAME/node_modules"
+  "$SRC_NAME/.next"
+  "$SRC_NAME/.nuxt"
+  "$SRC_NAME/.turbo"
+  "$SRC_NAME/.parcel-cache"
+  "$SRC_NAME/.cache"
+  "$SRC_NAME/dist"
+  "$SRC_NAME/venv"
+  "$SRC_NAME/.venv"
+  "$SRC_NAME/env"
+  "$SRC_NAME/__pycache__"
+  "$SRC_NAME/.pytest_cache"
+  "$SRC_NAME/.mypy_cache"
+  "$SRC_NAME/.ruff_cache"
+  "$SRC_NAME/coverage"
+  "$SRC_NAME/.nyc_output"
+)
+
+FIND_CMD=( find "$SRC_NAME" )
+
+if [ "${#PRUNE_DIRS[@]}" -gt 0 ]; then
+  FIND_CMD+=( \( )
+  first=1
+  for pd in "${PRUNE_DIRS[@]}"; do
+    if [ "$first" -eq 1 ]; then
+      FIND_CMD+=( -path "$pd" )
+      first=0
+    else
+      FIND_CMD+=( -o -path "$pd" )
+    fi
+  done
+  FIND_CMD+=( \) -prune -o )
+fi
+
+FIND_CMD+=( -type f )
+
+EXCLUDE_FILES=(
+  '.DS_Store'
+  '._*'
+  'Icon?'
+  '.coverage'
+  '*.log'
+  '*.tmp'
+  '*~'
+  '.*.swp'
+  '.*.swo'
+  '*.xcuserstate'
+)
+
+if [ "$INCLUDE_ENV" != "true" ]; then
+  EXCLUDE_FILES+=( '.env' '.env.*' '*.pem' '*.p12' '*.key' '*.crt' )
+fi
+
+for pat in "${EXCLUDE_FILES[@]}"; do
+  FIND_CMD+=( ! -name "$pat" )
+done
+
+FIND_CMD+=( -print )
+
+# Build file list (sorted for determinism-ish behavior)
+(
+  cd "$SRC_PARENT"
+  "${FIND_CMD[@]}" | LC_ALL=C sort > "$TMPFILE"
+)
+
+if ! [ -s "$TMPFILE" ]; then
+  printf 'No files to archive after applying excludes. Nothing to do.\n' >&2
+  exit 1
+fi
+
+FILE_COUNT="$(wc -l < "$TMPFILE" | tr -d '[:space:]')"
+
+if [ "$DRY_RUN" = "true" ]; then
+  printf 'cleanzip: DRY RUN\n'
+  printf ' Source directory: %s\n' "$SOURCE_ABS"
+  printf ' Would create:     %s\n' "$ZIP_PATH"
+  printf ' File count:       %s\n\n' "$FILE_COUNT"
+  head -n 50 "$TMPFILE"
+  if [ "$FILE_COUNT" -gt 50 ]; then
+    printf '\n... (%s total files)\n' "$FILE_COUNT"
+  fi
+  exit 0
+fi
+
+if [ -e "$ZIP_PATH" ]; then
+  if [ "$FORCE" = "true" ]; then
+    rm -f "$ZIP_PATH"
+  else
+    printf 'Error: output file already exists: %s (use --force to overwrite)\n' "$ZIP_PATH" >&2
+    exit 1
+  fi
+fi
+
+# Create the zip using the precomputed, sorted file list
+(
+  cd "$SRC_PARENT"
+  zip -X -@ "$ZIP_PATH" < "$TMPFILE"
+)
+
+printf 'Created %s with %s files from %s\n' "$ZIP_PATH" "$FILE_COUNT" "$SOURCE_ABS"

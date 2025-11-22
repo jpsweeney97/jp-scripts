@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gbranches
+# Category: git
+# Description: Show local branches with HEAD marker, upstream, ahead/behind, and last commit.
+# Usage:
+#   gbranches          # list all local branches
+#   gbranches --merged <base>   # only branches merged into <base> (e.g. main)
+#
+# Notes:
+# - Must be run inside a git repo.
+# - ahead/behind is relative to the branch's upstream, if it has one.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gbranches [--merged BASE]
+
+Show local branches with upstream and ahead/behind counts.
+
+Options:
+  --merged BASE   Only show branches already merged into BASE (e.g. main)
+  -h, --help      Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: gbranches must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+MERGED_BASE=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --merged)
+      if [ "${2-}" = "" ]; then
+        printf 'Error: --merged requires a base branch.\n' >&2
+        exit 1
+      fi
+      MERGED_BASE="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      printf 'Error: unexpected argument: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+
+# Base list of branches
+if [ -n "$MERGED_BASE" ]; then
+  BRANCHES="$(git branch --format='%(refname:short)' --merged "$MERGED_BASE")"
+else
+  BRANCHES="$(git branch --format='%(refname:short)')"
+fi
+
+if [ -z "$BRANCHES" ]; then
+  printf 'No branches found.\n'
+  exit 0
+fi
+
+printf '%-2s %-25s %-25s %-9s %-12s %s\n' \
+  'H' 'BRANCH' 'UPSTREAM' 'AHEAD/BEH' 'DATE' 'LAST COMMIT'
+printf '%s\n' '--------------------------------------------------------------------------------------------------------'
+
+# For each branch, compute details
+while IFS= read -r br; do
+  [ -z "$br" ] && continue
+
+  HEAD_MARK=" "
+  if [ "$br" = "$CURRENT_BRANCH" ]; then
+    HEAD_MARK="*"
+  fi
+
+  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name "$br@{upstream}" 2>/dev/null || true)"
+  upstream_short="$upstream"
+  if [ -n "$upstream_short" ]; then
+    upstream_short="${upstream_short#refs/remotes/}"
+  fi
+
+  ahead_behind="--/--"
+  if [ -n "$upstream" ]; then
+    # rev-list: left=upstream (behind), right=branch (ahead)
+    counts="$(git rev-list --left-right --count "$upstream...$br" 2>/dev/null || printf '0 0')"
+    behind="$(printf '%s' "$counts" | awk '{print $1}')"
+    ahead="$(printf '%s' "$counts" | awk '{print $2}')"
+    ahead_behind="${ahead}/${behind}"
+  fi
+
+  # last commit date + subject
+  info="$(git log -1 --format='%cs %s' -- "$br" 2>/dev/null || printf '---------- (no commits)')"
+  last_date="$(printf '%s' "$info" | awk '{print $1}')"
+  last_subject="$(printf '%s' "$info" | cut -d' ' -f2- )"
+
+  printf '%-2s %-25s %-25s %-9s %-12s %s\n' \
+    "$HEAD_MARK" "$br" "${upstream_short:-"-"}" "$ahead_behind" "$last_date" "$last_subject"
+done <<EOF
+$BRANCHES
+EOF

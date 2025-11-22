@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: git-branchcheck
+# Category: git
+# Description: Interactive branch picker using fzf; switches or creates tracking branches.
+# Usage:
+#   git-branchcheck        # choose from local + remote branches (sorted by recent activity)
+#
+# Notes:
+# - Local branches are switched directly.
+# - Remote branches (origin/foo) create a local tracking branch foo if needed.
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git not found.\n' >&2
+  exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: gcoi must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+if ! command -v fzf >/dev/null 2>&1; then
+  printf 'Error: gcoi requires fzf. Install via: brew install fzf\n' >&2
+  exit 1
+fi
+
+current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+
+branches="$(
+  git for-each-ref \
+    --sort=-committerdate \
+    --format='%(refname:short)|%(refname)|%(objectname:short)|%(authordate:short)|%(authorname)|%(subject)' \
+    refs/heads refs/remotes 2>/dev/null
+)"
+
+if [ -z "$branches" ]; then
+  printf 'No branches found.\n' >&2
+  exit 1
+fi
+
+selection="$(
+  printf '%s\n' "$branches" \
+    | fzf --delimiter='|' \
+          --with-nth=1,4,5,6 \
+          --ansi \
+          --header="Current: $current_branch   (ENTER to switch)" \
+          --prompt="gcoi> "
+)" || exit 0
+
+short_ref="$(printf '%s\n' "$selection" | cut -d'|' -f1)"
+
+if [ -z "$short_ref" ]; then
+  printf 'No branch selected.\n' >&2
+  exit 1
+fi
+
+# Detect remote branches like origin/foo
+if printf '%s\n' "$short_ref" | grep -q '^origin/'; then
+  local_branch="${short_ref#origin/}"
+  if git show-ref --verify --quiet "refs/heads/$local_branch"; then
+    printf 'Switching to existing local branch %s (tracking %s)\n' "$local_branch" "$short_ref"
+    git switch "$local_branch"
+  else
+    printf 'Creating and switching to local branch %s tracking %s\n' "$local_branch" "$short_ref"
+    git switch -c "$local_branch" --track "$short_ref"
+  fi
+else
+  printf 'Switching to local branch %s\n' "$short_ref"
+  git switch "$short_ref"
+fi

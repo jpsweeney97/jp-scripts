@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: process-kill
+# Category: system
+# Description: Interactive process picker+killer using ps + fzf.
+# Usage:
+#   process-kill           # select one or more processes to kill with SIGTERM
+#   process-kill --force   # kill with SIGKILL
+#
+# Notes:
+# - Multi-select enabled: use TAB in fzf to select many.
+# - Protects against killing PID 1.
+
+if ! command -v fzf >/dev/null 2>&1; then
+  printf 'Error: psfz requires fzf. Install via: brew install fzf\n' >&2
+  exit 1
+fi
+
+SIG="TERM"
+if [ "${1-}" = "--force" ]; then
+  SIG="KILL"
+fi
+
+ps_output="$(ps -axo pid,ppid,stat,%cpu,%mem,command | sed 1d)" || true
+if [ -z "$ps_output" ]; then
+  printf 'No processes found.\n'
+  exit 0
+fi
+
+selection="$(
+  printf '%s\n' "$ps_output" \
+    | fzf -m --header="Select process(es) to kill with SIG${SIG}. TAB=multi, ENTER=confirm." \
+          --prompt="psfz> "
+)" || exit 0
+
+pids=()
+while IFS= read -r line; do
+  [ -z "$line" ] && continue
+  pid="$(printf '%s\n' "$line" | awk '{print $1}')"
+  [ "$pid" = "1" ] && continue  # never kill PID 1
+  pids+=("$pid")
+done <<< "$selection"
+
+if [ "${#pids[@]}" -eq 0 ]; then
+  printf 'No valid PIDs selected.\n'
+  exit 0
+fi
+
+printf 'About to send SIG%s to PIDs: %s\n' "$SIG" "${pids[*]}"
+printf 'Proceed? [y/N]: '
+read -r reply
+case "$reply" in
+  y|Y|yes|YES) ;;
+  *) printf 'Aborted.\n'; exit 0 ;;
+esac
+
+for pid in "${pids[@]}"; do
+  printf 'killing PID %s with SIG%s\n' "$pid" "$SIG"
+  kill -s "$SIG" "$pid" || printf '  (failed to kill PID %s)\n' "$pid" >&2
+done

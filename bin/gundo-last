@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gundo-last
+# Category: git
+# Description: Safely undo the last commit with upstream safety checks and confirmation.
+# Usage:
+#   gundo-last                 # soft reset of HEAD~1 if not pushed
+#   gundo-last --mode mixed    # use git reset --mixed HEAD~1
+#   gundo-last --mode hard     # use git reset --hard HEAD~1 (dangerous)
+#   gundo-last --force         # skip remote safety check (history rewrite)
+#   gundo-last --yes           # do not prompt for confirmation
+#
+# Notes:
+# - If an upstream exists and HEAD is not ahead of it, refuses unless --force.
+# - Default mode is "soft": commit undone, changes stay staged.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gundo-last [--mode soft|mixed|hard] [--force] [--yes]
+
+Safely undo the last commit (HEAD~1) with upstream checks.
+
+Options:
+  --mode soft    Use "git reset --soft HEAD~1"  (default)
+  --mode mixed   Use "git reset --mixed HEAD~1"
+  --mode hard    Use "git reset --hard HEAD~1" (dangerous)
+  --force        Skip remote safety check (allow rewriting pushed commits)
+  --yes          Do not prompt for confirmation
+  -h, --help     Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: gundo-last must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+MODE="soft"
+FORCE=false
+YES=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --mode)
+      if [ "${2-}" = "" ]; then
+        printf 'Error: --mode requires an argument (soft|mixed|hard).\n' >&2
+        exit 1
+      fi
+      case "$2" in
+        soft|mixed|hard)
+          MODE="$2"
+          ;;
+        *)
+          printf 'Error: invalid mode: %s (expected soft|mixed|hard).\n' "$2" >&2
+          exit 1
+          ;;
+      esac
+      shift 2
+      ;;
+    --force)
+      FORCE=true
+      shift
+      ;;
+    --yes)
+      YES=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      printf 'Error: gundo-last takes no positional arguments.\n' >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+# Ensure we have at least one parent to reset to
+if ! git rev-parse HEAD^ >/dev/null 2>&1; then
+  printf 'Error: no parent commit found (cannot undo initial commit).\n' >&2
+  exit 1
+fi
+
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+LAST_COMMIT_LINE="$(git log -1 --pretty=format:'%h %s' 2>/dev/null || printf 'unknown')"
+
+UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+
+if [ -n "$UPSTREAM_REF" ] && [ "$FORCE" = false ]; then
+  COUNTS="$(git rev-list --left-right --count "${UPSTREAM_REF}...HEAD" 2>/dev/null || printf '0 0')"
+  BEHIND="$(printf '%s' "$COUNTS" | awk '{print $1}')"
+  AHEAD="$(printf  '%s' "$COUNTS" | awk '{print $2}')"
+
+  # If AHEAD is 0, HEAD is not ahead of upstream; undoing rewrites shared history.
+  if [ "$AHEAD" -eq 0 ]; then
+    printf 'gundo-last: Refusing to undo last commit: HEAD is not ahead of upstream (%s).\n' "$UPSTREAM_REF" >&2
+    printf 'Use --force if you really intend to rewrite already-pushed history.\n' >&2
+    exit 1
+  fi
+fi
+
+printf 'About to undo last commit on branch: %s\n' "$CURRENT_BRANCH"
+printf 'Last commit: %s\n' "$LAST_COMMIT_LINE"
+if [ -n "$UPSTREAM_REF" ]; then
+  printf 'Upstream:    %s\n' "$UPSTREAM_REF"
+fi
+printf 'Reset mode:  %s\n' "$MODE"
+if [ "$FORCE" = true ]; then
+  printf 'Safety:      FORCE (remote safety check bypassed)\n'
+fi
+printf '\nEffect:\n'
+case "$MODE" in
+  soft)
+    printf '  - Commit removed from history\n'
+    printf '  - All changes remain STAGED\n'
+    ;;
+  mixed)
+    printf '  - Commit removed from history\n'
+    printf '  - Changes become UNSTAGED in working tree\n'
+    ;;
+  hard)
+    printf '  - Commit removed from history\n'
+    printf '  - All changes from that commit are DISCARDED\n'
+    ;;
+esac
+printf '\n'
+
+if [ "$YES" = false ]; then
+  printf 'Proceed with undoing last commit? [y/N]: '
+  read -r reply
+  case "$reply" in
+    y|Y|yes|YES)
+      ;;
+    *)
+      printf 'Aborted.\n'
+      exit 0
+      ;;
+  esac
+fi
+
+case "$MODE" in
+  soft)
+    git reset --soft HEAD~1
+    ;;
+  mixed)
+    git reset --mixed HEAD~1
+    ;;
+  hard)
+    git reset --hard HEAD~1
+    ;;
+esac
+
+printf 'Done. New HEAD:\n\n'
+git log -1 --oneline || true
+
+if [ "$MODE" = "soft" ] || [ "$MODE" = "mixed" ]; then
+  printf '\nCurrent status:\n\n'
+  git status -sb || true
+fi

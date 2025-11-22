@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gprepush
+# Category: git
+# Description: Run a pre-push checklist (status, whatpush, optional tests).
+# Usage:
+#   gprepush                          # show status + whatpush, no tests
+#   GPREPUSH_TEST_CMD='swift test' gprepush
+#   gprepush --test-cmd 'swift test'  # override test command for this run
+#   gprepush --skip-tests             # never run tests, even if env is set
+#
+# Notes:
+# - Must be run inside a git repo.
+# - Does NOT call git push.
+
+usage() {
+  cat <<'EOF'
+Usage:
+  gprepush [--test-cmd 'CMD'] [--skip-tests]
+
+Pre-push checklist: show status, what "git push" would do, and optionally run tests.
+
+Options:
+  --test-cmd 'CMD'   Shell command to run as tests (e.g. 'swift test' or 'npm test')
+  --skip-tests       Do not run tests, even if GPREPUSH_TEST_CMD is set
+  -h, --help         Show this help text
+EOF
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  printf 'Error: git command not found.\n' >&2
+  exit 1
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  printf 'Error: gprepush must be run inside a git repository.\n' >&2
+  exit 1
+fi
+
+TEST_CMD="${GPREPUSH_TEST_CMD:-}"
+SKIP_TESTS=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --test-cmd)
+      if [ "${2-}" = "" ]; then
+        printf 'Error: --test-cmd requires a command string.\n' >&2
+        exit 1
+      fi
+      TEST_CMD="$2"
+      shift 2
+      ;;
+    --skip-tests)
+      SKIP_TESTS=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    -*)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+    *)
+      printf 'Error: unexpected argument: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+
+printf 'gprepush: repo root: %s\n' "$REPO_ROOT"
+printf '          branch:    %s\n\n' "$BRANCH"
+
+printf '=== Working tree (git status -sb) ===\n\n'
+git status -sb || true
+printf '\n'
+
+printf '=== What would "git push" do? ===\n\n'
+if command -v gwhatpush >/dev/null 2>&1; then
+  gwhatpush || true
+else
+  printf '(gwhatpush not found on PATH; showing a minimal summary instead.)\n\n'
+
+  UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  if [ -z "$UPSTREAM_REF" ]; then
+    printf 'No upstream configured for %s.\n' "$BRANCH"
+    printf 'Hint: git push -u <remote> <branch>\n'
+  else
+    COUNTS="$(git rev-list --left-right --count "${UPSTREAM_REF}...HEAD" 2>/dev/null || printf '0 0')"
+    BEHIND="$(printf '%s' "$COUNTS" | awk '{print $1}')"
+    AHEAD="$(printf  '%s' "$COUNTS" | awk '{print $2}')"
+    printf 'Upstream:      %s\n' "$UPSTREAM_REF"
+    printf 'Ahead/behind:  %s ahead / %s behind\n\n' "$AHEAD" "$BEHIND"
+    if [ "$AHEAD" -gt 0 ]; then
+      printf 'Commits to be pushed:\n\n'
+      git log --oneline "${UPSTREAM_REF}..HEAD" || true
+    else
+      printf 'No commits to push.\n'
+    fi
+  fi
+fi
+
+printf '\n=== Tests ===\n\n'
+
+if [ "$SKIP_TESTS" = true ]; then
+  printf 'Tests skipped (--skip-tests).\n'
+  exit 0
+fi
+
+if [ -z "$TEST_CMD" ]; then
+  printf 'No test command configured.\n'
+  printf 'Set GPREPUSH_TEST_CMD or use: gprepush --test-cmd "swift test"\n'
+  exit 0
+fi
+
+printf 'Running tests: %s\n\n' "$TEST_CMD"
+
+# Deliberate use of eval so TEST_CMD can include args/pipes
+if eval "$TEST_CMD"; then
+  printf '\nTests PASSED.\n'
+  exit 0
+else
+  status=$?
+  printf '\nTests FAILED with exit code %d.\n' "$status" >&2
+  exit "$status"
+fi

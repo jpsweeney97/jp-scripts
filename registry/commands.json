@@ -1,0 +1,203 @@
+{
+  "version": "1.0.0",
+  "commands": [
+    {
+      "name": "jpcom",
+      "path": "bin/jpcom",
+      "category": "meta",
+      "description": "List all custom JP commands and what they do."
+    },
+    {
+      "name": "jpdoctor",
+      "path": "bin/jpdoctor",
+      "category": "meta",
+      "description": "Check presence/versions of key CLI tools and suggest Homebrew installs."
+    },
+    {
+      "name": "clean-ds",
+      "path": "bin/clean-ds",
+      "category": "files",
+      "description": "Safely remove .DS_Store and AppleDouble (._*) files under a directory."
+    },
+    {
+      "name": "cleanzip",
+      "path": "bin/cleanzip",
+      "category": "files",
+      "description": "Create a clean, deterministic-ish zip of a directory, excluding build, cache, junk, and secret files."
+    },
+    {
+      "name": "snaprepo",
+      "path": "bin/snaprepo",
+      "category": "git",
+      "description": "Snapshot the current git repo as a clean zip using cleanzip."
+    },
+    {
+      "name": "gpatch",
+      "path": "bin/gpatch",
+      "category": "git",
+      "description": "Apply a unified diff from the clipboard or a file with a safety check."
+    },
+    {
+      "name": "gbranches",
+      "path": "bin/gbranches",
+      "category": "git",
+      "description": "Show local branches with upstream, ahead/behind, and last commit info."
+    },
+    {
+      "name": "gclean-branches",
+      "path": "bin/gclean-branches",
+      "category": "git",
+      "description": "List or delete local branches already merged into a base branch."
+    },
+    {
+      "name": "gwhatpush",
+      "path": "bin/gwhatpush",
+      "category": "git",
+      "description": "Show what git push would do for the current branch (ahead/behind, commits, diffstat)."
+    },
+    {
+      "name": "gundo-last",
+      "path": "bin/gundo-last",
+      "category": "git",
+      "description": "Safely undo the last commit with upstream safety checks and confirmation."
+    },
+    {
+      "name": "gprepush",
+      "path": "bin/gprepush",
+      "category": "git",
+      "description": "Run a pre-push checklist (status, whatpush, optional tests)."
+    },
+    {
+      "name": "gstage",
+      "path": "bin/gstage",
+      "category": "git",
+      "description": "Interactively stage changed files by number."
+    },
+    {
+      "name": "gstatus-all",
+      "path": "bin/gstatus-all",
+      "category": "git",
+      "description": "Summarize git status for all repos under a root directory."
+    },
+    {
+      "name": "ripper",
+      "path": "bin/ripper",
+      "category": "search",
+      "description": "Interactive ripgrep+fzf code search with bat preview and jump-to-editor."
+    },
+    {
+      "name": "process-kill",
+      "path": "bin/process-kill",
+      "category": "system",
+      "description": "Interactive process picker+killer using ps + fzf."
+    },
+    {
+      "name": "git-branchcheck",
+      "path": "bin/git-branchcheck",
+      "category": "git",
+      "description": "Interactive git branch picker; switches or creates tracking branches."
+    },
+    {
+      "name": "note",
+      "path": "bin/note",
+      "category": "notes",
+      "description": "Fast daily note capture/append in a date-stamped Markdown file."
+    },
+    {
+      "name": "tmpserver",
+      "path": "bin/tmpserver",
+      "category": "web",
+      "description": "Start a simple HTTP server for the current directory."
+    },
+    {
+      "name": "port-kill",
+      "path": "bin/port-kill",
+      "category": "system",
+      "description": "Find and kill processes listening on a given TCP port."
+    },
+    {
+      "name": "audioswap",
+      "path": "bin/audioswap",
+      "category": "macos",
+      "description": "Interactive audio output device switcher using SwitchAudioSource + fzf."
+    },
+    {
+      "name": "cliphist",
+      "path": "bin/cliphist",
+      "category": "notes",
+      "description": "Clipboard history manager: save, browse, and restore clipboard entries."
+    },
+    {
+      "name": "standup",
+      "path": "bin/standup",
+      "category": "meta",
+      "description": "Summarize recent git commits across repos for daily standup."
+    },
+    {
+      "name": "global-replace",
+      "path": "bin/global-replace",
+      "category": "text",
+      "description": "Safe project-wide search & replace with ripgrep + sd (dry-run by default)."
+    },
+    {
+      "name": "diffview",
+      "path": "bin/diffview",
+      "category": "text",
+      "description": "Pretty diff between two files or stdin/file using git diff --no-index."
+    },
+    {
+      "name": "brew-explorer",
+      "path": "bin/brew-explorer",
+      "category": "system",
+      "description": "Explore Homebrew formulas and casks with fzf and brew info."
+    },
+    {
+      "name": "hist",
+      "path": "bin/hist",
+      "category": "meta",
+      "description": "Fuzzy-search full zsh history (most recent first; de-duplicated; optional --exec)."
+    },
+    {
+      "name": "proj",
+      "path": "bin/proj",
+      "category": "nav",
+      "description": "Fuzzy-jump to frequently used directories via zoxide + fzf."
+    },
+    {
+      "name": "stashview",
+      "path": "bin/stashview",
+      "category": "git",
+      "description": "Interactive git stash browser with apply/pop/drop actions."
+    },
+    {
+      "name": "rename-edit",
+      "path": "bin/rename-edit",
+      "category": "files",
+      "description": "Bulk rename files/directories by editing a list in your editor."
+    },
+    {
+      "name": "ssh-open",
+      "path": "bin/ssh-open",
+      "category": "net",
+      "description": "Fuzzy-launch SSH connections from ~/.ssh/config using fzf."
+    },
+    {
+      "name": "envrun",
+      "path": "bin/envrun",
+      "category": "env",
+      "description": "Run a command with environment variables loaded from a file (e.g. .env)."
+    },
+    {
+      "name": "work",
+      "path": "bin/work",
+      "category": "meta",
+      "description": "Run workspace setup scripts from ~/.config/jp-work.d."
+    },
+    {
+      "name": "dots",
+      "path": "bin/dots",
+      "category": "config",
+      "description": "Friendly wrapper around stow for managing dotfiles."
+    }
+  ]
+}
