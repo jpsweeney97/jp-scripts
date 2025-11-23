@@ -15,26 +15,22 @@ set -euo pipefail
 # - Uses macOS pbpaste when reading from clipboard.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gpatch [--check-only] [patch-file]
-
-Apply a unified diff patch from the clipboard (default) or from a file.
-
-Options:
-  --check-only    Only run "git apply --check"; do not modify the working tree
-  -h, --help      Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
-# Ensure we are in a git repo
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gpatch must be run inside a git repository.\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 

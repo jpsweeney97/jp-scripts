@@ -16,22 +16,22 @@ set -euo pipefail
 # - Output zip is written next to the repo root.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  snaprepo [options]
-
-Create a clean zip snapshot of the current git repo using cleanzip.
-
-Options:
-      --dry-run       Show what would be archived, but do not create the zip
-      --include-env   Include .env and key/cert files (excluded by default)
-      --force         Overwrite existing output zip if it exists
-  -h, --help          Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -76,13 +76,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-# Find repo root
-if ! REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"; then
-  printf 'Error: snaprepo must be run inside a git repository.\n' >&2
-  exit 1
-fi
+REPO_PATH="$(git_repo_root || pwd)"
 
-printf 'snaprepo: repo root is %s\n' "$REPO_ROOT"
+printf 'snaprepo: repo root is %s\n' "$REPO_PATH"
 
 # Build flags to pass to cleanzip
 CLEAZIP_ARGS=()
@@ -100,4 +96,4 @@ if [ "$FORCE" = "true" ]; then
 fi
 
 # Delegate to cleanzip
-cleanzip "${CLEAZIP_ARGS[@]}" "$REPO_ROOT"
+cleanzip "${CLEAZIP_ARGS[@]}" "$REPO_PATH"

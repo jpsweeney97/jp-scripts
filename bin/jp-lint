@@ -1,0 +1,219 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: jp-lint
+# Category: meta
+# Description: Lint jp-scripts registry and scripts for consistency and health.
+# Usage:
+#   jp-lint                   # run all checks (registry, headers, shellcheck if available)
+#   jp-lint --registry-only   # only check commands.json vs bin/
+#   jp-lint --shellcheck-only # only run shellcheck on bin/ scripts
+#   jp-lint --no-shellcheck   # skip shellcheck even if installed
+#
+# Notes:
+#   - Exits non-zero if any errors are found (missing registry entries, missing scripts, duplicates).
+#   - Warnings (like missing headers or shellcheck issues) are reported but do not change the exit code.
+
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+log_info()  { printf '%s\n' "INFO: $*"; }
+log_warn()  { printf '%s\n' "WARN: $*" >&2; }
+log_error() { printf '%s\n' "ERROR: $*" >&2; }
+
+# Resolve repo root relative to this script (bin/ -> repo root)
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REGISTRY_PATH="$REPO_ROOT/registry/commands.json"
+
+error_count=0
+warn_count=0
+
+run_registry_checks=1
+run_header_checks=1
+run_shellcheck_checks=1
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --registry-only)
+      run_registry_checks=1
+      run_header_checks=0
+      run_shellcheck_checks=0
+      ;;
+    --shellcheck-only)
+      run_registry_checks=0
+      run_header_checks=0
+      run_shellcheck_checks=1
+      ;;
+    --no-shellcheck)
+      run_shellcheck_checks=0
+      ;;
+    *)
+      log_error "Unknown argument: $1"
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+require_file() {
+  if [ ! -f "$1" ]; then
+    log_error "Required file not found: $1"
+    exit 1
+  fi
+}
+
+require_cmd() {
+  if ! command -v "$1" >/dev/null 2>&1; then
+    log_error "Required command not found: $1"
+    if [ "${2-}" != "" ]; then
+      log_error "Install it with Homebrew: brew install $2"
+    fi
+    exit 1
+  fi
+}
+
+bin_list() {
+  # Print relative bin paths (bin/<name>) one per line
+  for path in "$REPO_ROOT"/bin/*; do
+    [ -f "$path" ] || continue
+    printf 'bin/%s\n' "$(basename "$path")"
+  done
+}
+
+reg_list() {
+  jq -r '.commands[].path' "$REGISTRY_PATH"
+}
+
+check_registry() {
+  require_cmd jq jq
+  require_file "$REGISTRY_PATH"
+
+  log_info "Checking registry structure in $REGISTRY_PATH"
+
+  if ! jq -e '.commands and (.commands | type == "array")' "$REGISTRY_PATH" >/dev/null 2>&1; then
+    log_error "commands.json is missing a top-level .commands array"
+    error_count=$((error_count+1))
+    return
+  fi
+
+  local version
+  version=$(jq -r '.version // empty' "$REGISTRY_PATH")
+  if [ -z "$version" ]; then
+    log_warn "commands.json is missing top-level .version (recommended but not required)"
+    warn_count=$((warn_count+1))
+  else
+    log_info "Registry version: $version"
+  fi
+
+  # Entries with missing required fields
+  jq -r '
+    .commands[]
+    | select((.name // "") == "" or (.path // "") == "" or (.category // "") == "" or (.description // "") == "")
+    | (.name // "<missing-name>")
+  ' "$REGISTRY_PATH" | while IFS= read -r bad; do
+    [ -z "$bad" ] && continue
+    log_error "Registry entry has missing required fields (name/path/category/description). Name: $bad"
+    error_count=$((error_count+1))
+  done
+
+  log_info "Checking bin/ scripts vs registry entries"
+
+  # Scripts present in bin/ but missing from registry
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    log_error "Script present in bin/ but missing from registry: $path"
+    error_count=$((error_count+1))
+  done < <(comm -23 <(bin_list | sort -u) <(reg_list | sort -u))
+
+  # Registry entries pointing to missing scripts
+  while IFS= read -r path; do
+    [ -z "$path" ] && continue
+    log_error "Registry entry points to missing script: $path"
+    error_count=$((error_count+1))
+  done < <(comm -13 <(bin_list | sort -u) <(reg_list | sort -u))
+
+  # Duplicate names
+  jq -r '.commands[].name' "$REGISTRY_PATH" \
+    | sort | uniq -d \
+    | while IFS= read -r dup; do
+        [ -z "$dup" ] && continue
+        log_error "Duplicate command name in registry: $dup"
+        error_count=$((error_count+1))
+      done
+
+  # Duplicate paths
+  jq -r '.commands[].path' "$REGISTRY_PATH" \
+    | sort | uniq -d \
+    | while IFS= read -r dup; do
+        [ -z "$dup" ] && continue
+        log_error "Duplicate command path in registry: $dup"
+        error_count=$((error_count+1))
+      done
+}
+
+check_headers() {
+  log_info "Checking script headers for required metadata (Name/Category/Description)"
+
+  for path in "$REPO_ROOT"/bin/*; do
+    [ -f "$path" ] || continue
+    header="$(head -n 25 "$path")"
+    rel_path="bin/$(basename "$path")"
+
+    missing=0
+    for field in "Name" "Category" "Description"; do
+      if ! printf '%s\n' "$header" | grep -q "^# $field:"; then
+        log_warn "$rel_path is missing header field: $field"
+        missing=1
+      fi
+    done
+
+    if [ "$missing" -eq 1 ]; then
+      warn_count=$((warn_count+1))
+    fi
+  done
+}
+
+run_shellcheck_step() {
+  if ! command -v shellcheck >/dev/null 2>&1; then
+    log_info "shellcheck not found; skipping shellcheck step. Install with: brew install shellcheck"
+    return
+  fi
+
+  log_info "Running shellcheck on bin/ scripts"
+  if ! shellcheck "$REPO_ROOT"/bin/*; then
+    log_warn "shellcheck reported issues in one or more scripts"
+    warn_count=$((warn_count+1))
+  fi
+}
+
+if [ "$run_registry_checks" -eq 1 ]; then
+  check_registry
+fi
+
+if [ "$run_header_checks" -eq 1 ]; then
+  check_headers
+fi
+
+if [ "$run_shellcheck_checks" -eq 1 ]; then
+  run_shellcheck_step
+fi
+
+if [ "$error_count" -gt 0 ]; then
+  log_error "jp-lint completed with $error_count error(s) and $warn_count warning(s)."
+  exit 1
+fi
+
+if [ "$warn_count" -gt 0 ]; then
+  log_warn "jp-lint completed with $warn_count warning(s)."
+  exit 0
+fi
+
+log_info "jp-lint: all checks passed."
+exit 0

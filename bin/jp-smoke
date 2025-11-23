@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: jp-smoke
+# Category: meta
+# Description: Non-interactive smoke test for jp-scripts (registry, doctor, basic help, notes).
+# Usage:
+#   jp-smoke
+
+
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+echo "== jp-smoke: repo root = $REPO_ROOT"
+
+cd "$REPO_ROOT"
+
+run() {
+  echo
+  echo "== $*"
+  # shellcheck disable=SC2068
+  $@
+}
+
+# 1. Basic registry + environment health
+run jp-lint
+run jpdoctor
+
+# 2. jpcom basic commands
+run jpcom >/dev/null
+run jpcom cats >/dev/null
+run jpcom grep hist >/dev/null
+run jpcom info hist >/dev/null
+
+# 3. Help output from core commands (should be non-interactive)
+for cmd in note hist proj ripper gwhatpush gprepush gstatus-all stashview jp-bootstrap gpr; do
+  echo
+  echo "== $cmd --help"
+  if ! "$cmd" --help >/dev/null; then
+    echo "ERROR: $cmd --help failed" >&2
+    exit 1
+  fi
+done
+
+# 4. Basic note write using a temp directory
+tmp_notes_dir="$(mktemp -d "${TMPDIR:-/tmp}/jp-notes-smoke.XXXXXX")"
+echo
+echo "== Testing note with JP_NOTES_DIR=$tmp_notes_dir"
+JP_NOTES_DIR="$tmp_notes_dir" note "jp-smoke test entry"
+
+today="$(date +%Y-%m-%d)"
+note_file="$tmp_notes_dir/$today.md"
+
+if [ ! -s "$note_file" ]; then
+  echo "ERROR: note did not create non-empty $note_file" >&2
+  exit 1
+fi
+
+echo "Created note file: $note_file"
+
+echo
+echo "== jp-smoke: all non-interactive checks passed."

@@ -13,6 +13,17 @@ set -euo pipefail
 # Env:
 #   DOTFILES_ROOT   Root directory containing stow packages (default: $HOME/dotfiles)
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 if ! command -v stow >/dev/null 2>&1; then
   printf 'Error: dots requires stow. Install via: brew install stow\n' >&2
   exit 1
@@ -56,7 +67,7 @@ shift
 if [ "$mode" != "apply" ] && [ "$mode" != "dry-run" ]; then
   printf 'Usage:\n' >&2
   printf '  dots                 # list packages\n' >&2
-  printf '  dots apply <pkg...>  # stow into $HOME\n' >&2
+  printf "  dots apply <pkg...>  # stow into \$HOME\n" >&2
   printf '  dots dry-run <pkg...># preview links\n' >&2
   exit 1
 fi

@@ -16,29 +16,22 @@ set -euo pipefail
 # - Default mode is "soft": commit undone, changes stay staged.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gundo-last [--mode soft|mixed|hard] [--force] [--yes]
-
-Safely undo the last commit (HEAD~1) with upstream checks.
-
-Options:
-  --mode soft    Use "git reset --soft HEAD~1"  (default)
-  --mode mixed   Use "git reset --mixed HEAD~1"
-  --mode hard    Use "git reset --hard HEAD~1" (dangerous)
-  --force        Skip remote safety check (allow rewriting pushed commits)
-  --yes          Do not prompt for confirmation
-  -h, --help     Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gundo-last must be run inside a git repository.\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -95,14 +88,13 @@ if ! git rev-parse HEAD^ >/dev/null 2>&1; then
   exit 1
 fi
 
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+CURRENT_BRANCH="$(git_current_branch)"
 LAST_COMMIT_LINE="$(git log -1 --pretty=format:'%h %s' 2>/dev/null || printf 'unknown')"
 
-UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+UPSTREAM_REF="$(git_upstream_ref)"
 
 if [ -n "$UPSTREAM_REF" ] && [ "$FORCE" = false ]; then
-  COUNTS="$(git rev-list --left-right --count "${UPSTREAM_REF}...HEAD" 2>/dev/null || printf '0 0')"
-  BEHIND="$(printf '%s' "$COUNTS" | awk '{print $1}')"
+  COUNTS="$(git_ahead_behind "$UPSTREAM_REF")"
   AHEAD="$(printf  '%s' "$COUNTS" | awk '{print $2}')"
 
   # If AHEAD is 0, HEAD is not ahead of upstream; undoing rewrites shared history.

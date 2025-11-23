@@ -11,22 +11,33 @@ set -euo pipefail
 # - Local branches are switched directly.
 # - Remote branches (origin/foo) create a local tracking branch foo if needed.
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git not found.\n' >&2
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gcoi must be run inside a git repository.\n' >&2
+if ! fzf_require; then
   exit 1
 fi
 
-if ! command -v fzf >/dev/null 2>&1; then
-  printf 'Error: gcoi requires fzf. Install via: brew install fzf\n' >&2
-  exit 1
-fi
-
-current_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+current_branch="$(git_current_branch)"
 
 branches="$(
   git for-each-ref \
@@ -40,11 +51,13 @@ if [ -z "$branches" ]; then
   exit 1
 fi
 
+fzf_set_common_opts "gcoi> " "Current: $current_branch   (ENTER to switch)"
+
 selection="$(
   printf '%s\n' "$branches" \
-    | fzf --delimiter='|' \
+    | fzf "${FZF_COMMON_OPTS[@]}" \
+          --delimiter='|' \
           --with-nth=1,4,5,6 \
-          --ansi \
           --header="Current: $current_branch   (ENTER to switch)" \
           --prompt="gcoi> "
 )" || exit 0

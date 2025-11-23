@@ -12,21 +12,24 @@ set -euo pipefail
 # Env:
 #   STANDUP_ROOT   Override default root directory for repo scan.
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 ROOT="${STANDUP_ROOT:-"$HOME/Projects"}"
 DAYS=1
 
-usage() {
-  cat <<'EOF'
-Usage:
-  standup [--days N] [--root DIR]
-
-Summarize your recent git commits across repos for daily standup.
-
-Options:
-  --days N      Number of days back to include (default: 1)
-  --root DIR    Root directory to scan for git repos (default: $HOME/Projects)
-EOF
-}
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -63,8 +66,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git not found.\n' >&2
+if ! git_require; then
   exit 1
 fi
 

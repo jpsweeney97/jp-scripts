@@ -11,13 +11,28 @@ set -euo pipefail
 #   - Marks outdated items.
 #   - After selection, prints "brew info <name>".
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 if ! command -v brew >/dev/null 2>&1; then
   printf 'Error: Homebrew (brew) not found.\n' >&2
   exit 1
 fi
 
-if ! command -v fzf >/dev/null 2>&1; then
-  printf 'Error: brew-explorer requires fzf. Install via: brew install fzf\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+if ! fzf_require; then
   exit 1
 fi
 
@@ -60,12 +75,13 @@ if [ -z "$items" ]; then
   exit 0
 fi
 
+fzf_set_common_opts "brew-explorer> " "Type | Name | Status (outdated marked)"
+
 selection="$(
   printf '%s' "$items" \
-    | fzf --delimiter='|' \
-          --with-nth=1,2,3 \
-          --header='Type | Name | Status (outdated marked)' \
-          --prompt='brew-explorer> '
+    | fzf "${FZF_COMMON_OPTS[@]}" \
+          --delimiter='|' \
+          --with-nth=1,2,3
 )" || exit 0
 
 pkg="$(printf '%s\n' "$selection" | cut -d'|' -f2 | sed 's/^ *//; s/ *$//')"

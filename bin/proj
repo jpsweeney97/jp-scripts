@@ -12,13 +12,28 @@ set -euo pipefail
 #   - Use with: cd "$(proj)"
 #   - Requires zoxide, fzf; eza for previews if available.
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
 if ! command -v zoxide >/dev/null 2>&1; then
   printf 'Error: proj requires zoxide. Install via: brew install zoxide\n' >&2
   exit 1
 fi
 
-if ! command -v fzf >/dev/null 2>&1; then
-  printf 'Error: proj requires fzf. Install via: brew install fzf\n' >&2
+if ! fzf_require; then
   exit 1
 fi
 
@@ -53,15 +68,12 @@ if command -v eza >/dev/null 2>&1; then
   preview_cmd='eza -lha --group-directories-first --color=always {} 2>/dev/null'
 fi
 
+fzf_set_common_opts "proj> " "Select a directory (zoxide). Use cd \"\$(proj)\" to jump."
+fzf_add_preview "$preview_cmd" "right,60%,border-left"
+
 selection="$(
   printf '%s\n' "$dirs" \
-    | fzf --ansi \
-          --height=80% \
-          --reverse \
-          --prompt='proj> ' \
-          --header='Select a directory (zoxide). Use cd "$(proj)" to jump.' \
-          --preview="$preview_cmd" \
-          --preview-window=right,60%,border-left
+    | fzf "${FZF_COMMON_OPTS[@]}"
 )" || exit 0
 
 dir="$selection"

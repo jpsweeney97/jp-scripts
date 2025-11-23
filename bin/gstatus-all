@@ -13,21 +13,22 @@ set -euo pipefail
 # - Shows branch, upstream, ahead/behind, and dirty/clean per repo.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gstatus-all [--root DIR] [--depth N]
-
-Summarize git repos under a root directory.
-
-Options:
-  --root DIR   Root directory to scan (default: $HOME/Projects)
-  --depth N    Max directory depth for repo discovery (default: 3)
-  -h, --help   Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require; then
   exit 1
 fi
 
@@ -98,13 +99,13 @@ for gitdir in "${GIT_DIRS[@]}"; do
   fi
 
   name="$(basename "$repo")"
-  branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+  branch="$(git_current_branch)"
 
-  upstream_ref="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  upstream_ref="$(git_upstream_ref)"
   ahead='0'
   behind='0'
   if [ -n "$upstream_ref" ]; then
-    counts="$(git rev-list --left-right --count "${upstream_ref}...HEAD" 2>/dev/null || printf '0 0')"
+    counts="$(git_ahead_behind "$upstream_ref")"
     behind="$(printf '%s' "$counts" | awk '{print $1}')"
     ahead="$(printf  '%s' "$counts" | awk '{print $2}')"
   fi
@@ -124,7 +125,7 @@ for gitdir in "${GIT_DIRS[@]}"; do
   printf '  state:    %s\n' "$dirty"
 
   # Show first few lines of short status for context
-  short_status="$(git status -sb 2>/dev/null || true)"
+  short_status="$(git_short_status)"
   if [ -n "$short_status" ]; then
     printf '  status:\n'
     printf '%s\n' "$short_status" | sed -n '1,4s/^/    /p'

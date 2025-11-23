@@ -13,25 +13,22 @@ set -euo pipefail
 # - ahead/behind is relative to the branch's upstream, if it has one.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gbranches [--merged BASE]
-
-Show local branches with upstream and ahead/behind counts.
-
-Options:
-  --merged BASE   Only show branches already merged into BASE (e.g. main)
-  -h, --help      Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gbranches must be run inside a git repository.\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -64,7 +61,7 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+CURRENT_BRANCH="$(git_current_branch)"
 
 # Base list of branches
 if [ -n "$MERGED_BASE" ]; then
@@ -91,7 +88,7 @@ while IFS= read -r br; do
     HEAD_MARK="*"
   fi
 
-  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name "$br@{upstream}" 2>/dev/null || true)"
+  upstream="$(git_upstream_ref "$br")"
   upstream_short="$upstream"
   if [ -n "$upstream_short" ]; then
     upstream_short="${upstream_short#refs/remotes/}"
@@ -100,7 +97,7 @@ while IFS= read -r br; do
   ahead_behind="--/--"
   if [ -n "$upstream" ]; then
     # rev-list: left=upstream (behind), right=branch (ahead)
-    counts="$(git rev-list --left-right --count "$upstream...$br" 2>/dev/null || printf '0 0')"
+    counts="$(git_ahead_behind "$upstream" "$br")"
     behind="$(printf '%s' "$counts" | awk '{print $1}')"
     ahead="$(printf '%s' "$counts" | awk '{print $2}')"
     ahead_behind="${ahead}/${behind}"

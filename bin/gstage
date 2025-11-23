@@ -11,13 +11,23 @@ set -euo pipefail
 # - Must be run inside a git repo.
 # - Handles simple renames by staging the new path.
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gstage must be run inside a git repository.\n' >&2
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -27,7 +37,7 @@ if [ -z "$STATUS_OUTPUT" ]; then
   exit 0
 fi
 
-BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+BRANCH="$(git_current_branch)"
 printf 'Branch: %s\n' "$BRANCH"
 printf 'Changed files:\n\n'
 

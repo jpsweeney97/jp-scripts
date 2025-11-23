@@ -12,12 +12,23 @@ set -euo pipefail
 # Env:
 #   JP_NOTES_DIR   Base directory for notes (default: $HOME/Notes/quick-notes)
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 NOTES_DIR="${JP_NOTES_DIR:-"$HOME/Notes/quick-notes"}"
 mkdir -p "$NOTES_DIR"
 
 today="$(date +%Y-%m-%d)"
-note_file="$NOTES_DIR/${today}.md"
-timestamp="$(date +%H:%M)"
+timestamp="$(date +%H:%M:%S)"
+note_file="$NOTES_DIR/$today.md"
 
 open_editor() {
   if command -v code >/dev/null 2>&1; then

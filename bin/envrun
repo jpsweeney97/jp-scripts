@@ -13,6 +13,17 @@ set -euo pipefail
 #   - --dry-run prints which keys would be loaded, but does not run the command.
 #   - For non-dry runs, envfile is sourced in a subshell (shell-compatible KEY=VALUE lines).
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 ENVFILE=""
 DRY_RUN=false
 

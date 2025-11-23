@@ -15,26 +15,22 @@ set -euo pipefail
 # - Requires an upstream configured for the current HEAD.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gwhatpush [--commits-only|--stat-only]
-
-Show what "git push" would send for the current branch.
-
-Options:
-  --commits-only   Only show commits that would be pushed
-  --stat-only      Only show diffstat vs upstream
-  -h, --help       Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gwhatpush must be run inside a git repository.\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -68,9 +64,9 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
+BRANCH="$(git_current_branch)"
 
-UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+UPSTREAM_REF="$(git_upstream_ref)"
 if [ -z "$UPSTREAM_REF" ]; then
   printf 'gwhatpush: No upstream configured for %s.\n' "$BRANCH" >&2
   printf 'Hint: git push -u <remote> <branch> or git branch --set-upstream-to=<remote>/<branch>\n' >&2
@@ -80,7 +76,7 @@ fi
 REMOTE="${UPSTREAM_REF%%/*}"
 REMOTE_BRANCH="${UPSTREAM_REF#*/}"
 
-COUNTS="$(git rev-list --left-right --count "${UPSTREAM_REF}...HEAD" 2>/dev/null || printf '0 0')"
+COUNTS="$(git_ahead_behind "$UPSTREAM_REF")"
 BEHIND="$(printf '%s' "$COUNTS" | awk '{print $1}')"
 AHEAD="$(printf  '%s' "$COUNTS" | awk '{print $2}')"
 
@@ -89,7 +85,7 @@ if [ "$COMMITS_ONLY" = false ] && [ "$STAT_ONLY" = false ]; then
   printf '           upstream:      %s (%s/%s)\n' "$UPSTREAM_REF" "$REMOTE" "$REMOTE_BRANCH"
   printf '           ahead/behind:  %s ahead / %s behind\n' "$AHEAD" "$BEHIND"
   printf '\nWorking tree summary (git status -sb):\n\n'
-  git status -sb || true
+  git_short_status || true
   printf '\n'
 fi
 

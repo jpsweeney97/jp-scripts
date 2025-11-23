@@ -14,18 +14,29 @@ set -euo pipefail
 #   - Must be run inside a git repo.
 #   - Uses fzf with a patch preview (git stash show -p).
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git not found.\n' >&2
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: stashview must be run inside a git repository.\n' >&2
-  exit 1
-fi
-
-if ! command -v fzf >/dev/null 2>&1; then
-  printf 'Error: stashview requires fzf. Install via: brew install fzf\n' >&2
+if ! fzf_require; then
   exit 1
 fi
 
@@ -54,17 +65,15 @@ if [ -z "$stash_list" ]; then
   exit 0
 fi
 
+# shellcheck disable=SC2016  # preview command evaluated by fzf; $ref and {} are intentional.
 preview='ref=$(printf "%s" {} | awk "{print \$1}"); git stash show -p "$ref" --color=always 2>/dev/null || git stash show "$ref" 2>/dev/null'
+
+fzf_set_common_opts "stashview> " "Select a stash (ENTER). Default: show patch."
+fzf_add_preview "$preview" "down,60%,border-top"
 
 selection="$(
   printf '%s\n' "$stash_list" \
-    | fzf --ansi \
-          --height=80% \
-          --reverse \
-          --prompt='stashview> ' \
-          --header='Select a stash (ENTER). Default: show patch.' \
-          --preview="$preview" \
-          --preview-window=down,60%,border-top
+    | fzf "${FZF_COMMON_OPTS[@]}"
 )" || exit 0
 
 ref="$(printf '%s\n' "$selection" | awk '{print $1}')"

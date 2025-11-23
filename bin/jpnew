@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: jpnew
+# Category: meta
+# Description: Scaffold a new jp-scripts command with standard header and registry entry.
+# Usage:
+#   jpnew [--edit]             # prompt for name/category/description, then scaffold
+#   jpnew -h|--help            # show help
+#
+# Notes:
+#   - Requires jq and fzf.
+#   - Resolves jp-scripts repo root relative to this script.
+
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+OPEN_EDITOR=false
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --edit)
+      OPEN_EDITOR=true
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      printf 'Error: unknown option: %s\n' "$1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+  shift
+done
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+REGISTRY_PATH="$REPO_ROOT/registry/commands.json"
+BIN_DIR="$REPO_ROOT/bin"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+require_cmd() {
+  local cmd="$1" hint="${2-}"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    if [ -n "$hint" ]; then
+      printf 'Error: %s is required. Install with: %s\n' "$cmd" "$hint" >&2
+    else
+      printf 'Error: %s is required but not found on PATH.\n' "$cmd" >&2
+    fi
+    exit 1
+  fi
+}
+
+require_cmd jq "brew install jq"
+require_cmd fzf "brew install fzf"
+
+if ! fzf_require; then
+  exit 1
+fi
+
+if [ ! -f "$REGISTRY_PATH" ]; then
+  printf 'Error: registry not found at %s\n' "$REGISTRY_PATH" >&2
+  exit 1
+fi
+
+read -r -p "Command name (e.g., loggrep): " cmd_name
+cmd_name="$(printf '%s' "$cmd_name" | sed 's/^ *//; s/ *$//')"
+
+if [ -z "$cmd_name" ]; then
+  printf 'Error: command name is required.\n' >&2
+  exit 1
+fi
+
+if ! [[ "$cmd_name" =~ ^[a-z0-9][a-z0-9-]*$ ]]; then
+  printf 'Error: command name must match ^[a-z0-9][a-z0-9-]*$.\n' >&2
+  exit 1
+fi
+
+bin_path="$BIN_DIR/$cmd_name"
+if [ -e "$bin_path" ]; then
+  printf 'Error: %s already exists.\n' "$bin_path" >&2
+  exit 1
+fi
+
+if jq -e --arg n "$cmd_name" '.commands | map(select(.name == $n)) | length > 0' "$REGISTRY_PATH" >/dev/null; then
+  printf 'Error: a registry entry named %s already exists.\n' "$cmd_name" >&2
+  exit 1
+fi
+
+mapfile -t categories < <(jq -r '.commands[].category' "$REGISTRY_PATH" | sort -u)
+
+fzf_set_common_opts "Category> " "Type to filter or enter a new category"
+
+if ! category_selection="$(printf '%s\n' "${categories[@]}" | fzf --prompt='Category (type to filter or create new)> ' --print-query --height=80% --layout=reverse "${FZF_COMMON_OPTS[@]}")"; then
+  printf 'Aborted category selection.\n' >&2
+  exit 1
+fi
+
+category_query="$(printf '%s\n' "$category_selection" | head -n1)"
+category_choice="$(printf '%s\n' "$category_selection" | tail -n1)"
+category="${category_choice:-$category_query}"
+category="$(printf '%s' "$category" | sed 's/^ *//; s/ *$//')"
+
+if [ -z "$category" ]; then
+  printf 'Error: category is required.\n' >&2
+  exit 1
+fi
+
+read -r -p "Description: " description
+description="$(printf '%s' "$description" | sed 's/^ *//; s/ *$//')"
+
+if [ -z "$description" ]; then
+  printf 'Error: description is required.\n' >&2
+  exit 1
+fi
+
+cat >"$bin_path" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: $cmd_name
+# Category: $category
+# Description: $description
+# Usage:
+#   $cmd_name [options...]
+#
+# Notes:
+#   TODO: add notes and requirements.
+
+usage() {
+  sed -n '4,40p' "\$0" | sed 's/^# \\?//'
+}
+
+case "\${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+echo "TODO: implement $cmd_name" >&2
+exit 1
+EOF
+
+chmod +x "$bin_path"
+
+tmp_registry="$(mktemp "${TMPDIR:-/tmp}/jpnew-registry.XXXXXX")"
+jq --arg name "$cmd_name" \
+   --arg path "bin/$cmd_name" \
+   --arg category "$category" \
+   --arg desc "$description" \
+   '.commands += [{
+      name: $name,
+      path: $path,
+      category: $category,
+      description: $desc,
+      tags: [$category],
+      requires: ["bash"],
+      examples: [$name]
+    }]' "$REGISTRY_PATH" >"$tmp_registry"
+mv "$tmp_registry" "$REGISTRY_PATH"
+
+printf 'Created %s\n' "$bin_path"
+printf 'Added registry entry for %s\n' "$cmd_name"
+
+if [ "$OPEN_EDITOR" = true ]; then
+  if command -v code >/dev/null 2>&1; then
+    code "$bin_path"
+  elif [ -n "${EDITOR:-}" ]; then
+    "$EDITOR" "$bin_path"
+  else
+    printf 'Warning: no editor configured; skipping open.\n' >&2
+  fi
+fi

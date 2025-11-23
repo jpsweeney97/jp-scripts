@@ -11,13 +11,28 @@ set -euo pipefail
 #   - Skips wildcard Host patterns like "*".
 #   - Preview shows the relevant config block.
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 if ! command -v ssh >/dev/null 2>&1; then
   printf 'Error: ssh not found.\n' >&2
   exit 1
 fi
 
-if ! command -v fzf >/dev/null 2>&1; then
-  printf 'Error: ssh-open requires fzf. Install via: brew install fzf\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+if ! fzf_require; then
   exit 1
 fi
 
@@ -47,6 +62,7 @@ for h in "${hosts[@]}"; do
   menu+="$h"$'\n'
 done
 
+# shellcheck disable=SC2016  # fzf preview: {} and $host are expanded when the preview runs, not here.
 preview_cmd='host=$(printf "%s" {}); awk -v h="$host" "
   /^Host[[:space:]]+/ {
     if (block) exit;
@@ -55,13 +71,12 @@ preview_cmd='host=$(printf "%s" {}); awk -v h="$host" "
   block {print}
 " '"$SSH_CONFIG"' | sed "s/^/    /"'
 
+fzf_set_common_opts "ssh-open> " "Select SSH host from $SSH_CONFIG"
+fzf_add_preview "$preview_cmd" "right,60%,border-left"
+
 selection="$(
   printf '%s' "$menu" \
-    | fzf --ansi \
-          --prompt='ssh-open> ' \
-          --header="Select SSH host from $SSH_CONFIG" \
-          --preview="$preview_cmd" \
-          --preview-window=right,60%,border-left
+    | fzf "${FZF_COMMON_OPTS[@]}"
 )" || exit 0
 
 host="$selection"

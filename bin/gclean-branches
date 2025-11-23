@@ -16,27 +16,22 @@ set -euo pipefail
 # - Always shows what it will do before deleting.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gclean-branches [--delete|--force] [--base BRANCH]
-
-List or delete local branches already merged into a base branch.
-
-Options:
-  --delete        Delete merged branches with "git branch -d"
-  --force         Delete merged branches with "git branch -D"
-  --base BRANCH   Use this as the base (default: origin/HEAD target, or main, or master)
-  -h, --help      Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gclean-branches must be run inside a git repository.\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -104,7 +99,7 @@ if ! git show-ref --verify --quiet "refs/heads/$BASE"; then
   exit 1
 fi
 
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+CURRENT_BRANCH="$(git_current_branch)"
 
 printf 'Base branch: %s\n' "$BASE"
 printf 'Current branch: %s\n' "$CURRENT_BRANCH"

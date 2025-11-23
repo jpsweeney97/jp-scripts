@@ -12,6 +12,17 @@ set -euo pipefail
 #   - Uses git diff --no-index with color.
 #   - If either side is "-", stdin is captured to a temp file for that side.
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 if ! command -v git >/dev/null 2>&1; then
   printf 'Error: diffview requires git.\n' >&2
   exit 1

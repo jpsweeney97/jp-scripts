@@ -13,13 +13,28 @@ set -euo pipefail
 #
 # Requirements: rg (ripgrep), fzf, bat, plus code or $EDITOR is recommended.
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
 if ! command -v rg >/dev/null 2>&1; then
   printf 'Error: ripper requires ripgrep (rg). Install via: brew install ripgrep\n' >&2
   exit 1
 fi
 
-if ! command -v fzf >/dev/null 2>&1; then
-  printf 'Error: ripper requires fzf. Install via: brew install fzf\n' >&2
+if ! fzf_require; then
   exit 1
 fi
 
@@ -44,11 +59,12 @@ fi
 
 # Run ripgrep and pipe into fzf with preview using bat.
 # Output format: file:line:column_or_text...
+fzf_set_common_opts "ripper> " "Pattern: $pattern   (ENTER to open in editor, ESC to cancel)"
+
 selection="$(
   rg --line-number --no-heading --color=always "$pattern" "${paths[@]}" 2>/dev/null \
-    | fzf --ansi --delimiter ':' \
-          --prompt="ripper> " \
-          --header="Pattern: $pattern   (ENTER to open in editor, ESC to cancel)" \
+    | fzf "${FZF_COMMON_OPTS[@]}" \
+          --delimiter ':' \
           --preview 'bat --style=numbers --color=always --line-range {2}: {2} {1}' \
           --preview-window=up,60%,border-bottom
 )" || exit 0  # fzf cancelled

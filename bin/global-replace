@@ -14,6 +14,17 @@ set -euo pipefail
 #   - Use --apply to perform replacements.
 #   - --literal treats pattern as plain string (no regex).
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 if ! command -v rg >/dev/null 2>&1; then
   printf 'Error: global-replace requires ripgrep (rg). Install via: brew install ripgrep\n' >&2
   exit 1

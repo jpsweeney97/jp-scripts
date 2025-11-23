@@ -12,17 +12,24 @@ set -euo pipefail
 # Env:
 #   CLIPHIST_DIR   Directory for history files (default: $HOME/.local/share/jp-cliphist)
 
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
 HIST_DIR="${CLIPHIST_DIR:-"$HOME/.local/share/jp-cliphist"}"
 mkdir -p "$HIST_DIR"
-
-usage() {
-  cat <<'EOF'
-Usage:
-  cliphist save        # save current clipboard contents
-  cliphist             # browse history with fzf, restore selected to clipboard
-  cliphist clear       # delete all saved entries (with confirmation)
-EOF
-}
 
 if ! command -v pbpaste >/dev/null 2>&1 || ! command -v pbcopy >/dev/null 2>&1; then
   printf 'Error: cliphist requires pbpaste/pbcopy (macOS clipboard tools).\n' >&2
@@ -48,6 +55,7 @@ save_clipboard() {
   file="$HIST_DIR/$file"
 
   # Optional: avoid saving if identical to most recent entry.
+  # shellcheck disable=SC2012  # We just need the newest file; ls is sufficient here.
   last="$(ls -1t "$HIST_DIR" 2>/dev/null | head -n 1 || true)"
   if [ -n "$last" ] && cmp -s "$tmp" "$HIST_DIR/$last"; then
     printf 'Clipboard unchanged from last saved entry; not saving duplicate.\n'
@@ -60,8 +68,7 @@ save_clipboard() {
 }
 
 browse_and_restore() {
-  if ! command -v fzf >/dev/null 2>&1; then
-    printf 'Error: cliphist interactive mode requires fzf.\n' >&2
+  if ! fzf_require; then
     exit 1
   fi
 
@@ -85,20 +92,22 @@ browse_and_restore() {
     menu+="$ts | $first_line"$'\n'
   done
 
+  fzf_set_common_opts "cliphist> " "Select clipboard entry to restore (ENTER), ESC to cancel."
+
   selection="$(
     printf '%s' "$menu" \
-      | fzf --with-nth=1,2 \
-            --header='Select clipboard entry to restore (ENTER), ESC to cancel.' \
-            --prompt='cliphist> ' \
-            --preview 'ts=$(printf "%s" {} | cut -d"|" -f1 | sed "s/ *$//"); \
-                       file=$(printf "%s.txt" "$ts"); \
-                       bat --style=plain --color=always --line-range=1:200 "'"$HIST_DIR"'/$file" 2>/dev/null'
+      | fzf "${FZF_COMMON_OPTS[@]}" \
+            --with-nth=1,2 \
+            --preview "ts=\$(printf \"%s\" {} | cut -d\"|\" -f1 | sed \"s/ *$//\"); \
+                       file=\$(printf \"%s.txt\" \"\$ts\"); \
+                       bat --style=plain --color=always --line-range=1:200 \"$HIST_DIR/\$file\" 2>/dev/null"
   )" || exit 0
 
   ts_sel="$(printf '%s' "$selection" | cut -d'|' -f1 | sed 's/ *$//')"
   [ -z "$ts_sel" ] && { printf 'No selection.\n'; exit 0; }
 
   file="$HIST_DIR/$ts_sel.txt"
+
   if [ ! -f "$file" ]; then
     printf 'Selected file missing: %s\n' "$file" >&2
     exit 1

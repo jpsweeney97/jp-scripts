@@ -17,20 +17,15 @@ set -euo pipefail
 #   -h, --help          Show this help text
 
 usage() {
-  cat <<'EOF'
-Usage:
-  cleanzip [options] [SOURCE_DIR]
-
-Create a "clean" zip archive of SOURCE_DIR, excluding build, cache, junk, and secret files.
-
-Options:
-  -o, --output PATH   Explicit output .zip path (default: YYYY-MM-DD__slug__v1.zip next to SOURCE_DIR)
-      --include-env   Include .env and key/cert files (excluded by default)
-      --dry-run       Show what would be included, but do not create the zip
-      --force         Overwrite existing output zip if it exists
-  -h, --help          Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
 slugify() {
   # Lowercase, spaces/underscores -> -, strip non [a-z0-9-], collapse dashes.

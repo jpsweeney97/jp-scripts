@@ -15,26 +15,22 @@ set -euo pipefail
 # - Does NOT call git push.
 
 usage() {
-  cat <<'EOF'
-Usage:
-  gprepush [--test-cmd 'CMD'] [--skip-tests]
-
-Pre-push checklist: show status, what "git push" would do, and optionally run tests.
-
-Options:
-  --test-cmd 'CMD'   Shell command to run as tests (e.g. 'swift test' or 'npm test')
-  --skip-tests       Do not run tests, even if GPREPUSH_TEST_CMD is set
-  -h, --help         Show this help text
-EOF
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
 }
 
-if ! command -v git >/dev/null 2>&1; then
-  printf 'Error: git command not found.\n' >&2
-  exit 1
-fi
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
 
-if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-  printf 'Error: gprepush must be run inside a git repository.\n' >&2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+
+if ! git_require_repo; then
   exit 1
 fi
 
@@ -72,14 +68,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || printf 'HEAD')"
-REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+BRANCH="$(git_current_branch)"
+REPO_ROOT="$(git_repo_root || pwd)"
 
 printf 'gprepush: repo root: %s\n' "$REPO_ROOT"
 printf '          branch:    %s\n\n' "$BRANCH"
 
 printf '=== Working tree (git status -sb) ===\n\n'
-git status -sb || true
+git_short_status || true
 printf '\n'
 
 printf '=== What would "git push" do? ===\n\n'
@@ -88,12 +84,12 @@ if command -v gwhatpush >/dev/null 2>&1; then
 else
   printf '(gwhatpush not found on PATH; showing a minimal summary instead.)\n\n'
 
-  UPSTREAM_REF="$(git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' 2>/dev/null || true)"
+  UPSTREAM_REF="$(git_upstream_ref)"
   if [ -z "$UPSTREAM_REF" ]; then
     printf 'No upstream configured for %s.\n' "$BRANCH"
     printf 'Hint: git push -u <remote> <branch>\n'
   else
-    COUNTS="$(git rev-list --left-right --count "${UPSTREAM_REF}...HEAD" 2>/dev/null || printf '0 0')"
+    COUNTS="$(git_ahead_behind "$UPSTREAM_REF")"
     BEHIND="$(printf '%s' "$COUNTS" | awk '{print $1}')"
     AHEAD="$(printf  '%s' "$COUNTS" | awk '{print $2}')"
     printf 'Upstream:      %s\n' "$UPSTREAM_REF"
