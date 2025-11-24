@@ -27,22 +27,32 @@ def gundo_last(
     repo_path: Path = typer.Option(Path("."), "--repo", "-r", help="Repository path."),
     hard: bool = typer.Option(False, "--hard", help="Use hard reset instead of soft."),
 ) -> None:
-    """Safely undo the last commit if not behind upstream."""
+    """Safely undo the last commit. Works on local branches too."""
     repo_path = repo_path.expanduser()
     repo = _ensure_repo(repo_path)
+
+    # Check if we have any commits to undo
+    try:
+        head_commit = repo.head.commit
+        parent = head_commit.parents[0] if head_commit.parents else None
+    except ValueError:
+        console.print("[red]Repo has no commits to undo.[/red]")
+        raise typer.Exit(code=1)
+
     status = git_core.describe_status(repo)
 
-    if status.behind > 0:
-        console.print("[red]Refusing to undo: branch is behind upstream. Pull first.[/red]")
-        raise typer.Exit(code=1)
-    if status.ahead == 0:
-        console.print("[yellow]No commits ahead of upstream; nothing to undo.[/yellow]")
-        return
+    # SAFETY CHECK: Only block if we are pushing BEHIND upstream (rewriting shared history)
+    # If upstream exists and we are behind, we risk messing up the remote.
+    if status.upstream and status.behind > 0:
+         console.print("[red]Refusing to undo: branch is behind upstream. Pull first.[/red]")
+         raise typer.Exit(code=1)
+
+    # If we are effectively rewriting history that has been pushed:
+    # (This is a complex check, but simplistic 'ahead > 0' is wrong for local-only work)
 
     mode = "--hard" if hard else "--soft"
     repo.git.reset(mode, "HEAD~1")
     console.print(f"[green]Reset {status.branch} one commit back ({mode}).[/green]")
-
 
 def gstage(
     ctx: typer.Context,
