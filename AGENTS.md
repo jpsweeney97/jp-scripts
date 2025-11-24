@@ -85,3 +85,24 @@ We use `pytest` with `typer.testing.CliRunner`.
 1.  Add the field to `AppConfig` in `src/jpscripts/core/config.py`.
 2.  Add the mapping in `ENV_VAR_MAP` if it should be overrideable via env vars.
 3.  Update `init.py` to prompt for it during setup.
+
+## Developer Constraints
+
+1.  **Documentation First:** You are FORBIDDEN from adding a new command to `src/jpscripts/main.py` without simultaneously adding it to the "Command Reference" table in `README.md`.
+2.  **Type Safety:** All new Python files must start with `from __future__ import annotations`.
+3.  **UI Consistency:** Never use `print()`. Always use `console.print()` from `jpscripts.core.console`.
+4.  **No Shell Scripts:** This is a Python project. Do not create `.sh` files.
+
+## Tool Manifest (Architecture)
+
+When modifying `jpscripts`, prefer these internal wrappers over raw subprocess calls:
+
+- **Git:** `jpscripts.core.git` (Use `open_repo`, `describe_status`)
+- **Config:** `jpscripts.core.config.AppConfig` (Available via `ctx.obj.config`)
+- **Logging:** `jpscripts.core.console.setup_logging` (Rich-integrated logging)
+
+## Testing
+
+- **Runner:** `pytest`
+- **Smoke Tests:** `tests/test_smoke.py` (Use this to verify CLI invocation)
+- **Mocking:** Use `typer.testing.CliRunner` for all command tests.

@@ -9,14 +9,17 @@
 
 ## Prerequisites
 
-While `jpscripts` is a Python package, it orchestrates powerful system binaries. You must have these installed for full functionality:
+`jpscripts` orchestrates powerful system binaries. You must have these installed:
 
 ```bash
-# Required for core navigation and search
-brew install fzf ripgrep
+# Core dependencies (Required)
+brew install fzf ripgrep git
 
-# Required for 'jp proj' and git interactions
-brew install zoxide gh git
+# Git Extensions (Required for 'jp gpr', 'jp gbrowse')
+brew install gh
+
+# Navigation (Required for 'jp proj')
+brew install zoxide
 
 # Optional: Audio control
 brew install switchaudio-osx
@@ -40,44 +43,67 @@ pip install -e ".[dev]"
 
 ## Command Reference
 
-### AI & Context Gathering
-
-Tools designed to feed context to LLMs (like Codex) or archive knowledge.
-
-| Command                  | Description                                                                                                                                                                  | Key Flags  |
-| :----------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | :--------- |
-| `jp web-snap <url>`      | **The Context Fetcher.** Scrapes a URL, extracts main content (removing boilerplate), and saves it as a structured YAML snapshot. Perfect for feeding documentation to LLMs. |            |
-| `jp note-search <query>` | Greps through your daily notes with `ripgrep` and creates an interactive `fzf` selection menu.                                                                               | `--no-fzf` |
-
 ### Git Operations
 
-Stop manually checking 50 repositories.
+_Manage your repositories without leaving the terminal._
 
-| Command         | Description                                                                                                                                       | Key Flags                 |
-| :-------------- | :------------------------------------------------------------------------------------------------------------------------------------------------ | :------------------------ |
-| `jp status-all` | **The Daily Driver.** Scans your workspace recursively and displays a live-updating dashboard of every repo's status (ahead/behind/dirty/staged). | `--max-depth`, `--root`   |
-| `jp whatpush`   | Shows exactly what commits will be sent to upstream. Includes a diffstat summary.                                                                 | `--max-commits`           |
-| `jp gbrowse`    | Opens the current branch, commit, or file in GitHub. Logic handles SSH/HTTPS remotes automatically.                                               | `--target [repo\|commit]` |
-| `jp gundo-last` | Safely undoes the last commit (`reset --soft` by default). **Safety check:** Refuses to run if you are behind upstream.                           | `--hard`                  |
+| Command              | Description                                                    | Key Flags                         |
+| :------------------- | :------------------------------------------------------------- | :-------------------------------- |
+| `jp status-all`      | **Daily Driver.** Dashboard of all repos (ahead/behind/dirty). | `--root`, `--max-depth`           |
+| `jp whatpush`        | Show outgoing commits and diffstat for the current repo.       | `--max-commits`                   |
+| `jp gstage`          | Interactively stage files using `fzf`.                         | `--no-fzf`                        |
+| `jp gundo-last`      | Safely undo the last commit (refuses if behind upstream).      | `--hard`                          |
+| `jp gpr`             | View, checkout, or copy GitHub PR URLs.                        | `--action [view\|checkout\|copy]` |
+| `jp gbrowse`         | Open the current repo/branch/commit in GitHub.                 | `--target [repo\|commit\|branch]` |
+| `jp stashview`       | Browse, apply, pop, or drop git stashes interactively.         | `--action [apply\|pop\|drop]`     |
+| `jp git-branchcheck` | List all local branches with upstream tracking status.         |                                   |
 
-### Navigation & System
+### Navigation & Search
 
-Fast movement through large monorepos.
+_Move fast, find things faster._
 
-| Command           | Description                                                                                               | Key Flags                 |
-| :---------------- | :-------------------------------------------------------------------------------------------------------- | :------------------------ |
-| `jp recent`       | Fuzzy-find recently modified files. Intelligently ignores noise like `node_modules`, `.venv`, and `.git`. | `--files-only`, `--limit` |
-| `jp proj`         | A wrapper around `zoxide` to fuzzy-jump to frequently accessed projects.                                  |                           |
-| `jp process-kill` | Interactive process killer. Filters by name or port, shows cmdline arguments.                             | `--port`, `--force`       |
-| `jp audioswap`    | Instantly fuzzy-select and switch macOS audio output devices (requires `SwitchAudioSource`).              |                           |
+| Command            | Description                                          | Key Flags                        |
+| :----------------- | :--------------------------------------------------- | :------------------------------- |
+| `jp recent`        | Fuzzy-find recently modified files or directories.   | `--files-only`, `--include-dirs` |
+| `jp proj`          | Jump to frequently accessed projects (via `zoxide`). |                                  |
+| `jp ripper`        | Interactive code search using `ripgrep` + `fzf`.     | `--context`                      |
+| `jp todo-scan`     | Scan for TODO/FIXME/HACK/BUG markers.                | `--types`                        |
+| `jp loggrep`       | Search or tail log files with regex support.         | `--follow`                       |
+| `jp brew-explorer` | Fuzzy-search Homebrew formulas and casks.            | `--query`                        |
 
-### Productivity
+### System Utilities
 
-| Command           | Description                                                                  |
-| :---------------- | :--------------------------------------------------------------------------- |
-| `jp standup`      | Aggregates your commits across _all_ local repositories for the last N days. |
-| `jp standup-note` | Runs `standup` and appends the report directly to today's daily note.        |
-| `jp init`         | Interactive bootstrap wizard to generate your `~/.jpconfig`.                 |
+_Control your machine._
+
+| Command           | Description                                                  | Key Flags         |
+| :---------------- | :----------------------------------------------------------- | :---------------- |
+| `jp process-kill` | Kill processes by name or port.                              | `--force`         |
+| `jp port-kill`    | Kill the process listening on a specific port.               | `--force`         |
+| `jp audioswap`    | Switch macOS audio output source.                            |                   |
+| `jp ssh-open`     | Fuzzy-select SSH hosts from `~/.ssh/config`.                 |                   |
+| `jp tmpserver`    | Start a simple Python HTTP server in the current dir.        | `--port`, `--dir` |
+| `jp doctor`       | Verify all external dependencies (`git`, `fzf`, `gh`, etc.). | `--tool`          |
+
+### Notes & Productivity
+
+_Capture thoughts and context._
+
+| Command           | Description                                                | Key Flags                    |
+| :---------------- | :--------------------------------------------------------- | :--------------------------- |
+| `jp note`         | Append to today's daily note (or open it).                 | `--message`                  |
+| `jp note-search`  | Grep through daily notes with preview.                     | `--no-fzf`                   |
+| `jp standup`      | Aggregate commits across all repos for the last N days.    | `--days`                     |
+| `jp standup-note` | Run `standup` and append to today's note.                  | `--days`                     |
+| `jp cliphist`     | Manage a simple file-based clipboard history.              | `--action [add\|pick\|show]` |
+| `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context. |                              |
+
+### Core
+
+| Command      | Description                                         |
+| :----------- | :-------------------------------------------------- |
+| `jp init`    | Interactive setup wizard for `~/.jpconfig`.         |
+| `jp config`  | View active configuration and source (file vs env). |
+| `jp version` | Show version.                                       |
 
 ## Configuration
 
