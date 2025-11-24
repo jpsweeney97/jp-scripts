@@ -1,45 +1,94 @@
-# AGENTS.md
+## Project Context
 
-## Project Overview
+`jpscripts` is a modern, typed Python 3.11+ CLI toolbox. It replaces legacy Bash scripts with a Python architecture using **Typer** (CLI), **Rich** (UI), **Pydantic** (Configuration), and **GitPython**.
 
-`jpscripts` is a Python 3.11+ command toolbox for macOS. The legacy Bash scripts are kept only for reference under `legacy/`; all active commands live in the Python package.
+**Crucial:** Do not generate Bash scripts. Do not place code in `legacy/`. All new functionality belongs in `src/jpscripts/`.
 
-## Directory Structure
+## Code Style & Standards
 
-- `src/jpscripts/` – Python package
-  - `core/` – shared utilities (console, config, git helpers)
-  - `commands/` – Typer subcommands (git, nav, system, notes, search, init)
-  - `main.py` – Typer app entrypoint (`jp`)
-- `tests/` – pytest-based smoke tests
-- `legacy/` – archived `bin/`, `lib/`, and `registry/` from the Bash era
+### 1. File Headers & Imports
 
-## Development Standards
+- **Must** include `from __future__ import annotations` as the first line in every Python file.
+- Use absolute imports for internal modules (e.g., `from jpscripts.core.console import console`).
+- Group imports: standard library, third-party, then local `jpscripts` modules.
 
-### Commands
+### 2. Output & Logging (Strict)
 
-- Use Typer functions in `src/jpscripts/commands/`. Keep implementations small and composable; prefer helpers in `core/` for reuse.
-- Register new commands in `src/jpscripts/main.py` via `app.command("name")(function)`.
-- Use Rich for user-facing output; avoid plain `print` unless emitting machine-readable data.
-- Validate external tools gracefully (e.g., check `shutil.which`) and provide install hints.
+- **NEVER** use Python's built-in `print()`.
+- **ALWAYS** use the singleton `console` imported from `jpscripts.core.console`.
+  - `console.print("[green]Success[/green]")` for user output.
+  - `console.print(Table(...))` for structured data.
+- For debugging or invisible logs, use the logger provided in `AppState`.
+  - `state.logger.debug("...")`
 
-### Configuration
+### 3. Command Architecture (Typer)
 
-- Configuration is modeled with Pydantic in `core/config.py`. Respect defaults and environment overrides. Do not read arbitrary files directly; use `load_config`.
+All commands must follow this pattern to ensure they handle configuration (AppState) correctly:
 
-### Dependencies
+```python
+from __future__ import annotations
+import typer
+from jpscripts.core.console import console
+from jpscripts.core.config import AppConfig
 
-- Runtime deps are declared in `pyproject.toml` under `[project.dependencies]`; dev/test deps live under `[project.optional-dependencies].dev`.
-- Prefer Python libraries (`pathlib`, `psutil`, `asyncio`, `subprocess`) over shelling out where feasible.
+# 1. Function signature includes ctx: typer.Context
+def my_command(ctx: typer.Context, name: str = typer.Argument(...)):
+    """Docstring becomes the CLI help text."""
 
-## Verification & Testing
+    # 2. Retrieve State
+    state = ctx.obj  # type: jpscripts.main.AppState
+    config: AppConfig = state.config
 
-- Run `pytest` for smoke coverage (`tests/test_smoke.py`). Add focused tests for new modules where appropriate.
-- Keep tests isolated from user state by using the fixtures in `tests/conftest.py` (they stub config and console).
+    # 3. Implementation
+    # Use config.worktree_root, config.notes_dir, etc.
 
-## Adding a Command (quick recipe)
+    # 4. Error Handling
+    if some_error:
+        console.print("[red]Error message[/red]")
+        raise typer.Exit(code=1)
+```
 
-1. Create `src/jpscripts/commands/<name>.py` or add to an existing module.
-2. Implement a Typer command function that accepts `typer.Context` when config/logging is needed.
-3. Register it in `src/jpscripts/main.py`.
-4. Add a short README note if it’s user-facing.
-5. Add or extend a pytest to cover the basics.
+### 4. Configuration
+
+- Configuration is strictly typed via Pydantic in `src/jpscripts/core/config.py`.
+- Do not read `~/.jpconfig` manually. Rely on `state.config` passed via the context.
+- If a new configuration field is needed, add it to the `AppConfig` class in `core/config.py` with a default factory or value.
+
+### 5. Git Operations
+
+- Prefer `jpscripts.core.git` helpers (`open_repo`, `describe_status`) over raw `git` commands.
+- If high-performance async is needed (like scanning 100+ repos), follow the pattern in `src/jpscripts/commands/git_ops.py` using `asyncio` and `rich.Live`.
+
+## Adding New Commands
+
+1.  **Create Module:** Add `src/jpscripts/commands/<topic>.py`.
+2.  **Register:** Import the function in `src/jpscripts/main.py` and register it:
+    ```python
+    app.command("command-name")(module.function_name)
+    ```
+3.  **External Tools:** If the command relies on a binary (e.g., `fzf`, `rg`), use `shutil.which` to validate presence. Raise `typer.Exit(1)` with a clear error if missing.
+
+## Testing Standards
+
+- Use `pytest`.
+- **Fixtures:** You rely on `tests/conftest.py`.
+  - `runner`: The `CliRunner` for invoking commands.
+  - `isolate_config`: Ensures you don't overwrite the user's real `~/.jpconfig`.
+  - `capture_console`: Mocks the Rich console so you can assert output.
+
+**Example Test:**
+
+```python
+from typer.testing import CliRunner
+import jpscripts.main as jp_main
+
+def test_my_command(runner: CliRunner):
+    result = runner.invoke(jp_main.app, ["command-name", "--flag"])
+    assert result.exit_code == 0
+    assert "Expected Output" in result.stdout
+```
+
+## Security & Safety
+
+- **Sandbox:** Assume operations run in a user's actual shell environment.
+- **Destructive Actions:** Ask for confirmation using `rich.prompt.Confirm.ask("Are you sure?")` for any deletion or irreversible git operation.
