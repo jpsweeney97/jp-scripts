@@ -18,20 +18,25 @@ def load_gitignore(root: Path) -> pathspec.PathSpec:
     return pathspec.PathSpec.from_lines("gitwildmatch", lines)
 
 
+def _estimate_tokens(text: str) -> int:
+    # Rule of thumb: ~4 chars per token for code
+    return len(text) // 4
+
+
 def repo_map(
     ctx: typer.Context,
     max_lines: int = typer.Option(500, "--max-lines", "-n", help="Max lines per file before truncation"),
 ) -> None:
-    """Pack the current repo into an LLM-friendly XML format and copy to clipboard."""
+    """Pack the current repo into an LLM-friendly XML format (CDATA wrapped)."""
     root = Path.cwd()
 
-    # Graceful fallback if not a git repo
     if not is_repo(root):
         console.print("[yellow]Not a git repo. Packing all files...[/yellow]")
 
     spec = load_gitignore(root)
     output: list[str] = []
     file_count = 0
+    total_tokens = 0
 
     console.print(f"[cyan]Packing repository context from[/cyan] {root} ...")
 
@@ -42,7 +47,6 @@ def repo_map(
         rel_path = path.relative_to(root)
         rel_str = str(rel_path)
 
-        # Skip .git directory and anything matching .gitignore
         if ".git" in rel_str.split("/") or spec.match_file(rel_str):
             continue
 
@@ -56,17 +60,19 @@ def repo_map(
             else:
                 content = content_raw
 
-            xml_entry = f'<file path="{rel_path}">\n{content}\n</file>'
+            # CDATA wrapping prevents XML injection from code symbols like '<' or '&'
+            xml_entry = f'<file path="{rel_path}">\n<![CDATA[\n{content}\n]]>\n</file>'
             output.append(xml_entry)
             file_count += 1
+            total_tokens += _estimate_tokens(content)
 
         except UnicodeDecodeError:
             continue
-        except Exception as e:  # pragma: no cover - defensive logging
+        except Exception as e:
             console.print(f"[red]Error reading {rel_path}: {e}[/red]")
 
     final_payload = "\n".join(output)
     pyperclip.copy(final_payload)
 
-    console.print(f"[green]Packed {file_count} files ({len(final_payload)} chars) to clipboard.[/green]")
+    console.print(f"[green]Packed {file_count} files (~{total_tokens} tokens) to clipboard.[/green]")
     console.print("Ready to paste into ChatGPT/Gemini.")

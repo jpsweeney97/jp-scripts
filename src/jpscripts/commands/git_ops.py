@@ -175,3 +175,51 @@ def whatpush(
 
     if diffstat.strip():
         console.print(Panel(diffstat, title="Diffstat", box=box.SIMPLE))
+
+# Add to src/jpscripts/commands/git_ops.py
+
+async def _fetch_repo(path: Path) -> str:
+    """Run git fetch --all and return a status string."""
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            "git fetch --all",
+            cwd=path,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        await proc.communicate()
+        return "[green]fetched[/]" if proc.returncode == 0 else "[red]failed[/]"
+    except Exception:
+        return "[red]error[/]"
+
+def sync(
+    ctx: typer.Context,
+    root: Path | None = typer.Option(None, "--root", "-r"),
+    max_depth: int = typer.Option(2, "--max-depth"),
+) -> None:
+    """Parallel git fetch across all repositories."""
+    state = ctx.obj
+    base_root = root or state.config.worktree_root or state.config.workspace_root
+    base_root = base_root.expanduser()
+
+    repo_paths = list(git_core.iter_git_repos(base_root, max_depth=max_depth))
+
+    # We use a table to show live progress
+    table = Table(title=f"Syncing {len(repo_paths)} Repositories", box=box.SIMPLE)
+    table.add_column("Repo", style="cyan")
+    table.add_column("Status", style="white")
+
+    async def runner():
+        with Live(table, console=console, refresh_per_second=4):
+            # Semaphore to prevent opening too many file descriptors
+            sem = asyncio.Semaphore(10)
+
+            async def bounded_fetch(path):
+                async with sem:
+                    res = await _fetch_repo(path)
+                    table.add_row(path.name, res)
+
+            tasks = [bounded_fetch(p) for p in repo_paths]
+            await asyncio.gather(*tasks)
+
+    asyncio.run(runner())

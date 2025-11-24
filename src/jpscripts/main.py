@@ -211,6 +211,7 @@ def show_version() -> None:
 
 app.command("status-all")(git_ops.status_all)
 app.command("whatpush")(git_ops.whatpush)
+app.command("sync")(git_ops.sync)
 app.command("recent")(nav.recent)
 app.command("proj")(nav.proj)
 app.command("init")(init.init)
