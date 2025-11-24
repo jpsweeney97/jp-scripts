@@ -5,8 +5,10 @@ import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
+import re
+from urllib.parse import unquote
+from typing import TYPE_CHECKING
 
-import trafilatura
 import typer
 import yaml
 from rich import box
@@ -14,6 +16,10 @@ from rich.table import Table
 
 from jpscripts.core.console import console
 from jpscripts.core.config import AppConfig
+
+# TYPE_CHECKING block ensures MyPy still works, but runtime doesn't import
+if TYPE_CHECKING:
+    import trafilatura
 
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -23,11 +29,22 @@ BROWSER_UA = (
 
 def _slugify_url(url: str, today: dt.date) -> str:
     parsed = urlparse(url)
-    domain = parsed.netloc.replace(".", "-")
-    path_parts = [part for part in parsed.path.split("/") if part]
-    path_slug = "-".join(path_parts) if path_parts else "home"
-    return f"{domain}-{path_slug}_{today.isoformat()}.yaml"
 
+    # 1. Sanitize Netloc: Remove ports (:) and other illegal chars
+    # localhost:8000 -> localhost-8000
+    safe_domain = re.sub(r"[^a-zA-Z0-9.-]", "-", parsed.netloc).replace(".", "-")
+
+    # 2. Sanitize Path: Decode %20, then strip non-alphanumeric
+    path = unquote(parsed.path)
+    safe_path = re.sub(r"[^a-zA-Z0-9-]", "-", path)
+
+    # 3. Collapse multiple dashes and strip edges
+    path_slug = re.sub(r"-+", "-", safe_path).strip("-")
+
+    if not path_slug:
+        path_slug = "home"
+
+    return f"{safe_domain}-{path_slug}_{today.isoformat()}.yaml"
 
 def _write_yaml(metadata: dict, content: str, dest: Path) -> None:
     docs = [
@@ -46,8 +63,16 @@ def web_snap(
     url: str = typer.Argument(..., help="URL to fetch and snapshot."),
 ) -> None:
     """Fetch a webpage, extract main content, and save as a YAML snapshot."""
+    # LAZY IMPORT: Only pay the cost when we use the command
+    try:
+        import trafilatura
+    except ImportError:
+        console.print("[red]trafilatura not installed. Run `pip install jpscripts[full]`[/red]")
+        raise typer.Exit(code=1)
+
     state = ctx.obj
     config: AppConfig = state.config
+
     target_dir = (config.snapshots_dir or Path(".")).expanduser()
     target_dir.mkdir(parents=True, exist_ok=True)
 
