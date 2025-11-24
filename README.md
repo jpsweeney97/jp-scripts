@@ -7,6 +7,37 @@
 
 `jpscripts` is a complete rewrite of legacy Bash tooling into a unified Python application powered by **Typer**, **Rich**, and **GitPython**. It provides high-leverage utilities for git repository management, deep system navigation, productivity logging, and AI-context generation.
 
+## Architecture
+
+```mermaid
+graph TD
+    User[User Terminal] -->|jp command| Main[main.py]
+    Main --> Config[core/config.py]
+    Main -->|Dispatch| Cmds[Commands Module]
+
+    subgraph Core Logic
+        Git[core/git.py]
+        Console[core/console.py]
+        UI[core/ui.py]
+    end
+
+    subgraph External Binaries
+        Zoxide[zoxide]
+        Fzf[fzf]
+        Rg[ripgrep]
+        Gh[gh]
+    end
+
+    Cmds --> Git
+    Cmds --> Console
+    Cmds --> UI
+
+    Cmds -.->|subprocess| Zoxide
+    Cmds -.->|subprocess| Fzf
+    Cmds -.->|subprocess| Rg
+    Cmds -.->|subprocess| Gh
+```
+
 ## Prerequisites
 
 `jpscripts` orchestrates powerful system binaries. You must have these installed:
@@ -96,6 +127,7 @@ _Capture thoughts and context._
 | `jp standup-note` | Run `standup` and append to today's note.                  | `--days`                     |
 | `jp cliphist`     | Manage clipboard history backed by SQLite (no corruption). | `--action [add\|pick\|show]` |
 | `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context. |                              |
+| `jp repo-map`     | Pack repo files into XML for LLM paste (respects .gitignore)| `--max-lines`                |
 
 ### Core
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import pytest
-from pathlib import Path
 from git import Repo
 
 from jpscripts.commands import git_extra

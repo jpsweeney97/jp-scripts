@@ -13,6 +13,13 @@ from jpscripts.core import git as git_core
 from jpscripts.core.console import console
 from jpscripts.core.ui import fzf_select
 
+app = typer.Typer()
+
+
+@app.callback()
+def _git_extra_callback(ctx: typer.Context) -> None:
+    """Entry point for git extra commands."""
+
 
 def _ensure_repo(path: Path) -> git_core.Repo:
     try:
@@ -33,8 +40,7 @@ def gundo_last(
 
     # Check if we have any commits to undo
     try:
-        head_commit = repo.head.commit
-        parent = head_commit.parents[0] if head_commit.parents else None
+        repo.head.commit
     except ValueError:
         console.print("[red]Repo has no commits to undo.[/red]")
         raise typer.Exit(code=1)
@@ -53,6 +59,9 @@ def gundo_last(
     mode = "--hard" if hard else "--soft"
     repo.git.reset(mode, "HEAD~1")
     console.print(f"[green]Reset {status.branch} one commit back ({mode}).[/green]")
+
+
+app.command("gundo-last")(gundo_last)
 
 def gstage(
     ctx: typer.Context,

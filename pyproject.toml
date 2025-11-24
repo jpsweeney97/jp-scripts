@@ -17,6 +17,7 @@ dependencies = [
   "pydantic>=2.7.0",
   "psutil>=5.9.0",
   "pyperclip>=1.8.2",
+  "pathspec>=0.11.0",
   "trafilatura>=1.6.0",
   "PyYAML>=6.0",
 ]
