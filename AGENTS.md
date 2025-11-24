@@ -1,77 +1,80 @@
 # AGENTS.md
 
-> **Role**: You are a Senior Python Tooling Architect optimizing `jpscripts`.
-> **Goal**: Maintain a "God-Mode" CLI that prioritizes speed, type safety, and graceful failure.
+> **Role**: You are a Principal Software Engineer maintaining `jpscripts`.
+> **Context**: This is a Python 3.11+ Typer CLI.
+> **Philosophy**: Speed (<50ms startup), Type Safety (Strict MyPy), and Modularity.
+
+## Review guidelines
+
+Codex, when running `@codex review`, you must prioritize findings as follows:
+
+- **P0 (Blocking)**:
+
+  - **Blocking I/O**: Any synchronous file/network IO inside `async def` functions.
+  - **Shell Injection**: Usage of `subprocess.run(shell=True)` or unsanitized input in `shlex`.
+  - **Type Safety**: Any usage of `Any` or missing return type annotations.
+  - **Path Safety**: String concatenation for paths instead of `pathlib.Path / "child"`.
+
+- **P1 (High Priority)**:
+  - **Missing Docs**: New commands without a docstring or `README.md` entry.
+  - **Missing Smoke Test**: New commands not registered in `tests/test_smoke.py`.
+  - **Fragile Imports**: Top-level imports of heavy libraries (`git`, `pandas`) that slow down CLI startup.
 
 ## 1. Cognitive Model & Heuristics
 
-When modifying this repository, apply the following reasoning steps:
+When writing code for this repository, you must adhere to this decision tree:
 
-1.  **Dependency Check**: Does this new command require a binary (e.g., `jq`, `node`)?
-    - _If YES_: You MUST add it to `ExternalTool` list in `src/jpscripts/main.py` and wrap execution in `shutil.which` checks.
-    - _Refusal_: Do not assume the user has the binary. Fail gracefully with a `console.print("[red]...[/red]")`.
-2.  **Concurrency Check**: Does this command scan the disk or network?
-    - _If YES_: You MUST use `asyncio` (like `git_ops.py`) or `threading`. Never block the main thread on IO > 100ms.
-3.  **UI Check**: Are you using `print()`?
-    - _Strict Prohibition_: Use `console.print()` from `core.console`.
-    - _Tables_: Use `rich.table.Table` with `box=box.SIMPLE_HEAVY` for all list data.
-    - _Panels_: Use `rich.panel.Panel` for large text blocks or command output.
+1.  **Dependency Check**:
 
-## 2. Codebase Map
+    - Does the command need a binary (e.g., `gh`, `fzf`, `rg`)?
+    - **ACTION**: Add it to `DEFAULT_TOOLS` in `src/jpscripts/main.py`. Wrap execution in `shutil.which`.
 
-- **Entry**: `src/jpscripts/main.py` (App setup, Doctor, Global Flags)
-- **Config**: `src/jpscripts/core/config.py` (Pydantic models, Env var mapping)
-- **Git Core**: `src/jpscripts/core/git.py` (GitPython wrappers - **PREFER** these over raw shell)
-- **Tests**: `tests/unit/` for logic, `tests/test_smoke.py` for CLI integration.
+2.  **Concurrency Check**:
 
-## 3. Implementation Patterns (Few-Shot Learning)
+    - Does the command touch the disk more than 10 times or hit the network?
+    - **ACTION**: Use `asyncio`. Use `rich.live.Live` for status updates (see `git_ops.py`).
 
-### Pattern: Adding a New Command
+3.  **UI Check**:
+    - **PROHIBITED**: `print()`, `input()`.
+    - **REQUIRED**: `jpscripts.core.console.console.print()`, `rich.prompt.Prompt`.
 
-**Input**: Create a command `ip` that shows local IP.
-**Correct Output**:
+## 2. Project Architecture
 
-```python
-@app.command("ip")
-def show_ip():
-    """Show local IP address."""
-    import socket
-    ip = socket.gethostbyname(socket.gethostname())
-    console.print(f"[green]Local IP:[/green] {ip}")
-```
+| Path                      | Purpose                                                                |
+| :------------------------ | :--------------------------------------------------------------------- |
+| `src/jpscripts/main.py`   | App entry, config loading, dependency injection (`AppState`).          |
+| `src/jpscripts/core/`     | **Stable Kernel**. Changes here require P0 review.                     |
+| `src/jpscripts/commands/` | **Feature Plugins**. Isolated logic. Must use `ctx.obj` for config.    |
+| `tests/test_smoke.py`     | **CI Gate**. Checks that every command runs `--help` without crashing. |
 
-### Pattern: interactive Selection (FZF)
+## 3. Implementation Patterns
 
-**Input**: Pick a branch.
-**Correct Output**:
+### Pattern: Fast-Path Imports
+
+**Goal**: Keep `jp --help` under 50ms.
+**Wrong**:
 
 ```python
-from jpscripts.core.ui import fzf_select
-branches = [b.name for b in repo.branches]
-selection = fzf_select(branches, prompt="branch> ")
-if not selection:
-    raise typer.Exit()
+import pandas as pd  # Slows down EVERY command
+def analyze(): ...
 ```
 
-### Pattern: Configuration Access
-
-**Input**: Read the notes directory.
-**Correct Output**:
+**Right**:
 
 ```python
-def command(ctx: typer.Context):
-    state = ctx.obj
-    notes_dir = state.config.notes_dir.expanduser()
+def analyze():
+    import pandas as pd  # Import only when needed
+    ...
 ```
 
-## 4. Testing Guidelines
+### Pattern: Configuration Injection
 
-- **Smoke Tests**: Every new command MUST have a corresponding entry in `tests/test_smoke.py`.
-- **Mocking**: Use `monkeypatch` for system calls. Do not actually kill processes or delete files during tests.
-- **Fixtures**: Use `isolate_config` from `conftest.py` to prevent overwriting the user's real `~/.jpconfig`.
+**Goal**: Never read env vars directly in commands.
+**Right**:
 
-## 5. Critical Constraints
-
-- **Type Hints**: All files must utilize `from __future__ import annotations`.
-- **Path Safety**: Use `pathlib.Path` exclusively. Never string manipulation for paths.
-- **Imports**: lazy import heavy modules (like `git` or `pandas`) inside the function if they are not used globally, to keep CLI startup time \< 50ms.
+```python
+def my_cmd(ctx: typer.Context):
+    state: AppState = ctx.obj
+    # Config is already loaded, validated, and normalized
+    target = state.config.workspace_root
+```
