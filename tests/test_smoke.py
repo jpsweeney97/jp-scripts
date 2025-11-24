@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-import pytest
 from typer.testing import CliRunner
 from typer.main import get_command
 
+from jpscripts import __version__
 import jpscripts.main as jp_main
 from jpscripts.main import app
 
@@ -13,7 +13,7 @@ runner = CliRunner()
 def test_app_version():
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
-    assert "0.1.0" in result.stdout
+    assert __version__ in result.stdout
 
 def test_doctor_mocked(monkeypatch):
     """Ensure doctor runs without crashing even if tools are missing."""

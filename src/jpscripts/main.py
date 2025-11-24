@@ -46,14 +46,14 @@ class ToolCheck:
 
 
 DEFAULT_TOOLS: list[ExternalTool] = [
-    ExternalTool(name="Git", binary="git", install_hint="brew install git"),
-    ExternalTool(name="ripgrep", binary="rg", install_hint="brew install ripgrep"),
-    ExternalTool(name="fzf", binary="fzf", install_hint="brew install fzf"),
-    ExternalTool(name="GitHub CLI", binary="gh", install_hint="brew install gh"),
-    ExternalTool(name="Python", binary="python3", install_hint="brew install python"),
-    ExternalTool(name="Homebrew", binary="brew", install_hint="https://brew.sh"),
+    ExternalTool(name="Git", binary="git", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(name="ripgrep", binary="rg", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(name="fzf", binary="fzf", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(name="GitHub CLI", binary="gh", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(name="Python", binary="python3", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(name="Homebrew", binary="brew", install_hint="macOS: https://brew.sh"),
     ExternalTool(name="SwitchAudioSource", binary="SwitchAudioSource", required=False),
-    ExternalTool(name="zoxide", binary="zoxide", install_hint="brew install zoxide", required=False),
+    ExternalTool(name="zoxide", binary="zoxide", install_hint="Install via your package manager (brew, apt, etc.)", required=False),
 ]
 
 

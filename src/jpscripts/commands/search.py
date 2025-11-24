@@ -3,12 +3,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Iterable
 
 import typer
-from rich import box
-from rich.panel import Panel
-from rich.table import Table
 
 from jpscripts.core.console import console
 

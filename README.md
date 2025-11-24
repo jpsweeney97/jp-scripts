@@ -94,7 +94,7 @@ _Capture thoughts and context._
 | `jp note-search`  | Grep through daily notes with preview.                     | `--no-fzf`                   |
 | `jp standup`      | Aggregate commits across all repos for the last N days.    | `--days`                     |
 | `jp standup-note` | Run `standup` and append to today's note.                  | `--days`                     |
-| `jp cliphist`     | Manage a simple file-based clipboard history.              | `--action [add\|pick\|show]` |
+| `jp cliphist`     | Manage clipboard history backed by SQLite (no corruption). | `--action [add\|pick\|show]` |
 | `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context. |                              |
 
 ### Core
@@ -127,6 +127,9 @@ notes_dir = "~/Notes/quick-notes"
 
 # Root for 'jp recent' scans
 workspace_root = "~/Projects"
+
+# Directory names to ignore when scanning (default: [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"])
+ignore_dirs = [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"]
 
 # Where 'jp web-snap' saves YAML snapshots
 snapshots_dir = "~/snapshots"

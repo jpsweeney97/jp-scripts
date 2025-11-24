@@ -18,7 +18,7 @@ This is a **Typer** application organized by domain:
     app.command("my-new-cmd")(module.my_new_cmd)
     ```
 3.  **Document it:** Add the command to `README.md` immediately.
-4.  **Test it:** Add a simple invocation test in `tests/test_smoke.py`.
+4.  **Test it:** Add focused unit tests in `tests/unit/` for logic and a smoke test in `tests/test_smoke.py` for CLI invocation.
 
 ## Development
 

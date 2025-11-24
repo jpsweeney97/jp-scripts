@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import datetime as dt
-import os
 import shlex
 import shutil
+import sqlite3
 import subprocess
 from pathlib import Path
-from typing import Iterable
 
 import pyperclip
 import typer
 from rich import box
-from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
@@ -19,6 +17,7 @@ from jpscripts.core import git as git_core
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"
+CLIPHIST_DB = CLIPHIST_DIR / "history.db"
 
 
 def _ensure_notes_dir(notes_dir: Path) -> None:
@@ -172,62 +171,116 @@ def standup_note(ctx: typer.Context, days: int = typer.Option(3, "--days", "-d",
     console.print(captured)
 
 
+def _init_db() -> sqlite3.Connection:
+    """Initialize the clipboard history database and return a connection."""
+    CLIPHIST_DIR.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(CLIPHIST_DB)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            content TEXT NOT NULL
+        )
+        """
+    )
+    _migrate_legacy_history(conn)
+    return conn
+
+
+def _migrate_legacy_history(conn: sqlite3.Connection) -> None:
+    """One-time import from the legacy text history if present."""
+    if not CLIPHIST_FILE.exists():
+        return
+
+    try:
+        has_rows = conn.execute("SELECT 1 FROM history LIMIT 1").fetchone()
+    except sqlite3.Error:
+        return
+
+    if has_rows:
+        return
+
+    try:
+        lines = [line for line in CLIPHIST_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
+    except OSError:
+        return
+
+    records: list[tuple[str, str]] = []
+    for line in lines:
+        when, _, text = line.partition("\t")
+        if text:
+            records.append((when, text))
+
+    if records:
+        conn.executemany("INSERT INTO history (timestamp, content) VALUES (?, ?)", records)
+        console.print(f"[green]Imported {len(records)} clipboard entries from legacy history.[/green]")
+
+
 def cliphist(
+    ctx: typer.Context,
     action: str = typer.Option("add", "--action", "-a", help="add (save current clipboard), pick (fzf select), show"),
     limit: int = typer.Option(50, "--limit", "-l", help="Max entries to show when picking."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
-    """Simple clipboard history backed by a text file."""
-    CLIPHIST_DIR.mkdir(parents=True, exist_ok=True)
-    CLIPHIST_FILE.touch(exist_ok=True)
+    """Simple clipboard history backed by SQLite."""
+    try:
+        with _init_db() as conn:
+            use_fzf = shutil.which("fzf") and not no_fzf
 
-    use_fzf = shutil.which("fzf") and not no_fzf
+            if action == "add":
+                content = pyperclip.paste()
+                if not content:
+                    console.print("[yellow]Clipboard is empty.[/yellow]")
+                    return
+                timestamp = dt.datetime.now().isoformat(timespec="seconds")
+                conn.execute(
+                    "INSERT INTO history (timestamp, content) VALUES (?, ?)",
+                    (timestamp, content),
+                )
+                console.print("[green]Saved clipboard entry.[/green]")
+                return
 
-    if action == "add":
-        content = pyperclip.paste()
-        if not content:
-            console.print("[yellow]Clipboard is empty.[/yellow]")
-            return
-        timestamp = dt.datetime.now().isoformat(timespec="seconds")
-        with CLIPHIST_FILE.open("a", encoding="utf-8") as f:
-            f.write(f"{timestamp}\t{content}\n")
-        console.print("[green]Saved clipboard entry.[/green]")
-        return
+            cursor = conn.execute(
+                "SELECT timestamp, content FROM history ORDER BY id DESC LIMIT ?",
+                (limit,),
+            )
+            entries = cursor.fetchall()
 
-    entries = [line.rstrip("\n") for line in CLIPHIST_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not entries:
-        console.print("[yellow]No clipboard history yet.[/yellow]")
-        return
+            if not entries:
+                console.print("[yellow]No clipboard history yet.[/yellow]")
+                return
 
-    entries = entries[-limit:]
+            if action == "show":
+                table = Table(title="Clipboard history", box=box.SIMPLE_HEAVY, expand=True)
+                table.add_column("When", style="cyan", no_wrap=True)
+                table.add_column("Text", style="white")
+                for when, text in entries:
+                    table.add_row(when, text)
+                console.print(table)
+                return
 
-    if action == "show":
-        table = Table(title="Clipboard history", box=box.SIMPLE_HEAVY, expand=True)
-        table.add_column("When", style="cyan", no_wrap=True)
-        table.add_column("Text", style="white")
-        for line in reversed(entries):
-            when, _, text = line.partition("\t")
-            table.add_row(when, text)
-        console.print(table)
-        return
+            if action == "pick":
+                lines = [f"{when}\t{text}" for when, text in entries]
+                selection = None
+                if use_fzf:
+                    selection = subprocess.run(
+                        ["fzf", "--prompt", "clip> "],
+                        input="\n".join(lines),
+                        text=True,
+                        capture_output=True,
+                    ).stdout.strip()
+                else:
+                    selection = lines[0]
 
-    if action == "pick":
-        lines = [line for line in reversed(entries)]
-        selection = None
-        if use_fzf:
-            selection = subprocess.run(
-                ["fzf", "--prompt", "clip> "],
-                input="\n".join(lines),
-                text=True,
-                capture_output=True,
-            ).stdout.strip()
-        else:
-            selection = lines[0]
-
-        if selection:
-            _, _, text = selection.partition("\t")
-            pyperclip.copy(text)
-            console.print("[green]Copied selection to clipboard.[/green]")
-        return
+                if selection:
+                    _, _, text = selection.partition("\t")
+                    pyperclip.copy(text)
+                    console.print("[green]Copied selection to clipboard.[/green]")
+                return
+    except sqlite3.Error as exc:
+        console.print(f"[red]Clipboard history error:[/red] {exc}")
+        raise typer.Exit(code=1)
 
     console.print("[red]Unknown action. Use add, pick, or show.[/red]")

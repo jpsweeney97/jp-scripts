@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import datetime as dt
-import socket
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,7 +10,6 @@ import trafilatura
 import typer
 import yaml
 from rich import box
-from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
@@ -96,7 +95,7 @@ def web_snap(
     table.add_row("Timestamp", metadata["timestamp"])
     console.print(table)
 
-    if socket.gethostname().endswith(".local"):  # crude macOS hint
+    if sys.platform == "darwin":
         try:
             subprocess.run(["open", "-R", str(output_path)], check=False)
         except FileNotFoundError:

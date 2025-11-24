@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import http.server
 import shutil
-import socket
 import socketserver
 import subprocess
 import threading
 from pathlib import Path
-from typing import Iterable
 
 import psutil
 import typer

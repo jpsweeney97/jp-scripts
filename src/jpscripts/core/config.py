@@ -41,6 +41,19 @@ class AppConfig(BaseModel):
     editor: str = Field(default="code -w", description="Editor command used for interactive edits.")
     notes_dir: Path = Field(default_factory=lambda: Path.home() / "Notes" / "quick-notes")
     workspace_root: Path = Field(default_factory=lambda: Path.home() / "Projects")
+    ignore_dirs: list[str] = Field(
+        default_factory=lambda: [
+            ".git",
+            "node_modules",
+            ".venv",
+            "__pycache__",
+            "dist",
+            "build",
+            ".idea",
+            ".vscode",
+        ],
+        description="Directory names to ignore when scanning for recent files.",
+    )
     snapshots_dir: Path = Field(default_factory=lambda: Path.home() / "snapshots")
     log_level: str = Field(default="INFO", description="Log level for jp output.")
     worktree_root: Path | None = Field(default=None, description="Optional location for Git worktrees.")

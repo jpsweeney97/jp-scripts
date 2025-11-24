@@ -106,3 +106,9 @@ When modifying `jpscripts`, prefer these internal wrappers over raw subprocess c
 - **Runner:** `pytest`
 - **Smoke Tests:** `tests/test_smoke.py` (Use this to verify CLI invocation)
 - **Mocking:** Use `typer.testing.CliRunner` for all command tests.
+
+## 6. Critical Invariants
+
+- **Concurrency:** All file writes MUST be atomic or locked. No race conditions allowed in CLI tools that might run in parallel panes.
+- **Platform Agnosticism:** Core logic must run on Linux/macOS. UI layers (like opening files) must detect the OS.
+- **Configuration:** Never hardcode ignore lists or paths. All magic strings move to `AppConfig` or `DEFAULT_CONSTANTS` that can be overridden.

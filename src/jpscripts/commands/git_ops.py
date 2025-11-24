@@ -123,7 +123,6 @@ def whatpush(
     max_commits: int = typer.Option(50, help="Maximum number of commits to display."),
 ) -> None:
     """Show what will be pushed to the upstream branch."""
-    state = ctx.obj
     repo_path = repo_path.expanduser()
 
     try:

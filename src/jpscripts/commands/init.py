@@ -1,22 +1,25 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from textwrap import dedent
 
 import typer
-from rich.prompt import Confirm, Prompt
+from rich.prompt import Prompt
 
 from jpscripts.core.console import console
 from jpscripts.core.config import AppConfig
 
 
 def _write_config(path: Path, config: AppConfig) -> None:
+    ignore_dirs_literal = ", ".join(json.dumps(item) for item in config.ignore_dirs)
     content = dedent(
         f"""
         # jpscripts configuration (TOML)
         editor = "{config.editor}"
         notes_dir = "{config.notes_dir}"
         workspace_root = "{config.workspace_root}"
+        ignore_dirs = [{ignore_dirs_literal}]
         snapshots_dir = "{config.snapshots_dir}"
         log_level = "{config.log_level}"
         worktree_root = "{config.worktree_root or ''}"
@@ -42,6 +45,13 @@ def init(ctx: typer.Context, config_path: Path | None = typer.Option(None, help=
     focus_audio_device = Prompt.ask(
         "Preferred audio device (optional)", default=defaults.focus_audio_device or ""
     ).strip() or None
+    ignore_dirs_input = Prompt.ask(
+        "Ignore directories (comma separated)",
+        default=",".join(defaults.ignore_dirs),
+    )
+    ignore_dirs = [item.strip() for item in ignore_dirs_input.split(",") if item.strip()]
+    if not ignore_dirs:
+        ignore_dirs = defaults.ignore_dirs
 
     config = AppConfig(
         editor=editor,
@@ -51,6 +61,7 @@ def init(ctx: typer.Context, config_path: Path | None = typer.Option(None, help=
         log_level=log_level,
         worktree_root=worktree_root,
         focus_audio_device=focus_audio_device,
+        ignore_dirs=ignore_dirs,
     )
 
     for target in [config.notes_dir, config.workspace_root, config.snapshots_dir, config.worktree_root]:

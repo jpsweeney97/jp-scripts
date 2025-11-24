@@ -15,17 +15,6 @@ from rich.table import Table
 from jpscripts.core.console import console
 from jpscripts.core.ui import fzf_select
 
-IGNORE_DIRS = {
-    ".git",
-    "node_modules",
-    ".venv",
-    "__pycache__",
-    "dist",
-    "build",
-    ".idea",
-    ".vscode",
-}
-
 
 @dataclass
 class RecentEntry:
@@ -38,16 +27,17 @@ def _human_time(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
 
 
-def _scan_recent(root: Path, max_depth: int, include_dirs: bool) -> list[RecentEntry]:
+def _scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
     entries: list[RecentEntry] = []
     stack: list[tuple[Path, int]] = [(root, 0)]
+    ignored = set(ignore_dirs)
 
     while stack:
         current, depth = stack.pop()
         try:
             with os.scandir(current) as it:
                 for entry in it:
-                    if entry.name in IGNORE_DIRS:
+                    if entry.name in ignored:
                         continue
                     try:
                         is_dir = entry.is_dir(follow_symlinks=False)
@@ -90,7 +80,9 @@ def recent(
         raise typer.Exit(code=1)
 
     include_dirs = include_dirs and not files_only
-    entries = _scan_recent(base_root, max_depth=max_depth, include_dirs=include_dirs)[:limit]
+    state = ctx.obj
+    ignore_dirs = set(state.config.ignore_dirs)
+    entries = _scan_recent(base_root, max_depth=max_depth, include_dirs=include_dirs, ignore_dirs=ignore_dirs)[:limit]
     if not entries:
         console.print(f"[yellow]No recent files found under {base_root}.[/yellow]")
         return
