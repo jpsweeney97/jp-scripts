@@ -87,7 +87,8 @@ def recent(
     ),
     limit: int = typer.Option(50, "--limit", "-l", help="Maximum number of entries to consider."),
     max_depth: int = typer.Option(4, "--max-depth", help="Maximum depth to traverse."),
-    include_dirs: bool = typer.Option(True, "--include-dirs/--files-only", help="Include directories in the results."),
+    include_dirs: bool = typer.Option(True, "--include-dirs", help="Include directories in the results."),
+    files_only: bool = typer.Option(False, "--files-only", help="Only include files (no directories)."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-jump to recently modified files or directories."""
@@ -99,6 +100,7 @@ def recent(
         console.print(f"[red]Root {base_root} does not exist.[/red]")
         raise typer.Exit(code=1)
 
+    include_dirs = include_dirs and not files_only
     entries = _scan_recent(base_root, max_depth=max_depth, include_dirs=include_dirs)[:limit]
     if not entries:
         console.print(f"[yellow]No recent files found under {base_root}.[/yellow]")

@@ -15,7 +15,7 @@ from rich.table import Table
 from typer.main import get_command
 
 from . import __version__
-from .commands import git_extra, git_ops, init, nav, notes, search, system
+from .commands import git_extra, git_ops, init, nav, notes, search, system, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 
@@ -62,12 +62,7 @@ def main(
     ctx: typer.Context,
     config: Path | None = typer.Option(None, "--config", "-c", help="Path to a jp config file (TOML or JSON)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
-    version: bool = typer.Option(False, "--version", help="Show the jpscripts version and exit."),
 ) -> None:
-    if version:
-        console.print(f"jpscripts {__version__}")
-        raise typer.Exit()
-
     try:
         loaded_config, meta = load_config(config_path=config)
     except ConfigError as exc:
@@ -219,6 +214,7 @@ app.command("whatpush")(git_ops.whatpush)
 app.command("recent")(nav.recent)
 app.command("proj")(nav.proj)
 app.command("init")(init.init)
+app.command("web-snap")(web.web_snap)
 app.command("process-kill")(system.process_kill)
 app.command("port-kill")(system.port_kill)
 app.command("brew-explorer")(system.brew_explorer)

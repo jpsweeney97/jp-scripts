@@ -51,7 +51,7 @@ def _kill_process(pid: int, force: bool) -> str:
 def process_kill(
     name: str = typer.Option("", "--name", "-n", help="Filter processes containing this substring."),
     port: int | None = typer.Option(None, "--port", "-p", help="Filter processes listening on a port."),
-    force: bool = typer.Option(False, "--force", "-9", help="Force kill (SIGKILL)."),
+    force: bool = typer.Option(False, "--force", "-f", help="Force kill (SIGKILL)."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Interactively select and kill a process using psutil."""
@@ -101,7 +101,7 @@ def process_kill(
 
 def port_kill(
     port: int = typer.Argument(..., help="Port to search for."),
-    force: bool = typer.Option(False, "--force", "-9", help="Force kill (SIGKILL)."),
+    force: bool = typer.Option(False, "--force", "-f", help="Force kill (SIGKILL)."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Find processes bound to a port and kill one."""

@@ -6,6 +6,7 @@ from pathlib import Path
 from typer.testing import CliRunner
 
 import jpscripts.main as jp_main
+from jpscripts.commands import web
 
 
 def test_help(runner: CliRunner):
@@ -34,3 +35,7 @@ def test_config_defaults(runner: CliRunner, isolate_config: Path):
     result = runner.invoke(jp_main.app, ["config"])
     assert result.exit_code == 0
     assert "notes_dir" in result.stdout
+
+
+def test_web_module_imports():
+    assert web is not None
