@@ -47,3 +47,19 @@ Codex, when running `@codex review`, prioritize these findings:
 3.  **UI Check**:
     - **PROHIBITED**: `print()`, `input()`.
     - **REQUIRED**: `console.print()`, `rich.prompt.Prompt`.
+
+## 4. Architectural Invariants & Cognitive Model
+
+### The "Command Pattern" Heuristic
+
+When creating a new command, the Agent MUST follow this mental graph:
+
+1.  **Input**: Define strict `typer.Option` types. Never use `input()`.
+2.  **Logic**: If logical complexity > 5 lines, move to `src/jpscripts/core/{domain}.py`.
+3.  **Output**: Use `console.print` with Rich markup.
+4.  **Registration**: The Agent MUST automatically register the command in `src/jpscripts/main.py` or the build is broken.
+
+### Context Awareness
+
+- **Configuration**: The Agent must never hardcode paths. Always resolve via `ctx.obj.config`.
+- **Git Operations**: Use `jpscripts.core.git`. Do not shell out to `subprocess.run("git", ...)` unless `GitPython` lacks the specific plumbing (e.g., complex interactive rebase).

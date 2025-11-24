@@ -1,0 +1,13 @@
+name: Codex God-Mode Review
+on: [pull_request]
+jobs:
+  codex-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Codex Review
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt: 'Review this code against the architectural invariants in AGENTS.md. Be harsh. Look for blocking I/O in async functions.'
+          safety-strategy: drop-sudo
