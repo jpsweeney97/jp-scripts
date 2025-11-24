@@ -25,15 +25,15 @@ case "${1-}" in
     ;;
 esac
 
-if ! command -v rg >/dev/null 2>&1; then
-  printf 'Error: global-replace requires ripgrep (rg). Install via: brew install ripgrep\n' >&2
-  exit 1
-fi
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
 
-if ! command -v sd >/dev/null 2>&1; then
-  printf 'Error: global-replace requires sd. Install via: brew install sd\n' >&2
-  exit 1
-fi
+deps_require rg ripgrep || exit 1
+deps_require sd sd "string replace" || exit 1
 
 APPLY=false
 LITERAL=false
@@ -100,10 +100,11 @@ mapfile -t files < <(printf '%s\n' "$matches_output" | awk -F: '{print $1}' | so
 file_count="${#files[@]}"
 total_matches="$(printf '%s\n' "$matches_output" | awk -F: '{s+=$2} END {print (s==""?0:s)}')"
 
-printf 'global-replace: "%s" -> "%s"\n' "$pattern" "$replacement"
-printf '  Paths:         %s\n' "${paths[*]}"
-printf '  Files touched: %d\n' "$file_count"
-printf '  Total matches: %s\n\n' "$total_matches"
+log_info "global-replace: \"$pattern\" -> \"$replacement\""
+log_info "  Paths:         ${paths[*]}"
+log_info "  Files touched: $file_count"
+log_info "  Total matches: $total_matches"
+echo
 
 printf 'Sample matches (first 20 lines):\n\n'
 printf '%s\n' "$(
@@ -126,8 +127,8 @@ esac
 
 for f in "${files[@]}"; do
   [ -f "$f" ] || continue
-  printf 'Updating %s\n' "$f"
+  log_info "Updating $f"
   sd "${sd_flags[@]}" -- "$pattern" "$replacement" "$f"
 done
 
-printf 'global-replace: done.\n'
+log_info "global-replace: done."

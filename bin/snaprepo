@@ -9,6 +9,7 @@ set -euo pipefail
 #   snaprepo --dry-run   # show what cleanzip would do, but don't create zip
 #   snaprepo --include-env   # include .env and key/cert files (default is exclude)
 #   snaprepo --force     # overwrite existing zip if it exists
+#   snaprepo --quiet     # suppress informational logs
 #
 # Notes:
 # - Must be run somewhere inside a git repository.
@@ -28,21 +29,20 @@ esac
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
 # shellcheck source=../lib/git.sh disable=SC1091
 . "$REPO_ROOT/lib/git.sh"
 
-if ! git_require_repo; then
-  exit 1
-fi
-
-if ! command -v cleanzip >/dev/null 2>&1; then
-  printf 'Error: cleanzip command not found. Ensure jp-scripts/bin is on PATH and cleanzip is installed.\n' >&2
-  exit 1
-fi
+git_require_repo || exit 1
+deps_require cleanzip zip "zip (cleanzip)" || exit 1
 
 DRY_RUN=false
 INCLUDE_ENV=false
 FORCE=false
+QUIET=0
 
 # Parse options
 while [ "$#" -gt 0 ]; do
@@ -57,6 +57,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --force)
       FORCE=true
+      shift
+      ;;
+    --quiet)
+      QUIET=true
       shift
       ;;
     -h|--help)
@@ -78,7 +82,10 @@ done
 
 REPO_PATH="$(git_repo_root || pwd)"
 
-printf 'snaprepo: repo root is %s\n' "$REPO_PATH"
+if [ "$QUIET" != "true" ]; then
+  log_info "snaprepo: repo root is $REPO_PATH"
+  log_info "Excludes: .git, build/cache dirs, .* swaps, logs, *.tmp, .env* (unless --include-env)"
+fi
 
 # Build flags to pass to cleanzip
 CLEAZIP_ARGS=()
@@ -96,4 +103,8 @@ if [ "$FORCE" = "true" ]; then
 fi
 
 # Delegate to cleanzip
-cleanzip "${CLEAZIP_ARGS[@]}" "$REPO_PATH"
+if [ "$QUIET" = "true" ]; then
+  log_run cleanzip --quiet "${CLEAZIP_ARGS[@]}" "$REPO_PATH"
+else
+  log_run cleanzip "${CLEAZIP_ARGS[@]}" "$REPO_PATH"
+fi

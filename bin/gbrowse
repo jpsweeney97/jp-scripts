@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: gbrowse
+# Category: git
+# Description: Open current git repo/branch/PR/commit/compare on GitHub in the browser.
+# Usage:
+#   gbrowse             # open repo home
+#   gbrowse --branch   # open current branch page
+#   gbrowse --pr       # open PR for current branch
+#   gbrowse --commit <sha>   # open a specific commit
+#   gbrowse --compare <target> # open compare against target (e.g., main)
+
+usage() {
+  sed -n '4,80p' "$0" | sed 's/^# \?//'
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
+# shellcheck source=../lib/git.sh disable=SC1091
+. "$REPO_ROOT/lib/git.sh"
+# shellcheck source=../lib/config.sh disable=SC1091
+. "$REPO_ROOT/lib/config.sh"
+
+MODE="repo"
+REMOTE=""
+COMMIT_SHA=""
+COMPARE_TARGET=""
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --branch)
+      MODE="branch"
+      shift
+      ;;
+    --pr)
+      MODE="pr"
+      shift
+      ;;
+    --commit)
+      MODE="commit"
+      COMMIT_SHA="${2-}"
+      [ -n "$COMMIT_SHA" ] || log_fatal "--commit requires a sha"
+      shift 2
+      ;;
+    --compare)
+      MODE="compare"
+      COMPARE_TARGET="${2-}"
+      [ -n "$COMPARE_TARGET" ] || log_fatal "--compare requires a target"
+      shift 2
+      ;;
+    --remote)
+      REMOTE="${2-}"
+      [ -n "$REMOTE" ] || log_fatal "--remote requires a name"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      log_fatal "Unknown option: $1"
+      ;;
+  esac
+done
+
+deps_require git git || exit 1
+git_require_repo || exit 1
+
+current_branch="$(git_current_branch)"
+if git_is_detached; then
+  [ "$MODE" = "commit" ] || [ "$MODE" = "compare" ] || log_fatal "Detached HEAD; use --commit or checkout a branch."
+fi
+
+base_remote="${REMOTE:-$(git_default_remote)}"
+[ -n "$base_remote" ] || log_fatal "No git remote found."
+
+web_url="$(git_remote_https_url "$base_remote")"
+[ -n "$web_url" ] || log_fatal "Could not derive remote URL."
+
+target_url="$web_url"
+
+case "$MODE" in
+  repo)
+    # already set
+    ;;
+  branch)
+    target_url="$web_url/tree/$current_branch"
+    ;;
+  pr)
+    if command -v gh >/dev/null 2>&1; then
+      deps_require gh gh || exit 1
+      gh pr view --web >/dev/null 2>&1 || gh pr create --web >/dev/null 2>&1
+      exit 0
+    else
+      target_url="$web_url/pull/new/$current_branch"
+    fi
+    ;;
+  commit)
+    target_url="$web_url/commit/$COMMIT_SHA"
+    ;;
+  compare)
+    target_url="$web_url/compare/${COMPARE_TARGET:-main}...$current_branch"
+    ;;
+esac
+
+log_info "Opening $target_url"
+if command -v open >/dev/null 2>&1; then
+  open "$target_url"
+elif command -v xdg-open >/dev/null 2>&1; then
+  xdg-open "$target_url"
+else
+  printf '%s\n' "$target_url"
+fi

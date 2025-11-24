@@ -25,12 +25,17 @@ esac
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
 # shellcheck source=../lib/fzf.sh disable=SC1091
 . "$REPO_ROOT/lib/fzf.sh"
 
-if ! fzf_require; then
-  exit 1
+if ! command -v ps >/dev/null 2>&1; then
+  log_fatal "ps command not found; cannot list processes."
 fi
+fzf_require || exit 1
 
 SIG="TERM"
 if [ "${1-}" = "--force" ]; then
@@ -39,7 +44,7 @@ fi
 
 ps_output="$(ps -axo pid,ppid,stat,%cpu,%mem,command | sed 1d)" || true
 if [ -z "$ps_output" ]; then
-  printf 'No processes found.\n'
+  log_warn "No processes found."
   exit 0
 fi
 
@@ -63,15 +68,15 @@ if [ "${#pids[@]}" -eq 0 ]; then
   exit 0
 fi
 
-printf 'About to send SIG%s to PIDs: %s\n' "$SIG" "${pids[*]}"
+log_info "About to send SIG${SIG} to PIDs: ${pids[*]}"
 printf 'Proceed? [y/N]: '
 read -r reply
 case "$reply" in
   y|Y|yes|YES) ;;
-  *) printf 'Aborted.\n'; exit 0 ;;
+  *) log_warn "Aborted."; exit 0 ;;
 esac
 
 for pid in "${pids[@]}"; do
-  printf 'killing PID %s with SIG%s\n' "$pid" "$SIG"
-  kill -s "$SIG" "$pid" || printf '  (failed to kill PID %s)\n' "$pid" >&2
+  log_info "killing PID $pid with SIG$SIG"
+  kill -s "$SIG" "$pid" || log_warn "failed to kill PID $pid"
 done

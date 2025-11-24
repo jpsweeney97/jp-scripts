@@ -10,7 +10,9 @@ set -euo pipefail
 #   standup --root DIR  # scan a different root than ~/Projects
 #
 # Env:
-#   STANDUP_ROOT   Override default root directory for repo scan.
+#   STANDUP_ROOT        Override default root directory for repo scan.
+#   STANDUP_MAX_DEPTH   Limit find depth when searching for repos (default 3).
+#   STANDUP_EXCLUDES    Comma-separated globs to skip when scanning (e.g., node_modules,venv).
 
 usage() {
   sed -n '4,40p' "$0" | sed 's/^# \?//'
@@ -24,10 +26,20 @@ case "${1-}" in
 esac
 
 ROOT="${STANDUP_ROOT:-"$HOME/Projects"}"
+MAX_DEPTH="${STANDUP_MAX_DEPTH:-3}"
+EXCLUDES_RAW="${STANDUP_EXCLUDES:-}"
+exclude_patterns=()
+if [ -n "$EXCLUDES_RAW" ]; then
+  IFS=',' read -r -a exclude_patterns <<< "$EXCLUDES_RAW"
+fi
 DAYS=1
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/config.sh disable=SC1091
+. "$REPO_ROOT/lib/config.sh"
 # shellcheck source=../lib/git.sh disable=SC1091
 . "$REPO_ROOT/lib/git.sh"
 
@@ -66,29 +78,42 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
-if ! git_require; then
-  exit 1
-fi
+git_require || exit 1
 
 if [ ! -d "$ROOT" ]; then
-  printf 'Error: root directory does not exist: %s\n' "$ROOT" >&2
-  exit 1
+  log_fatal "Root directory does not exist: $ROOT"
 fi
 
-# Date math: BSD date (macOS) supports -v; DAYS is positive integer.
-SINCE="$(date -v-"${DAYS}"d +%Y-%m-%dT00:00:00)"
+# Date math: BSD date (macOS) supports -v; fallback to GNU date.
+if date -v-"${DAYS}"d +%Y-%m-%dT00:00:00 >/dev/null 2>&1; then
+  SINCE="$(date -v-"${DAYS}"d +%Y-%m-%dT00:00:00)"
+else
+  SINCE="$(date -d "-${DAYS} days" +%Y-%m-%dT00:00:00)"
+fi
 UNTIL="$(date +%Y-%m-%dT23:59:59)"
 
 # Try to get your name for author filter; optional.
 AUTHOR_NAME="$(git config user.name 2>/dev/null || true)"
 
-printf 'Standup window: %s to %s (%s day(s))\n' "$SINCE" "$UNTIL" "$DAYS"
-printf 'Root: %s\n' "$ROOT"
-[ -n "$AUTHOR_NAME" ] && printf 'Author filter: %s\n' "$AUTHOR_NAME"
-printf '\n'
+log_info "Standup window: $SINCE to $UNTIL ($DAYS day(s))"
+log_info "Root: $ROOT (maxdepth $MAX_DEPTH)"
+if [ "${#exclude_patterns[@]}" -gt 0 ]; then
+  log_info "Excludes: ${EXCLUDES_RAW}"
+fi
+[ -n "$AUTHOR_NAME" ] && log_info "Author filter: $AUTHOR_NAME"
+echo
 
-# Find git repos under ROOT (maxdepth 3 to keep it sane).
-mapfile -t git_dirs < <(find "$ROOT" -maxdepth 3 -type d -name '.git' 2>/dev/null | sort)
+# Find git repos under ROOT.
+find_args=("$ROOT" -maxdepth "$MAX_DEPTH")
+for pat in "${exclude_patterns[@]}"; do
+  # Trim whitespace around patterns to avoid accidental spaces.
+  pat="${pat#"${pat%%[![:space:]]*}"}"
+  pat="${pat%"${pat##*[![:space:]]}"}"
+  [ -z "$pat" ] && continue
+  find_args+=(-not -path "*/$pat/*")
+done
+find_args+=(-type d -name '.git')
+mapfile -t git_dirs < <(find "${find_args[@]}" 2>/dev/null | sort)
 
 if [ "${#git_dirs[@]}" -eq 0 ]; then
   printf 'No git repositories found under %s\n' "$ROOT"
@@ -116,7 +141,7 @@ for gdir in "${git_dirs[@]}"; do
   if [ -n "$log_output" ]; then
     had_output=true
     name="$(basename "$repo")"
-    printf 'Repo: %s (%s)\n' "$name" "$repo"
+    log_info "Repo: $name ($repo)"
     printf '%s\n\n' "$log_output"
   fi
 done

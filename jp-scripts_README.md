@@ -34,12 +34,22 @@ Run `jpcom` anytime to see the current command catalog.
 | jpdoctor           | Tooling health; `jpdoctor tools` aggregates registry `requires`; `jpdoctor command <name>` checks one | bash, jq             |
 | jp-lint / jp-check | Lint registry + headers (+ optional shellcheck); jp-check = jp-lint + jpdoctor                        | bash, jq, shellcheck |
 | jp-smoke           | Non-interactive smoke test (lint, doctor, jpcom, note)                                                | bash, jq             |
+| jp-sync            | Keep jp-scripts healthy (git status, lint/doctor/smoke, optional snapshot; env: JP_SYNC_REPO/JP_SYNC_SNAP_DIR) | bash, git, jq, zip   |
 | jp-bootstrap       | Bootstrap PATH + notes/work dirs + health checks                                                      | bash                 |
 | jpnew              | Scaffold a new command (bin stub + registry entry; `--edit` opens it)                                 | bash, jq, fzf        |
 | work               | Run workspace scripts from `~/.config/jp-work.d`                                                      | bash                 |
-| standup            | Summarize recent git commits across repos                                                             | bash, git            |
+| standup            | Summarize recent git commits across repos (env: STANDUP_ROOT, STANDUP_MAX_DEPTH, STANDUP_EXCLUDES)   | bash, git            |
 | envrun             | Run a command with env vars loaded from a file                                                        | bash                 |
 | hist               | Fuzzy-search zsh history (most recent first; de-duplicated)                                           | bash, fzf            |
+
+### Optional deps, env overrides, quiet/test knobs
+
+- Optional deps: `fd`/`bat`/`git` speed up `recent`, `todo-scan`, `loggrep`; `gh` is optional for `gbrowse` (falls back to URL open).
+- Env overrides (common): `JP_SYNC_REPO`/`JP_SYNC_SNAP_DIR` (jp-sync), `STANDUP_ROOT`/`STANDUP_MAX_DEPTH`/`STANDUP_EXCLUDES` (standup), `JP_NOTES_DIR` (note/note-search/standup-note), `JP_WORKTREE_ROOT` (gworktree), `JP_EDITOR` (note).
+- Non-interactive/testing envs: `RECENT_NONINTERACTIVE`, `TODO_SCAN_NONINTERACTIVE`, `LOGGREP_NONINTERACTIVE`, `GWORKTREE_NONINTERACTIVE`, `LOGGREP_FOLLOW_ONCE=1` (one-line follow), `JP_SMOKE_SYNC_PUSH=1` (enable push/pull check in jp-smoke).
+- Quiet/dry-run: cleanzip/snaprepo/jp-sync/snap support `--quiet`; `cleanzip`/`snaprepo`/`jp-sync snap` log excludes and human-readable size in normal mode; `log_run` respects `JP_DRY_RUN=1`.
+- Smoke controls: `JP_SMOKE=1` (set by jp-smoke) skips redundant jp-sync checks; `JP_SMOKE_MAX_TIME` optionally aborts long runs; `JP_SMOKE_SYNC_PUSH=1` opt-in to push/pull smoke.
+- Helper conventions: scripts prefer `lib/log.sh` for info/warn/error, `lib/deps.sh` for `deps_require`/`deps_warn_missing`; fzf helpers set consistent headers/previews.
 
 ### Workspaces
 
@@ -66,7 +76,10 @@ work umaf     # run UMAF workspace script
 | Command | What                                                                                     | Requires           |
 | ------- | ---------------------------------------------------------------------------------------- | ------------------ |
 | proj    | Fuzzy-jump to frequently used directories via zoxide + fzf (use `cd "$(proj)"` or Alt-P) | bash, zoxide, fzf  |
+| recent  | Fuzzy-jump to recently modified files/dirs in the current project (fzf + preview)        | bash, fzf, fd, bat |
 | ripper  | Interactive code search: rg → fzf with bat preview, jump to editor                       | bash, rg, fzf, bat |
+| todo-scan | Scan for TODO/FIXME/HACK/BUG and jump into files (supports git-root, filters)          | bash, rg, fzf, bat |
+| loggrep | Friendly log search/tail with rg + fzf preview                                           | bash, rg, fzf, bat |
 | hist    | Fuzzy zsh history (see Meta table)                                                       | bash, fzf          |
 
 ---
@@ -85,7 +98,9 @@ work umaf     # run UMAF workspace script
 | gstage          | Interactively stage changed files by number                     | bash, git              |
 | git-branchcheck | Interactive branch picker (local + remote)                      | bash, git, fzf         |
 | stashview       | Interactive stash browser with apply/pop/drop                   | bash, git, fzf         |
+| gbrowse         | Open current repo/branch/PR/commit/compare on GitHub            | bash, git (gh optional)|
 | snaprepo        | Snapshot current git repo as a clean zip (uses cleanzip)        | bash, git, cleanzip    |
+| gworktree       | Manage git worktrees with safe defaults and fzf picker          | bash, git, fzf         |
 | gpr             | GitHub PR helper with gh + fzf (view/open/checkout)             | bash, git, gh, fzf, jq |
 
 ---
@@ -107,6 +122,8 @@ work umaf     # run UMAF workspace script
 | Command  | What                                                                      | Requires                        |
 | -------- | ------------------------------------------------------------------------- | ------------------------------- |
 | note     | Fast daily note capture/append in `$HOME/Notes/quick-notes/YYYY-MM-DD.md` | bash                            |
+| note-search | Fzf search across daily Markdown notes and jump to a match             | bash, rg, fzf, bat              |
+| standup-note | Run standup and append the output into today’s note as a section      | bash, standup, git              |
 | cliphist | Clipboard history: save, browse (fzf+bat), restore                        | bash, pbcopy, pbpaste, fzf, bat |
 
 ---
@@ -138,6 +155,25 @@ work umaf     # run UMAF workspace script
 - `jpcom info <name>` surfaces description + tags/requires/examples; `jpdoctor tools` aggregates `requires`.
 - Keep `bin/<script>` headers in sync with registry; `jp-lint` will warn on missing metadata or drift.
 - `jpnew` scaffolds a new script and appends a registry entry (tags/examples included by default).
+
+## Shared helpers & config
+
+- Config (`lib/config.sh`): reads `~/.jpconfig` once; env overrides win (`JP_EDITOR`, `JP_NOTES_DIR`, `JP_FOCUS_AUDIO_DEVICE`, `JP_WORKTREE_ROOT`, `JP_BREW_PROFILE`). Example:
+
+  ```bash
+  # ~/.jpconfig
+  editor="code -w"
+  notes_dir="$HOME/Notes/quick-notes"
+  focus_audio_device="Headphones"
+  worktree_root="$HOME/Projects/.worktrees"
+  brew_profile="work"
+  ```
+
+- Logging (`lib/log.sh`): `log_info/warn/error/debug`, `log_run`; honors `JP_VERBOSE`, `JP_DRY_RUN`, and `NO_COLOR/JP_NO_COLOR`.
+- Deps (`lib/deps.sh`): `deps_require` / `deps_warn_missing` with Homebrew hints.
+- Filesystem (`lib/fs.sh`): `fs_list_by_mtime <root> <include_dirs?> <max?> [excludes...]` uses `fd` when available, falls back to `find` + stat (mtime + size).
+- fzf (`lib/fzf.sh`): require helper + common opts, plus `fzf_join_header`, `fzf_default_preview_cmd`, `fzf_add_default_preview`.
+- git (`lib/git.sh`): repo checks + root/branch helpers, upstream/ahead/behind, remote URL parsing, worktree introspection.
 
 ---
 

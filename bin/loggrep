@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: loggrep
+# Category: search
+# Description: Search or follow logs with ripgrep/tail and optional fzf preview.
+# Usage:
+#   loggrep <pattern> <file>          # search once with fzf picker
+#   loggrep --follow <pattern> <file> # tail -F with live filtering
+#   loggrep --since 2h <pattern> <file>
+
+usage() {
+  sed -n '4,80p' "$0" | sed 's/^# \?//'
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+FOLLOW=0
+SINCE=""
+UNTIL=""
+
+parse_duration_iso() {
+  # Convert duration like 2h/1d/30m into an ISO-ish timestamp for lexicographic compare.
+  local spec="$1"
+  if ! [[ "$spec" =~ ^([0-9]+)([smhdw])$ ]]; then
+    log_fatal "Invalid duration: $spec (use number + s/m/h/d/w)"
+  fi
+
+  local num="${BASH_REMATCH[1]}"
+  local unit="${BASH_REMATCH[2]}"
+  local seconds=0
+  case "$unit" in
+    s) seconds=$num ;;
+    m) seconds=$((num * 60)) ;;
+    h) seconds=$((num * 3600)) ;;
+    d) seconds=$((num * 86400)) ;;
+    w) seconds=$((num * 604800)) ;;
+  esac
+
+  if date -u -r "$(( $(date +%s) - seconds ))" '+%Y-%m-%dT%H:%M:%S' >/dev/null 2>&1; then
+    date -u -r "$(( $(date +%s) - seconds ))" '+%Y-%m-%dT%H:%M:%S'
+  else
+    date -u -d "@$(( $(date +%s) - seconds ))" '+%Y-%m-%dT%H:%M:%S'
+  fi
+}
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --follow)
+      FOLLOW=1
+      shift
+      ;;
+    --since)
+      [ -n "${2-}" ] || log_fatal "--since requires a duration (e.g., 2h, 1d)"
+      SINCE="$2"
+      shift 2
+      ;;
+    --until)
+      [ -n "${2-}" ] || log_fatal "--until requires a duration"
+      UNTIL="$2"
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+if [ "$#" -lt 2 ]; then
+  usage >&2
+  exit 1
+fi
+
+PATTERN="$1"
+FILE="$2"
+
+deps_require rg ripgrep || exit 1
+deps_warn_missing bat bat "preview highlighting" || true
+
+if [ ! -f "$FILE" ]; then
+  log_fatal "File not found: $FILE"
+fi
+
+if [ "$FOLLOW" -eq 1 ]; then
+  log_info "Following $FILE for \"$PATTERN\""
+  if [ "${LOGGREP_FOLLOW_ONCE:-0}" -eq 1 ]; then
+    # Quiet, single-match mode for tests/non-interactive use.
+    hit="$(rg --line-buffered -n --no-heading "$PATTERN" "$FILE" | head -n 1 || true)"
+    [ -n "$hit" ] || exit 1
+    printf '%s\n' "$hit"
+  else
+    tail -F "$FILE" | rg --line-buffered --color=always "$PATTERN"
+  fi
+  exit 0
+fi
+
+since_iso=""
+until_iso=""
+[ -n "$SINCE" ] && since_iso="$(parse_duration_iso "$SINCE")"
+[ -n "$UNTIL" ] && until_iso="$(parse_duration_iso "$UNTIL")"
+
+matches="$(rg -n --no-heading --color=always "$PATTERN" "$FILE" || true)"
+
+if [ -n "$since_iso" ] || [ -n "$until_iso" ]; then
+  matches="$(printf '%s\n' "$matches" | awk -v since="$since_iso" -v until="$until_iso" '
+    {
+      ts=""
+      if (match($0, /[0-9]{4}-[0-9]{2}-[0-9]{2}[ T][0-9]{2}:[0-9]{2}:[0-9]{2}/, m)) {
+        ts=m[0]
+      }
+      if (since != "" && ts != "" && ts < since) next
+      if (until != "" && ts != "" && ts > until) next
+      print
+    }
+  ')"
+fi
+
+if [ -z "$matches" ]; then
+  log_warn "No matches."
+  exit 0
+fi
+
+preview_cmd="$(fzf_default_preview_cmd 200)"
+fzf_set_common_opts "loggrep> " "$(fzf_join_header "File: $FILE" "Pattern: $PATTERN")" "right,70%,border-left"
+fzf_add_preview "$preview_cmd" "right,70%,border-left"
+
+if [ "${LOGGREP_NONINTERACTIVE:-0}" -eq 1 ]; then
+  selection="$(printf '%s\n' "$matches" | head -n 1)"
+else
+  selection="$(
+    printf '%s\n' "$matches" \
+      | fzf "${FZF_COMMON_OPTS[@]}"
+  )" || exit 0
+fi
+
+file_sel="$(printf '%s' "$selection" | cut -d':' -f1)"
+line_sel="$(printf '%s' "$selection" | cut -d':' -f2)"
+
+if command -v code >/dev/null 2>&1; then
+  code -g "$file_sel:$line_sel"
+elif [ -n "${EDITOR:-}" ]; then
+  $EDITOR "+$line_sel" "$file_sel"
+else
+  printf '%s\n' "$selection"
+fi

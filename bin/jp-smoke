@@ -7,6 +7,7 @@ set -euo pipefail
 # Usage:
 #   jp-smoke
 
+JP_SMOKE=1
 
 usage() {
   sed -n '4,40p' "$0" | sed 's/^# \?//'
@@ -18,6 +19,8 @@ case "${1-}" in
     exit 0
     ;;
 esac
+
+export JP_SMOKE=1
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
 REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
@@ -33,9 +36,106 @@ run() {
   $@
 }
 
+TEMP_DIRS=()
+add_tmp_dir() {
+  local prefix="${1:-jp-smoke}"
+  local dir
+  dir="$(mktemp -d "${TMPDIR:-/tmp}/${prefix}.XXXXXX")" || return 1
+  TEMP_DIRS+=("$dir")
+  printf '%s\n' "$dir"
+}
+
+# shellcheck disable=SC2329
+cleanup() {
+  for d in "${TEMP_DIRS[@]}"; do
+    rm -rf "$d" >/dev/null 2>&1 || true
+  done
+}
+trap cleanup EXIT
+
+skip() {
+  echo "SKIP: $*" >&2
+}
+
+# shellcheck disable=SC2329
+require_dep_or_skip() {
+  local cmd="$1"
+  local msg="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    skip "$msg"
+    return 1
+  fi
+}
+
+if [ -n "${JP_SMOKE_MAX_TIME:-}" ]; then
+  ( sleep "$JP_SMOKE_MAX_TIME"; echo "ERROR: jp-smoke exceeded JP_SMOKE_MAX_TIME=$JP_SMOKE_MAX_TIME" >&2; kill $$ ) &
+fi
+
+if ! require_dep_or_skip mktemp "TMPDIR not writable"; then
+  exit 0
+fi
+
 # 1. Basic registry + environment health
 run jp-lint
 run jpdoctor
+
+# 1b. Helper library smoke test (config/log/deps/fs)
+echo
+echo "== Helper library smoke"
+(
+  set -euo pipefail
+
+  tmp_config="$(mktemp "${TMPDIR:-/tmp}/jp-config-smoke.XXXXXX")"
+  cat >"$tmp_config" <<'EOF'
+editor="code -w"
+notes_dir="/tmp/jp smoke notes"
+focus_audio_device="Headphones"
+worktree_root="/tmp/jp-worktrees"
+brew_profile="work"
+EOF
+
+  # shellcheck disable=SC2034
+  JP_CONFIG_FILE="$tmp_config"
+  # shellcheck source=../lib/config.sh disable=SC1091
+  . "$REPO_ROOT/lib/config.sh"
+  # shellcheck source=../lib/log.sh disable=SC1091
+  . "$REPO_ROOT/lib/log.sh"
+  # shellcheck source=../lib/deps.sh disable=SC1091
+  . "$REPO_ROOT/lib/deps.sh"
+  # shellcheck source=../lib/fs.sh disable=SC1091
+  . "$REPO_ROOT/lib/fs.sh"
+
+  editor_val="$(jp_config_get editor "nano" JP_EDITOR)"
+  notes_val="$(jp_config_get notes_dir "/default" JP_NOTES_DIR)"
+
+  # shellcheck disable=SC2034
+  JP_NOTES_DIR="/override"
+  override_val="$(jp_config_get notes_dir "/default" JP_NOTES_DIR)"
+
+  [ "$editor_val" = "code -w" ]
+  [ "$notes_val" = "/tmp/jp smoke notes" ]
+  [ "$override_val" = "/override" ]
+
+  log_info "log info test (jp-smoke)"
+  log_warn "log warn test (jp-smoke)"
+  JP_VERBOSE=1 log_debug "log debug test (jp-smoke)"
+
+  deps_require bash >/dev/null 2>&1
+  deps_warn_missing this-command-should-not-exist >/dev/null 2>&1
+
+  tmp_fs_root="$(mktemp -d "${TMPDIR:-/tmp}/jp-fs-smoke.XXXXXX")"
+  echo "one" > "$tmp_fs_root/a.txt"
+  sleep 1
+  echo "two" > "$tmp_fs_root/b.txt"
+
+  latest="$(fs_list_by_mtime "$tmp_fs_root" 0 0 | head -n 1 | cut -f3)"
+  [ "$(basename "$latest")" = "b.txt" ]
+
+  excluded_names="$(fs_list_by_mtime "$tmp_fs_root" 0 0 "b.txt" | cut -f3 | while IFS= read -r p; do basename "$p"; done)"
+  printf '%s\n' "$excluded_names" | grep -q 'a.txt'
+
+  rm -rf "$tmp_config" "$tmp_fs_root"
+)
 
 # 2. jpcom basic commands
 run jpcom >/dev/null
@@ -44,7 +144,7 @@ run jpcom grep hist >/dev/null
 run jpcom info hist >/dev/null
 
 # 3. Help output from core commands (should be non-interactive)
-for cmd in note hist proj ripper gwhatpush gprepush gstatus-all stashview jp-bootstrap gpr; do
+for cmd in note hist proj ripper gprepush gstatus-all jp-bootstrap gpr jp-sync recent todo-scan loggrep gworktree gbrowse; do
   echo
   echo "== $cmd --help"
   if ! "$cmd" --help >/dev/null; then
@@ -54,7 +154,7 @@ for cmd in note hist proj ripper gwhatpush gprepush gstatus-all stashview jp-boo
 done
 
 # 4. Basic note write using a temp directory
-tmp_notes_dir="$(mktemp -d "${TMPDIR:-/tmp}/jp-notes-smoke.XXXXXX")"
+tmp_notes_dir="$(add_tmp_dir "jp-notes-smoke")"
 echo
 echo "== Testing note with JP_NOTES_DIR=$tmp_notes_dir"
 JP_NOTES_DIR="$tmp_notes_dir" note "jp-smoke test entry"
@@ -70,4 +170,332 @@ fi
 echo "Created note file: $note_file"
 
 echo
+echo "== Testing note-search append in JP_NOTES_DIR=$tmp_notes_dir"
+echo "foo line" >> "$note_file"
+FZF_DEFAULT_OPTS="--select-1 --exit-0" JP_NOTES_DIR="$tmp_notes_dir" note-search --print --append "appended by smoke" foo
+if ! grep -q "appended by smoke" "$note_file"; then
+  echo "ERROR: note-search append did not write to $note_file" >&2
+  exit 1
+fi
+
+echo
+echo "== Testing note-search --create"
+rm -f "$note_file"
+FZF_DEFAULT_OPTS="--select-1 --exit-0" JP_NOTES_DIR="$tmp_notes_dir" note-search --create --today >/dev/null 2>&1 || true
+if [ ! -f "$note_file" ]; then
+  echo "ERROR: note-search --create did not create today's note" >&2
+  exit 1
+fi
+
+echo
+echo "== Testing jp-sync snap (temp dir)"
+snap_repo="$(mktemp -d "${TMPDIR:-/tmp}/jp-sync-repo.XXXXXX")"
+TEMP_DIRS+=("$snap_repo")
+git init "$snap_repo" >/dev/null
+git -C "$snap_repo" config user.email "smoke@example.com"
+git -C "$snap_repo" config user.name "Smoke Test"
+mkdir -p "$snap_repo/.git/objects/testexclude"
+echo "snap" > "$snap_repo/README.md"
+git -C "$snap_repo" add README.md
+git -C "$snap_repo" commit -m "snap init" >/dev/null
+
+snap_dir="$(mktemp -d "${TMPDIR:-/tmp}/jp-sync-snap.XXXXXX")"
+TEMP_DIRS+=("$snap_dir")
+JP_SMOKE=1 JP_SYNC_REPO="$snap_repo" JP_SYNC_SNAP_DIR="$snap_dir" jp-sync snap
+snap_zip="$(find "$snap_dir" -maxdepth 1 -type f -name '*.zip' | head -n 1)"
+if [ ! -f "$snap_zip" ]; then
+  echo "ERROR: jp-sync snap zip missing" >&2
+  exit 1
+fi
+if unzip -l "$snap_zip" | grep -q "\\.git/objects"; then
+  echo "ERROR: jp-sync snap included .git data" >&2
+  exit 1
+fi
+
+if [ "${JP_SMOKE_SYNC_PUSH:-0}" -eq 1 ]; then
+  echo
+  echo "== Testing jp-sync push/pull in temp repos"
+  bare_repo="$(mktemp -d "${TMPDIR:-/tmp}/jp-sync-bare.XXXXXX")/repo.git"
+  git init --bare "$bare_repo" >/dev/null
+
+  work1="$(mktemp -d "${TMPDIR:-/tmp}/jp-sync-work1.XXXXXX")"
+  git clone "$bare_repo" "$work1" >/dev/null
+  git -C "$work1" config user.email "smoke@example.com"
+  git -C "$work1" config user.name "Smoke Test"
+  echo "hello" > "$work1/README.md"
+  git -C "$work1" add README.md
+  git -C "$work1" commit -m "init" >/dev/null
+
+  JP_SYNC_REPO="$work1" JP_SYNC_SNAP_DIR="$snap_dir" jp-sync --fast --push
+
+  work2="$(mktemp -d "${TMPDIR:-/tmp}/jp-sync-work2.XXXXXX")"
+  git clone "$bare_repo" "$work2" >/dev/null
+  JP_SYNC_REPO="$work2" jp-sync pull
+
+  rm -rf "$bare_repo" "$work1" "$work2"
+else
+  echo "SKIP: jp-sync push/pull (set JP_SMOKE_SYNC_PUSH=1 to enable)" >&2
+fi
+rm -rf "$snap_dir"
+
+echo "== Testing cleanzip summary"
+clean_tmp="$(mktemp -d "${TMPDIR:-/tmp}/cleanzip-smoke.XXXXXX")"
+TEMP_DIRS+=("$clean_tmp")
+echo "file" > "$clean_tmp/a.txt"
+clean_zip="$clean_tmp/out.zip"
+output="$(cleanzip -o "$clean_zip" "$clean_tmp" 2>&1)"
+printf '%s' "$output" | grep -q "Excludes: .git" || {
+  echo "ERROR: cleanzip summary missing excludes" >&2
+  exit 1
+}
+printf '%s' "$output" | grep -q "Created .*$(basename "$clean_zip")" || {
+  echo "ERROR: cleanzip summary missing created line" >&2
+  exit 1
+}
+[ -f "$clean_zip" ] || {
+  echo "ERROR: cleanzip did not produce zip" >&2
+  exit 1
+}
+if unzip -l "$clean_zip" | grep -q "\.git/objects"; then
+  echo "ERROR: cleanzip zip included .git content" >&2
+  exit 1
+fi
+rm -rf "$clean_tmp"
+
+echo
+echo "== Testing cleanzip --quiet"
+clean_tmp="$(mktemp -d "${TMPDIR:-/tmp}/cleanzip-smoke.XXXXXX")"
+TEMP_DIRS+=("$clean_tmp")
+echo "file" > "$clean_tmp/a.txt"
+clean_zip="$clean_tmp/out.zip"
+quiet_out="$(cleanzip --quiet -o "$clean_zip" "$clean_tmp" 2>&1)"
+[ -z "$quiet_out" ] || {
+  echo "ERROR: cleanzip --quiet produced output" >&2
+  exit 1
+}
+[ -f "$clean_zip" ] || {
+  echo "ERROR: cleanzip --quiet did not produce zip" >&2
+  exit 1
+}
+rm -rf "$clean_tmp"
+
+echo
+echo "== Testing recent (temp dir)"
+shared_repo="$(add_tmp_dir "jp-smoke-repo")"
+if require_dep_or_skip git "git not found; skipping git-based tests"; then
+  git init "$shared_repo" >/dev/null
+  git -C "$shared_repo" config user.email "smoke@example.com"
+  git -C "$shared_repo" config user.name "Smoke Test"
+fi
+
+echo "old" > "$shared_repo/a.txt"
+sleep 1
+echo "new" > "$shared_repo/b.txt"
+latest_path="$(
+  cd "$shared_repo" && recent --max 1 --first
+)"
+if [ -z "$latest_path" ]; then
+  echo "WARNING: recent returned empty selection in smoke" >&2
+elif [ "$(basename "$latest_path")" != "b.txt" ]; then
+  echo "ERROR: recent did not return latest file (got $latest_path)" >&2
+  exit 1
+fi
+touch -t 202001010000 "$shared_repo/a.txt"
+recent_filtered="$(
+  cd "$shared_repo" && RECENT_NONINTERACTIVE=1 recent --since 1d --only b --max 5
+)"
+if [ "$(basename "$recent_filtered")" != "b.txt" ]; then
+  echo "ERROR: recent --since/--only did not filter correctly (got $recent_filtered)" >&2
+  exit 1
+fi
+
+echo
+echo "== Testing todo-scan (temp dir)"
+todo_root="$(mktemp -d "${TMPDIR:-/tmp}/todo-smoke.XXXXXX")"
+TEMP_DIRS+=("$todo_root")
+echo "TODO: fix" > "$todo_root/todo.txt"
+todo_out="$(
+  cd "$todo_root" && FZF_DEFAULT_OPTS="--select-1 --exit-0" todo-scan --print
+)"
+printf '%s' "$todo_out" | grep -q 'todo.txt' || {
+  echo "ERROR: todo-scan did not find TODO" >&2
+  exit 1
+}
+if command -v git >/dev/null 2>&1; then
+  echo "TODO: first" > "$shared_repo/todo.txt"
+  git -C "$shared_repo" add todo.txt >/dev/null 2>&1 || true
+  git -C "$shared_repo" commit -m "init todo" >/dev/null 2>&1 || true
+  echo "TODO: second" >> "$shared_repo/todo.txt"
+  git -C "$shared_repo" commit -am "second todo" >/dev/null 2>&1 || true
+  todo_since="$(
+    cd "$shared_repo" && TODO_SCAN_NONINTERACTIVE=1 todo-scan --since HEAD~1 --print
+  )"
+  if [ -z "$todo_since" ]; then
+    echo "ERROR: todo-scan --since did not return results" >&2
+    exit 1
+  fi
+fi
+
+echo
+echo "== Testing loggrep (shared repo file)"
+log_file="$shared_repo/loggrep-smoke.log"
+printf 'line1\nerror happened\n' > "$log_file"
+stub_path="$(mktemp -d "${TMPDIR:-/tmp}/loggrep-stub.XXXXXX")"
+TEMP_DIRS+=("$stub_path")
+cat > "$stub_path/code" <<'EOF'
+#!/usr/bin/env bash
+echo "stub code $*"
+EOF
+chmod +x "$stub_path/code"
+FZF_DEFAULT_OPTS="--select-1 --exit-0" PATH="$stub_path:$PATH" EDITOR=true loggrep error "$log_file" >/dev/null 2>&1 || {
+  echo "ERROR: loggrep failed" >&2
+  exit 1
+}
+log_follow="$shared_repo/loggrep-follow.log"
+printf '' > "$log_follow"
+( tail -F "$log_follow" | LOGGREP_FOLLOW_ONCE=1 loggrep --follow hit >/dev/null 2>&1 ) &
+tail_pid=$!
+sleep 0.5
+echo "hit line" >>"$log_follow"
+sleep 0.5
+kill "$tail_pid" >/dev/null 2>&1 || true
+wait "$tail_pid" 2>/dev/null || true
+if ! LOGGREP_FOLLOW_ONCE=1 loggrep --follow hit "$log_follow" >/dev/null 2>&1; then
+  echo "ERROR: loggrep --follow did not stream matches" >&2
+  exit 1
+fi
+log_nomatch="$shared_repo/loggrep-follow-nomatch.log"
+printf 'nothing here\n' > "$log_nomatch"
+if LOGGREP_FOLLOW_ONCE=1 loggrep --follow hit "$log_nomatch" >/dev/null 2>&1; then
+  echo "ERROR: loggrep --follow succeeded despite no match" >&2
+  exit 1
+fi
+
+echo
+echo "== Testing gworktree (temp repo)"
+gwt_repo="$(add_tmp_dir "gworktree-smoke")"
+git clone "$shared_repo" "$gwt_repo" >/dev/null
+git -C "$gwt_repo" config user.email "smoke@example.com"
+git -C "$gwt_repo" config user.name "Smoke Test"
+base_branch="$(git -C "$gwt_repo" rev-parse --abbrev-ref HEAD)"
+branch_name="feature-smoke-$(date +%s)"
+gwt_config="$(mktemp "${TMPDIR:-/tmp}/gwt-config.XXXXXX")"
+TEMP_DIRS+=("$(dirname "$gwt_config")")
+printf 'worktree_root="%s"\n' "$gwt_repo/.worktrees" > "$gwt_config"
+if (
+  set -e
+  cd "$gwt_repo"
+  GWORKTREE_NONINTERACTIVE=1 JP_WORKTREE_ROOT="$gwt_repo/.worktrees" JP_CONFIG_LOADED=0 JP_CONFIG_FILE="$gwt_config" gworktree add "$branch_name" --from "$base_branch"
+); then
+  gwt_path="$(
+    set -e
+    cd "$gwt_repo"
+    GWORKTREE_NONINTERACTIVE=1 JP_WORKTREE_ROOT="$gwt_repo/.worktrees" JP_CONFIG_LOADED=0 JP_CONFIG_FILE="$gwt_config" gworktree fzf || true
+  )"
+  gwt_path_real=""
+  if [ -n "$gwt_path" ] && [ -d "$gwt_path" ]; then
+    gwt_path_real="$(cd "$gwt_path" && pwd -P)"
+  fi
+  gwt_root_real="$(cd "$gwt_repo" && pwd -P)/.worktrees"
+  if [ -n "$gwt_path_real" ] && printf '%s' "$gwt_path_real" | grep -q "$gwt_root_real"; then
+    :
+  else
+    echo "WARNING: gworktree returned unexpected path: $gwt_path" >&2
+  fi
+  git -C "$gwt_repo" worktree remove -f "$gwt_repo/.worktrees/$branch_name" >/dev/null 2>&1 || true
+  git -C "$gwt_repo" worktree prune >/dev/null 2>&1 || true
+  if git -C "$gwt_repo" worktree list --porcelain | grep -q "$gwt_root_real"; then
+    echo "ERROR: gworktree worktree prune/list did not clean up" >&2
+    exit 1
+  fi
+else
+  echo "WARNING: gworktree add failed in smoke" >&2
+fi
+git -C "$gwt_repo" worktree remove -f "$gwt_repo/.worktrees/$branch_name" >/dev/null 2>&1 || true
+git -C "$gwt_repo" worktree prune >/dev/null 2>&1 || true
+rm -rf "$gwt_repo/.worktrees" >/dev/null 2>&1 || true
+rm -f "$gwt_config"
+dirty_repo="$(mktemp -d "${TMPDIR:-/tmp}/gworktree-dirty.XXXXXX")"
+git init "$dirty_repo" >/dev/null
+git -C "$dirty_repo" config user.email "smoke@example.com"
+git -C "$dirty_repo" config user.name "Smoke Test"
+echo "clean" > "$dirty_repo/file.txt"
+git -C "$dirty_repo" add file.txt
+git -C "$dirty_repo" commit -m "init" >/dev/null
+echo "dirty" >> "$dirty_repo/file.txt"
+if GWORKTREE_NONINTERACTIVE=1 cd "$dirty_repo" && gworktree add dirty-branch --from main >/dev/null 2>&1; then
+  echo "ERROR: gworktree did not block dirty repo without --force" >&2
+  exit 1
+fi
+git -C "$dirty_repo" worktree prune >/dev/null 2>&1 || true
+
+echo
+echo "== Testing gbrowse URL build (temp repo)"
+gb_repo="$gwt_repo"
+if git -C "$gb_repo" remote | grep -q '^origin$'; then
+  git -C "$gb_repo" remote remove origin
+fi
+git -C "$gb_repo" remote add origin https://github.com/example/repo.git
+gb_stub="$(mktemp -d "${TMPDIR:-/tmp}/gbrowse-stub.XXXXXX")"
+cat > "$gb_stub/open" <<'EOF'
+#!/usr/bin/env bash
+printf '%s' "$1" > "${TMPDIR:-/tmp}/gbrowse-url.txt"
+EOF
+chmod +x "$gb_stub/open"
+cd "$gb_repo" && PATH="$gb_stub:$PATH" gbrowse --branch >/dev/null 2>&1
+if ! [ -f "${TMPDIR:-/tmp}/gbrowse-url.txt" ]; then
+  echo "ERROR: gbrowse did not invoke stub open" >&2
+  exit 1
+fi
+gb_url="$(cat "${TMPDIR:-/tmp}/gbrowse-url.txt")"
+printf '%s' "$gb_url" | grep -q "/tree/main" || {
+  echo "ERROR: gbrowse URL not branch page: $gb_url" >&2
+  exit 1
+}
+
+echo
+echo "== Testing standup-note (temp repo + notes)"
+stand_repo="$gwt_repo"
+stand_notes="$(mktemp -d "${TMPDIR:-/tmp}/standup-notes.XXXXXX")"
+STANDUP_ROOT="$stand_repo" JP_NOTES_DIR="$stand_notes" standup-note --force --section "Smoke"
+stand_note="$stand_notes/$(date +%Y-%m-%d).md"
+if ! grep -q "## Smoke" "$stand_note"; then
+  echo "ERROR: standup-note did not append section" >&2
+  exit 1
+fi
+
+echo
 echo "== jp-smoke: all non-interactive checks passed."
+# Temp cleanup
+TEMP_DIRS=()
+cleanup() {
+  for d in "${TEMP_DIRS[@]}"; do
+    rm -rf "$d" >/dev/null 2>&1 || true
+  done
+}
+trap cleanup EXIT
+
+maybe_skip() {
+  local msg="$1"
+  echo "SKIP: $msg" >&2
+}
+
+require_dep_or_skip() {
+  local cmd="$1"
+  local msg="$2"
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    maybe_skip "$msg"
+    return 1
+  fi
+}
+
+require_tmp_or_skip() {
+  if ! mktemp -d "${TMPDIR:-/tmp}/jp-smoke-check.XXXXXX" >/dev/null 2>&1; then
+    maybe_skip "TMPDIR not writable"
+    return 1
+  fi
+}
+# Optional global timeout guard
+if [ -n "${JP_SMOKE_MAX_TIME:-}" ]; then
+  ( sleep "$JP_SMOKE_MAX_TIME"; echo "ERROR: jp-smoke exceeded JP_SMOKE_MAX_TIME=$JP_SMOKE_MAX_TIME" >&2; kill $$ ) &
+fi

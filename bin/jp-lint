@@ -156,6 +156,18 @@ check_registry() {
         log_error "Duplicate command path in registry: $dup"
         error_count=$((error_count+1))
       done
+
+  # Optional deps presence for scripts that declare them in README/plan
+  jq -r '
+    .commands[]
+    | select(.name == "recent" or .name == "todo-scan" or .name == "loggrep" or .name == "gbrowse" or .name == "gworktree" or .name == "ripper")
+    | select((.optional_deps // []) | length == 0)
+    | .name
+  ' "$REGISTRY_PATH" | while IFS= read -r missing_opt; do
+    [ -z "$missing_opt" ] && continue
+    log_warn "Registry entry missing optional_deps for $missing_opt (expected to declare optional tools)"
+    warn_count=$((warn_count+1))
+  done
 }
 
 check_headers() {
