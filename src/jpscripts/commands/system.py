@@ -16,18 +16,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
-
-
-def _run_fzf(lines: list[str], prompt: str) -> str | None:
-    proc = subprocess.run(
-        ["fzf", "--prompt", prompt],
-        input="\n".join(lines),
-        text=True,
-        capture_output=True,
-    )
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.strip()
+from jpscripts.core.ui import fzf_select
 
 
 def _format_cmdline(proc: psutil.Process) -> str:
@@ -81,8 +70,8 @@ def process_kill(
     lines = [f"{p.pid}\t{p.username()}\t{_format_cmdline(p)}" for p in matches]
 
     if use_fzf:
-        selection = _run_fzf(lines, prompt="kill> ")
-        if not selection:
+        selection = fzf_select(lines, prompt="kill> ")
+        if not isinstance(selection, str) or not selection:
             return
         pid = int(selection.split("\t", 1)[0])
         result = _kill_process(pid, force)
@@ -123,8 +112,8 @@ def port_kill(
 
     lines = [f"{p.pid}\t{p.username()}\t{_format_cmdline(p)}" for p in matches]
     if use_fzf:
-        selection = _run_fzf(lines, prompt="port-kill> ")
-        if not selection:
+        selection = fzf_select(lines, prompt="port-kill> ")
+        if not isinstance(selection, str) or not selection:
             return
         pid = int(selection.split("\t", 1)[0])
         result = _kill_process(pid, force)
@@ -167,7 +156,7 @@ def brew_explorer(
     use_fzf = shutil.which("fzf") and not no_fzf
     selection = None
     if use_fzf:
-        selection = _run_fzf(items, prompt="brew> ")
+        selection = fzf_select(items, prompt="brew> ")
     else:
         table = Table(title="brew search", box=box.SIMPLE_HEAVY, expand=True)
         table.add_column("Name", style="cyan")
@@ -177,7 +166,7 @@ def brew_explorer(
         console.print(Panel("fzf not available; re-run with fzf for interactive selection.", style="yellow"))
         return
 
-    if not selection:
+    if not isinstance(selection, str) or not selection:
         return
 
     info = subprocess.run(["brew", "info", selection], capture_output=True, text=True)
@@ -205,7 +194,8 @@ def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf e
         return
 
     use_fzf = shutil.which("fzf") and not no_fzf
-    target = _run_fzf(devices, prompt="audio> ") if use_fzf else devices[0]
+    selection = fzf_select(devices, prompt="audio> ") if use_fzf else devices[0]
+    target = selection if isinstance(selection, str) else None
     if not target:
         return
 
@@ -246,7 +236,8 @@ def ssh_open(
     use_fzf = shutil.which("fzf") and not no_fzf
     target = host
     if not target:
-        target = _run_fzf(hosts, prompt="ssh> ") if use_fzf else hosts[0]
+        selection = fzf_select(hosts, prompt="ssh> ") if use_fzf else hosts[0]
+        target = selection if isinstance(selection, str) else None
 
     if not target:
         return

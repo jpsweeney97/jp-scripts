@@ -26,10 +26,11 @@ def _write_config(path: Path, config: AppConfig) -> None:
     path.write_text(content + "\n", encoding="utf-8")
 
 
-def init(ctx: typer.Context, config_path: Path = typer.Option(Path.home() / ".jpconfig", help="Where to write config.")) -> None:
-    """Interactive initializer that writes ~/.jpconfig."""
+def init(ctx: typer.Context, config_path: Path | None = typer.Option(None, help="Where to write config.")) -> None:
+    """Interactive initializer that writes the active config file."""
     state = ctx.obj
     defaults: AppConfig = state.config
+    target_path = (config_path or state.config_meta.path).expanduser()
 
     notes_dir = Path(Prompt.ask("Notes directory", default=str(defaults.notes_dir)))
     workspace_root = Path(Prompt.ask("Workspace root", default=str(defaults.workspace_root)))
@@ -56,6 +57,6 @@ def init(ctx: typer.Context, config_path: Path = typer.Option(Path.home() / ".jp
         if target:
             Path(target).expanduser().mkdir(parents=True, exist_ok=True)
 
-    _write_config(config_path.expanduser(), config)
-    console.print(f"[green]Wrote config to[/green] {config_path}")
+    _write_config(target_path, config)
+    console.print(f"[green]Wrote config to[/green] {target_path}")
     console.print("You can rerun `jp init` anytime to update these values.")

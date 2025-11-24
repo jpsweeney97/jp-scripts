@@ -13,6 +13,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
+from jpscripts.core.ui import fzf_select
 
 IGNORE_DIRS = {
     ".git",
@@ -65,18 +66,6 @@ def _scan_recent(root: Path, max_depth: int, include_dirs: bool) -> list[RecentE
     return sorted(entries, key=lambda e: e.mtime, reverse=True)
 
 
-def _run_fzf(lines: list[str], prompt: str) -> str | None:
-    proc = subprocess.run(
-        ["fzf", "--no-sort", "--prompt", prompt],
-        input="\n".join(lines),
-        text=True,
-        capture_output=True,
-    )
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.strip()
-
-
 def recent(
     ctx: typer.Context,
     root: Path | None = typer.Option(
@@ -110,8 +99,8 @@ def recent(
     lines = [str(entry.path) for entry in entries]
 
     if use_fzf:
-        selection = _run_fzf(lines, prompt="recent> ")
-        if selection:
+        selection = fzf_select(lines, prompt="recent> ", extra_args=["--no-sort"])
+        if isinstance(selection, str) and selection:
             typer.echo(selection)
         return
 
@@ -160,7 +149,8 @@ def proj(
 
     selection: str | None = None
     if use_fzf:
-        selection = _run_fzf(paths, prompt="proj> ")
+        fzf_selection = fzf_select(paths, prompt="proj> ", extra_args=["--no-sort"])
+        selection = fzf_selection if isinstance(fzf_selection, str) else None
     else:
         table = Table(title="Projects (zoxide)", box=box.SIMPLE_HEAVY, expand=True)
         table.add_column("#", style="cyan", no_wrap=True)

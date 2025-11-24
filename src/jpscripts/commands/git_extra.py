@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 import subprocess
 import webbrowser
 from dataclasses import dataclass
@@ -11,8 +12,9 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
-from jpscripts.core.console import console
 from jpscripts.core import git as git_core
+from jpscripts.core.console import console
+from jpscripts.core.ui import fzf_select
 
 
 def _ensure_repo(path: Path) -> git_core.Repo:
@@ -21,13 +23,6 @@ def _ensure_repo(path: Path) -> git_core.Repo:
     except Exception as exc:
         console.print(f"[red]Failed to open repo at {path}: {exc}[/red]")
         raise typer.Exit(code=1)
-
-
-def _run_fzf(lines: list[str], prompt: str) -> str | None:
-    proc = subprocess.run(["fzf", "--prompt", prompt], input="\n".join(lines), text=True, capture_output=True)
-    if proc.returncode != 0:
-        return None
-    return proc.stdout.strip()
 
 
 def gundo_last(
@@ -69,11 +64,12 @@ def gstage(
         status_code, path = line[:2].strip(), line[3:]
         entries.append((status_code, path))
 
-    use_fzf = subprocess.which("fzf") and not no_fzf
-    selection = None
+    use_fzf = shutil.which("fzf") and not no_fzf
+    selection: str | None = None
     if use_fzf:
         lines = [f"{code}\t{path}" for code, path in entries]
-        selection = _run_fzf(lines, prompt="stage> ")
+        fzf_selection = fzf_select(lines, prompt="stage> ")
+        selection = fzf_selection if isinstance(fzf_selection, str) else None
     else:
         table = Table(title="Changes", box=box.SIMPLE_HEAVY, expand=True)
         table.add_column("Status", style="cyan", no_wrap=True)
@@ -98,7 +94,7 @@ def gpr(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Interact with GitHub PRs via gh."""
-    if not subprocess.which("gh"):
+    if not shutil.which("gh"):
         console.print("[red]GitHub CLI (gh) is required for gpr.[/red]")
         raise typer.Exit(code=1)
 
@@ -119,12 +115,13 @@ def gpr(
         return
 
     lines = [f"{pr['number']}\t{pr['title']} ({pr['headRefName']})" for pr in prs]
-    use_fzf = subprocess.which("fzf") and not no_fzf
-    selection = _run_fzf(lines, prompt="pr> ") if use_fzf else lines[0]
-    if not selection:
+    use_fzf = shutil.which("fzf") and not no_fzf
+    selection = fzf_select(lines, prompt="pr> ") if use_fzf else lines[0]
+    selection_str = selection if isinstance(selection, str) else None
+    if not selection_str:
         return
 
-    number = selection.split("\t", 1)[0]
+    number = selection_str.split("\t", 1)[0]
 
     if action == "checkout":
         subprocess.run(["gh", "pr", "checkout", number])
@@ -219,12 +216,13 @@ def stashview(
         console.print("[yellow]No stash entries.[/yellow]")
         return
 
-    use_fzf = subprocess.which("fzf") and not no_fzf
-    selection = _run_fzf(stash_list, prompt="stash> ") if use_fzf else stash_list[0]
-    if not selection:
+    use_fzf = shutil.which("fzf") and not no_fzf
+    selection = fzf_select(stash_list, prompt="stash> ") if use_fzf else stash_list[0]
+    selection_str = selection if isinstance(selection, str) else None
+    if not selection_str:
         return
 
-    ref = selection.split(":", 1)[0]
+    ref = selection_str.split(":", 1)[0]
     if action == "apply":
         repo.git.stash("apply", ref)
     elif action == "pop":
