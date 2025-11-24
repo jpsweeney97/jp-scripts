@@ -6,824 +6,392 @@
       "path": "bin/dots",
       "category": "config",
       "description": "Friendly wrapper around stow for managing dotfiles.",
-      "tags": [
-        "config",
-        "dotfiles",
-        "stow"
-      ],
-      "requires": [
-        "bash",
-        "stow"
-      ],
-      "examples": [
-        "dots",
-        "dots apply zsh git",
-        "dots dry-run zsh"
-      ]
+      "tags": ["config", "dotfiles", "stow"],
+      "requires": ["bash", "stow"],
+      "examples": ["dots", "dots apply zsh git", "dots dry-run zsh"]
     },
     {
       "name": "envrun",
       "path": "bin/envrun",
       "category": "env",
       "description": "Run a command with environment variables loaded from a file (e.g. .env).",
-      "tags": [
-        "env",
-        "run",
-        "dotenv"
-      ],
-      "requires": [
-        "bash"
-      ],
-      "examples": [
-        "envrun --dry-run .env",
-        "envrun .env -- npm start",
-        "envrun -- ./script.sh"
-      ]
+      "tags": ["env", "run", "dotenv"],
+      "requires": ["bash"],
+      "examples": ["envrun --dry-run .env", "envrun .env -- npm start", "envrun -- ./script.sh"]
     },
     {
       "name": "clean-ds",
       "path": "bin/clean-ds",
       "category": "files",
       "description": "Safely remove .DS_Store and AppleDouble (._*) files under a directory.",
-      "tags": [
-        "files",
-        "cleanup",
-        "macos"
-      ],
-      "requires": [
-        "bash",
-        "find"
-      ],
-      "examples": [
-        "clean-ds",
-        "clean-ds --force",
-        "clean-ds --force ~/Downloads"
-      ]
+      "tags": ["files", "cleanup", "macos"],
+      "requires": ["bash", "find"],
+      "examples": ["clean-ds", "clean-ds --force", "clean-ds --force ~/Downloads"]
     },
     {
       "name": "cleanzip",
       "path": "bin/cleanzip",
       "category": "files",
       "description": "Create a clean, deterministic-ish zip of a directory, excluding build, cache, junk, and secret files.",
-      "tags": [
-        "files",
-        "zip",
-        "archive"
-      ],
-      "requires": [
-        "bash",
-        "zip",
-        "find"
-      ],
-      "examples": [
-        "cleanzip",
-        "cleanzip --dry-run",
-        "cleanzip --include-env ."
-      ]
+      "tags": ["files", "zip", "archive"],
+      "requires": ["bash", "zip", "find"],
+      "examples": ["cleanzip", "cleanzip --dry-run", "cleanzip --include-env ."]
     },
     {
       "name": "rename-edit",
       "path": "bin/rename-edit",
       "category": "files",
       "description": "Bulk rename files/directories by editing a list in your editor.",
-      "tags": [
-        "files",
-        "rename",
-        "editor"
-      ],
-      "requires": [
-        "bash"
-      ],
-      "examples": [
-        "rename-edit",
-        "rename-edit --recursive src"
-      ]
+      "tags": ["files", "rename", "editor"],
+      "requires": ["bash"],
+      "examples": ["rename-edit", "rename-edit --recursive src"]
     },
     {
       "name": "gbranches",
       "path": "bin/gbranches",
       "category": "git",
       "description": "Show local branches with upstream, ahead/behind, and last commit info.",
-      "tags": [
-        "git",
-        "branches",
-        "upstream"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gbranches",
-        "gbranches --merged main"
-      ]
+      "tags": ["git", "branches", "upstream"],
+      "requires": ["bash", "git"],
+      "examples": ["gbranches", "gbranches --merged main"]
     },
     {
       "name": "gclean-branches",
       "path": "bin/gclean-branches",
       "category": "git",
       "description": "List or delete local branches already merged into a base branch.",
-      "tags": [
-        "git",
-        "cleanup",
-        "branches"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gclean-branches",
-        "gclean-branches --delete",
-        "gclean-branches --base develop"
-      ]
+      "tags": ["git", "cleanup", "branches"],
+      "requires": ["bash", "git"],
+      "examples": ["gclean-branches", "gclean-branches --delete", "gclean-branches --base develop"]
     },
     {
       "name": "git-branchcheck",
       "path": "bin/git-branchcheck",
       "category": "git",
       "description": "Interactive git branch picker; switches or creates tracking branches.",
-      "tags": [
-        "git",
-        "branches",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "fzf"
-      ],
-      "examples": [
-        "git-branchcheck"
-      ]
+      "tags": ["git", "branches", "fzf"],
+      "requires": ["bash", "git", "fzf"],
+      "examples": ["git-branchcheck"]
     },
     {
       "name": "gpatch",
       "path": "bin/gpatch",
       "category": "git",
       "description": "Apply a unified diff from the clipboard or a file with a safety check.",
-      "tags": [
-        "git",
-        "patch",
-        "apply"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "pbpaste"
-      ],
-      "examples": [
-        "gpatch",
-        "gpatch --check-only",
-        "gpatch my.patch"
-      ]
+      "tags": ["git", "patch", "apply"],
+      "requires": ["bash", "git", "pbpaste"],
+      "examples": ["gpatch", "gpatch --check-only", "gpatch my.patch"]
     },
     {
       "name": "gpr",
       "path": "bin/gpr",
       "category": "git",
       "description": "Interactive GitHub PR helper using gh + fzf (view, open, checkout).",
-      "tags": [
-        "git",
-        "github",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "gh",
-        "fzf",
-        "jq"
-      ],
-      "examples": [
-        "gpr",
-        "gpr --checkout",
-        "gpr --open"
-      ]
+      "tags": ["git", "github", "fzf"],
+      "requires": ["bash", "git", "gh", "fzf", "jq"],
+      "examples": ["gpr", "gpr --checkout", "gpr --open"]
     },
     {
       "name": "gbrowse",
       "path": "bin/gbrowse",
       "category": "git",
       "description": "Open current git repo/branch/PR/commit/compare on GitHub in the browser (uses gh when available, else falls back).",
-      "tags": [
-        "git",
-        "github",
-        "browser"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gbrowse",
-        "gbrowse --branch",
-        "gbrowse --compare main"
-      ],
-      "optional_deps": [
-        "gh"
-      ]
+      "tags": ["git", "github", "browser"],
+      "requires": ["bash", "git"],
+      "examples": ["gbrowse", "gbrowse --branch", "gbrowse --compare main"],
+      "optional_deps": ["gh"]
     },
     {
       "name": "gprepush",
       "path": "bin/gprepush",
       "category": "git",
       "description": "Run a pre-push checklist (status, whatpush, optional tests).",
-      "tags": [
-        "git",
-        "prepush",
-        "checklist",
-        "tests"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gprepush",
-        "gprepush --skip-tests",
-        "GPREPUSH_TEST_CMD=\"npm test\" gprepush"
-      ]
+      "tags": ["git", "prepush", "checklist", "tests"],
+      "requires": ["bash", "git"],
+      "examples": ["gprepush", "gprepush --skip-tests", "GPREPUSH_TEST_CMD=\"npm test\" gprepush"]
     },
     {
       "name": "gstage",
       "path": "bin/gstage",
       "category": "git",
       "description": "Interactively stage changed files by number.",
-      "tags": [
-        "git",
-        "stage",
-        "interactive"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gstage"
-      ]
+      "tags": ["git", "stage", "interactive"],
+      "requires": ["bash", "git"],
+      "examples": ["gstage"]
     },
     {
       "name": "gstatus-all",
       "path": "bin/gstatus-all",
       "category": "git",
       "description": "Summarize git status for all repos under a root directory.",
-      "tags": [
-        "git",
-        "status",
-        "multi-repo"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "find"
-      ],
-      "examples": [
-        "gstatus-all",
-        "gstatus-all --root ~/work --depth 4"
-      ]
+      "tags": ["git", "status", "multi-repo"],
+      "requires": ["bash", "git", "find"],
+      "examples": ["gstatus-all", "gstatus-all --root ~/work --depth 4"]
     },
     {
       "name": "gworktree",
       "path": "bin/gworktree",
       "category": "git",
       "description": "Manage git worktrees with safe defaults and fzf picker.",
-      "tags": [
-        "git",
-        "worktree",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "fzf"
-      ],
+      "tags": ["git", "worktree", "fzf"],
+      "requires": ["bash", "git", "fzf"],
       "examples": [
         "gworktree list",
         "gworktree add feature/x --from origin/main",
         "gworktree fzf --code"
       ],
-      "optional_deps": [
-        "code"
-      ]
+      "optional_deps": ["code"]
     },
     {
       "name": "gundo-last",
       "path": "bin/gundo-last",
       "category": "git",
       "description": "Safely undo the last commit with upstream safety checks and confirmation.",
-      "tags": [
-        "git",
-        "undo",
-        "reset"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gundo-last",
-        "gundo-last --mode mixed",
-        "gundo-last --force --yes"
-      ]
+      "tags": ["git", "undo", "reset"],
+      "requires": ["bash", "git"],
+      "examples": ["gundo-last", "gundo-last --mode mixed", "gundo-last --force --yes"]
     },
     {
       "name": "gwhatpush",
       "path": "bin/gwhatpush",
       "category": "git",
       "description": "Show what git push would do for the current branch (ahead/behind, commits, diffstat).",
-      "tags": [
-        "git",
-        "push",
-        "diff"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "gwhatpush",
-        "gwhatpush --commits-only",
-        "gwhatpush --stat-only"
-      ]
+      "tags": ["git", "push", "diff"],
+      "requires": ["bash", "git"],
+      "examples": ["gwhatpush", "gwhatpush --commits-only", "gwhatpush --stat-only"]
     },
     {
       "name": "snaprepo",
       "path": "bin/snaprepo",
       "category": "git",
       "description": "Snapshot the current git repo as a clean zip using cleanzip.",
-      "tags": [
-        "git",
-        "archive",
-        "zip"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "cleanzip"
-      ],
-      "examples": [
-        "snaprepo",
-        "snaprepo --dry-run",
-        "snaprepo --include-env"
-      ]
+      "tags": ["git", "archive", "zip"],
+      "requires": ["bash", "git", "cleanzip"],
+      "examples": ["snaprepo", "snaprepo --dry-run", "snaprepo --include-env"]
     },
     {
       "name": "stashview",
       "path": "bin/stashview",
       "category": "git",
       "description": "Interactive git stash browser with apply/pop/drop actions.",
-      "tags": [
-        "git",
-        "stash",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "fzf"
-      ],
-      "examples": [
-        "stashview",
-        "stashview --apply",
-        "stashview --drop"
-      ]
+      "tags": ["git", "stash", "fzf"],
+      "requires": ["bash", "git", "fzf"],
+      "examples": ["stashview", "stashview --apply", "stashview --drop"]
     },
     {
       "name": "audioswap",
       "path": "bin/audioswap",
       "category": "macos",
       "description": "Interactive audio output device switcher using SwitchAudioSource + fzf.",
-      "tags": [
-        "macos",
-        "audio",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "SwitchAudioSource",
-        "fzf"
-      ],
-      "examples": [
-        "audioswap",
-        "audioswap \"MacBook Pro Speakers\""
-      ]
+      "tags": ["macos", "audio", "fzf"],
+      "requires": ["bash", "SwitchAudioSource", "fzf"],
+      "examples": ["audioswap", "audioswap \"MacBook Pro Speakers\""]
     },
     {
       "name": "hist",
       "path": "bin/hist",
       "category": "meta",
       "description": "Fuzzy-search full zsh history (most recent first; de-duplicated; optional --exec/--copy).",
-      "tags": [
-        "history",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "fzf"
-      ],
-      "examples": [
-        "hist",
-        "hist --exec",
-        "hist --copy"
-      ]
+      "tags": ["history", "fzf"],
+      "requires": ["bash", "fzf"],
+      "examples": ["hist", "hist --exec", "hist --copy"]
     },
     {
       "name": "jp-bootstrap",
       "path": "bin/jp-bootstrap",
       "category": "meta",
       "description": "Bootstrap jp-scripts on a fresh machine: configure PATH, create dirs, and run health checks.",
-      "tags": [
-        "meta",
-        "setup"
-      ],
-      "requires": [
-        "bash"
-      ],
-      "examples": [
-        "jp-bootstrap",
-        "jp-bootstrap --apply"
-      ]
+      "tags": ["meta", "setup"],
+      "requires": ["bash"],
+      "examples": ["jp-bootstrap", "jp-bootstrap --apply"]
     },
     {
       "name": "jp-lint",
       "path": "bin/jp-lint",
       "category": "meta",
       "description": "Lint jp-scripts registry and scripts for consistency and health.",
-      "tags": [
-        "meta",
-        "maintenance"
-      ],
-      "requires": [
-        "bash",
-        "jq",
-        "shellcheck"
-      ],
-      "examples": [
-        "jp-lint",
-        "jp-lint --registry-only",
-        "jp-lint --no-shellcheck"
-      ]
+      "tags": ["meta", "maintenance"],
+      "requires": ["bash", "jq", "shellcheck"],
+      "examples": ["jp-lint", "jp-lint --registry-only", "jp-lint --no-shellcheck"]
     },
     {
       "name": "jp-sync",
       "path": "bin/jp-sync",
       "category": "meta",
       "description": "Keep jp-scripts healthy: git status, lint/doctor/smoke, optional snapshot.",
-      "tags": [
-        "meta",
-        "maintenance",
-        "backup"
-      ],
-      "requires": [
-        "bash",
-        "git",
-        "jq",
-        "zip"
-      ],
-      "examples": [
-        "jp-sync",
-        "jp-sync --fast",
-        "jp-sync snap"
-      ]
+      "tags": ["meta", "maintenance", "backup"],
+      "requires": ["bash", "git", "jq", "zip"],
+      "examples": ["jp-sync", "jp-sync --fast", "jp-sync snap"]
     },
     {
       "name": "jp-smoke",
       "path": "bin/jp-smoke",
       "category": "meta",
       "description": "Run a non-interactive smoke test for registry, tooling, and core commands.",
-      "tags": [
-        "meta",
-        "test"
-      ],
-      "requires": [
-        "bash",
-        "jq"
-      ],
-      "examples": [
-        "jp-smoke"
-      ]
+      "tags": ["meta", "test"],
+      "requires": ["bash", "jq"],
+      "examples": ["jp-smoke"]
+    },
+    {
+      "name": "jp-diagnose",
+      "path": "bin/jp-diagnose",
+      "category": "meta",
+      "description": "Aggregate registry, syntax, dependency, and runtime diagnostics for every bin/ script.",
+      "tags": ["meta", "health", "diagnostic"],
+      "requires": ["bash", "git", "jq"],
+      "examples": ["jp-diagnose"]
     },
     {
       "name": "jpcom",
       "path": "bin/jpcom",
       "category": "meta",
       "description": "List all custom JP commands and what they do.",
-      "tags": [
-        "meta",
-        "registry",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "jq",
-        "fzf"
-      ],
-      "examples": [
-        "jpcom",
-        "jpcom info hist",
-        "jpcom fzf"
-      ]
+      "tags": ["meta", "registry", "fzf"],
+      "requires": ["bash", "jq", "fzf"],
+      "examples": ["jpcom", "jpcom info hist", "jpcom fzf"]
     },
     {
       "name": "jpdoctor",
       "path": "bin/jpdoctor",
       "category": "meta",
       "description": "Check presence/versions of key CLI tools and suggest Homebrew installs.",
-      "tags": [
-        "meta",
-        "health"
-      ],
-      "requires": [
-        "bash",
-        "jq"
-      ],
-      "examples": [
-        "jpdoctor",
-        "jpdoctor tools",
-        "jpdoctor command gpr"
-      ]
+      "tags": ["meta", "health"],
+      "requires": ["bash", "jq"],
+      "examples": ["jpdoctor", "jpdoctor tools", "jpdoctor command gpr"]
     },
     {
       "name": "jpnew",
       "path": "bin/jpnew",
       "category": "meta",
       "description": "Scaffold a new jp-scripts command with standard header and registry entry.",
-      "tags": [
-        "meta",
-        "scaffold",
-        "generator"
-      ],
-      "requires": [
-        "bash",
-        "jq",
-        "fzf"
-      ],
-      "examples": [
-        "jpnew",
-        "jpnew --edit"
-      ]
+      "tags": ["meta", "scaffold", "generator"],
+      "requires": ["bash", "jq", "fzf"],
+      "examples": ["jpnew", "jpnew --edit"]
     },
     {
       "name": "standup",
       "path": "bin/standup",
       "category": "meta",
       "description": "Summarize recent git commits across repos for daily standup.",
-      "tags": [
-        "git",
-        "standup",
-        "summary"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "standup",
-        "standup --days 2",
-        "STANDUP_ROOT=~/code standup"
-      ]
+      "tags": ["git", "standup", "summary"],
+      "requires": ["bash", "git"],
+      "examples": ["standup", "standup --days 2", "STANDUP_ROOT=~/code standup"]
     },
     {
       "name": "work",
       "path": "bin/work",
       "category": "meta",
       "description": "Run workspace setup scripts from ~/.config/jp-work.d.",
-      "tags": [
-        "workspace",
-        "launcher",
-        "automation"
-      ],
-      "requires": [
-        "bash"
-      ],
-      "examples": [
-        "work",
-        "work clientA"
-      ]
+      "tags": ["workspace", "launcher", "automation"],
+      "requires": ["bash"],
+      "examples": ["work", "work clientA"]
     },
     {
       "name": "proj",
       "path": "bin/proj",
       "category": "nav",
       "description": "Fuzzy-jump to frequently used directories via zoxide + fzf.",
-      "tags": [
-        "nav",
-        "zoxide",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "zoxide",
-        "fzf"
-      ],
-      "examples": [
-        "proj",
-        "proj --code"
-      ]
+      "tags": ["nav", "zoxide", "fzf"],
+      "requires": ["bash", "zoxide", "fzf"],
+      "examples": ["proj", "proj --code"]
     },
     {
       "name": "recent",
       "path": "bin/recent",
       "category": "nav",
       "description": "Fuzzy-jump to recently modified files (or dirs) under the current project root.",
-      "tags": [
-        "nav",
-        "fzf",
-        "files",
-        "mtime"
-      ],
-      "requires": [
-        "bash",
-        "fzf"
-      ],
-      "examples": [
-        "recent",
-        "recent --edit",
-        "recent --since 2d"
-      ],
-      "optional_deps": [
-        "fd",
-        "bat",
-        "git"
-      ]
+      "tags": ["nav", "fzf", "files", "mtime"],
+      "requires": ["bash", "fzf"],
+      "examples": ["recent", "recent --edit", "recent --since 2d"],
+      "optional_deps": ["fd", "bat", "git"]
     },
     {
       "name": "ssh-open",
       "path": "bin/ssh-open",
       "category": "net",
       "description": "Fuzzy-launch SSH connections from ~/.ssh/config using fzf.",
-      "tags": [
-        "ssh",
-        "fzf",
-        "network"
-      ],
-      "requires": [
-        "bash",
-        "ssh",
-        "fzf"
-      ],
-      "examples": [
-        "ssh-open",
-        "SSH_CONFIG=~/.ssh/work ssh-open"
-      ]
+      "tags": ["ssh", "fzf", "network"],
+      "requires": ["bash", "ssh", "fzf"],
+      "examples": ["ssh-open", "SSH_CONFIG=~/.ssh/work ssh-open"]
     },
     {
       "name": "cliphist",
       "path": "bin/cliphist",
       "category": "notes",
       "description": "Clipboard history manager: save, browse, and restore clipboard entries.",
-      "tags": [
-        "clipboard",
-        "history",
-        "fzf",
-        "bat"
-      ],
-      "requires": [
-        "bash",
-        "pbcopy",
-        "pbpaste",
-        "fzf",
-        "bat"
-      ],
-      "examples": [
-        "cliphist save",
-        "cliphist",
-        "cliphist clear"
-      ]
+      "tags": ["clipboard", "history", "fzf", "bat"],
+      "requires": ["bash", "pbcopy", "pbpaste", "fzf", "bat"],
+      "examples": ["cliphist save", "cliphist", "cliphist clear"]
+    },
+    {
+      "name": "ai-pack",
+      "path": "bin/ai-pack",
+      "category": "ai",
+      "description": "Select files (fzf or args) and copy them as Markdown blocks for LLM prompts.",
+      "tags": ["ai", "clipboard", "prompt", "fzf"],
+      "requires": ["bash", "fzf"],
+      "examples": ["ai-pack", "ai-pack src/", "ai-pack --print"],
+      "optional_deps": ["fd", "bat", "numfmt", "pbcopy"]
     },
     {
       "name": "note",
       "path": "bin/note",
       "category": "notes",
       "description": "Fast daily note capture/append in a date-stamped Markdown file.",
-      "tags": [
-        "notes",
-        "markdown",
-        "journal"
-      ],
-      "requires": [
-        "bash"
-      ],
-      "examples": [
-        "note \"Add release notes\"",
-        "echo \"multi-line\" | note",
-        "note --edit"
-      ]
+      "tags": ["notes", "markdown", "journal"],
+      "requires": ["bash"],
+      "examples": ["note \"Add release notes\"", "echo \"multi-line\" | note", "note --edit"]
     },
     {
       "name": "note-search",
       "path": "bin/note-search",
       "category": "notes",
       "description": "Fzf search across daily Markdown notes and jump to a match.",
-      "tags": [
-        "notes",
-        "search",
-        "fzf",
-        "rg"
-      ],
-      "requires": [
-        "bash",
-        "rg",
-        "fzf",
-        "bat"
-      ],
-      "examples": [
-        "note-search meeting",
-        "note-search --today",
-        "note-search --tag focus"
-      ]
+      "tags": ["notes", "search", "fzf", "rg"],
+      "requires": ["bash", "rg", "fzf", "bat"],
+      "examples": ["note-search meeting", "note-search --today", "note-search --tag focus"]
     },
     {
       "name": "ripper",
       "path": "bin/ripper",
       "category": "search",
       "description": "Interactive ripgrep+fzf code search with bat preview and jump-to-editor.",
-      "tags": [
-        "search",
-        "code",
-        "fzf",
-        "rg"
-      ],
-      "requires": [
-        "bash",
-        "rg",
-        "fzf",
-        "bat"
-      ],
-      "examples": [
-        "ripper foo",
-        "ripper TODO src/"
-      ],
-      "optional_deps": [
-        "fd"
-      ]
+      "tags": ["search", "code", "fzf", "rg"],
+      "requires": ["bash", "rg", "fzf", "bat"],
+      "examples": ["ripper foo", "ripper TODO src/"],
+      "optional_deps": ["fd"]
     },
     {
       "name": "todo-scan",
       "path": "bin/todo-scan",
       "category": "search",
       "description": "Scan for TODO/FIXME/HACK/BUG in the current project and jump to matches.",
-      "tags": [
-        "search",
-        "todo",
-        "rg",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "rg",
-        "fzf"
-      ],
-      "examples": [
-        "todo-scan",
-        "todo-scan \"PAYMENTS\"",
-        "todo-scan --since HEAD~5"
-      ],
-      "optional_deps": [
-        "git"
-      ]
+      "tags": ["search", "todo", "rg", "fzf"],
+      "requires": ["bash", "rg", "fzf"],
+      "examples": ["todo-scan", "todo-scan \"PAYMENTS\"", "todo-scan --since HEAD~5"],
+      "optional_deps": ["git"]
     },
     {
       "name": "loggrep",
       "path": "bin/loggrep",
       "category": "search",
       "description": "Friendly log search/tail with ripgrep + fzf previews.",
-      "tags": [
-        "logs",
-        "search",
-        "fzf",
-        "rg"
-      ],
-      "requires": [
-        "bash",
-        "rg",
-        "fzf"
-      ],
+      "tags": ["logs", "search", "fzf", "rg"],
+      "requires": ["bash", "rg", "fzf"],
       "examples": [
         "loggrep error app.log",
         "loggrep --follow 503 server.log",
         "loggrep --since 2h timeout ./logs/app.log"
       ],
-      "optional_deps": [
-        "git"
-      ]
+      "optional_deps": ["git"]
     },
     {
       "name": "standup-note",
       "path": "bin/standup-note",
       "category": "notes",
       "description": "Run standup and append the output into today\u2019s note as a section.",
-      "tags": [
-        "notes",
-        "standup",
-        "git"
-      ],
-      "requires": [
-        "bash",
-        "standup",
-        "git"
-      ],
+      "tags": ["notes", "standup", "git"],
+      "requires": ["bash", "standup", "git"],
       "examples": [
         "standup-note",
         "standup-note --days 2",
@@ -835,94 +403,44 @@
       "path": "bin/brew-explorer",
       "category": "system",
       "description": "Explore Homebrew formulas and casks with fzf and brew info.",
-      "tags": [
-        "brew",
-        "packages",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "brew",
-        "fzf"
-      ],
-      "examples": [
-        "brew-explorer"
-      ]
+      "tags": ["brew", "packages", "fzf"],
+      "requires": ["bash", "brew", "fzf"],
+      "examples": ["brew-explorer"]
     },
     {
       "name": "port-kill",
       "path": "bin/port-kill",
       "category": "system",
       "description": "Find and kill processes listening on a given TCP port.",
-      "tags": [
-        "system",
-        "network",
-        "kill"
-      ],
-      "requires": [
-        "bash",
-        "lsof"
-      ],
-      "examples": [
-        "port-kill 3000",
-        "port-kill 8080 --force"
-      ]
+      "tags": ["system", "network", "kill"],
+      "requires": ["bash", "lsof"],
+      "examples": ["port-kill 3000", "port-kill 8080 --force"]
     },
     {
       "name": "process-kill",
       "path": "bin/process-kill",
       "category": "system",
       "description": "Interactive process picker+killer using ps + fzf.",
-      "tags": [
-        "system",
-        "process",
-        "fzf"
-      ],
-      "requires": [
-        "bash",
-        "ps",
-        "fzf"
-      ],
-      "examples": [
-        "process-kill",
-        "process-kill --force"
-      ]
+      "tags": ["system", "process", "fzf"],
+      "requires": ["bash", "ps", "fzf"],
+      "examples": ["process-kill", "process-kill --force"]
     },
     {
       "name": "diffview",
       "path": "bin/diffview",
       "category": "text",
       "description": "Pretty diff between two files or stdin/file using git diff --no-index.",
-      "tags": [
-        "diff",
-        "files",
-        "git"
-      ],
-      "requires": [
-        "bash",
-        "git"
-      ],
-      "examples": [
-        "diffview fileA fileB",
-        "rg TODO | diffview - README.md"
-      ]
+      "tags": ["diff", "files", "git"],
+      "requires": ["bash", "git"],
+      "examples": ["diffview fileA fileB", "rg TODO | diffview - README.md"]
     },
     {
       "name": "global-replace",
       "path": "bin/global-replace",
       "category": "text",
       "description": "Safe project-wide search & replace with ripgrep + sd (dry-run by default).",
-      "tags": [
-        "text",
-        "replace",
-        "rg",
-        "sd"
-      ],
-      "requires": [
-        "bash",
-        "rg",
-        "sd"
-      ],
+      "tags": ["text", "replace", "rg", "sd"],
+      "requires": ["bash", "rg", "sd"],
       "examples": [
         "global-replace foo bar src",
         "global-replace --apply TODO DONE .",
@@ -934,19 +452,9 @@
       "path": "bin/tmpserver",
       "category": "web",
       "description": "Start a simple HTTP server for the current directory.",
-      "tags": [
-        "web",
-        "http",
-        "python"
-      ],
-      "requires": [
-        "bash",
-        "python3"
-      ],
-      "examples": [
-        "tmpserver",
-        "tmpserver 9000"
-      ]
+      "tags": ["web", "http", "python"],
+      "requires": ["bash", "python3"],
+      "examples": ["tmpserver", "tmpserver 9000"]
     }
   ]
 }

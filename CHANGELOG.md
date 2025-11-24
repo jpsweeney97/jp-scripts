@@ -28,6 +28,7 @@ All notable changes in this work-in-progress branch.
 - README tables compacted (What/Requires combined) and keybindings note tightened; added shared helper/config docs + optional deps/env overrides section.
 - `jp-smoke` exercises helper libraries and widened coverage (recent/todo-scan/loggrep/gworktree/gbrowse); optional jp-sync push/pull check can be enabled via `JP_SMOKE_SYNC_PUSH=1`.
 - Cleanzip/snaprepo/jp-sync summary output standardized (excludes + human-readable size); cleanzip `--quiet` is silent; loggrep follow mode supports `LOGGREP_FOLLOW_ONCE=1` for smokes.
+- `ai-pack` hardened: repo-root aware selection with size column/preview, size caps with prompt override, temp-file streaming, pbcopy fallback, registry/README entry, and optional dep hints.
 
 ### Fixed
 

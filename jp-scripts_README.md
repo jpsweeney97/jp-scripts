@@ -44,8 +44,8 @@ Run `jpcom` anytime to see the current command catalog.
 
 ### Optional deps, env overrides, quiet/test knobs
 
-- Optional deps: `fd`/`bat`/`git` speed up `recent`, `todo-scan`, `loggrep`; `gh` is optional for `gbrowse` (falls back to URL open).
-- Env overrides (common): `JP_SYNC_REPO`/`JP_SYNC_SNAP_DIR` (jp-sync), `STANDUP_ROOT`/`STANDUP_MAX_DEPTH`/`STANDUP_EXCLUDES` (standup), `JP_NOTES_DIR` (note/note-search/standup-note), `JP_WORKTREE_ROOT` (gworktree), `JP_EDITOR` (note).
+- Optional deps: `fd`/`bat`/`git` speed up `recent`, `todo-scan`, `loggrep`; `gh` is optional for `gbrowse` (falls back to URL open); `ai-pack` benefits from `fd` (file list), `bat` (preview), `numfmt` (sizes), and `pbcopy` (clipboard fallback is stdout).
+- Env overrides (common): `JP_SYNC_REPO`/`JP_SYNC_SNAP_DIR` (jp-sync), `STANDUP_ROOT`/`STANDUP_MAX_DEPTH`/`STANDUP_EXCLUDES` (standup), `JP_NOTES_DIR` (note/note-search/standup-note), `JP_WORKTREE_ROOT` (gworktree), `JP_EDITOR` (note), `AI_PACK_ALLOW_LARGE=1` (skip ai-pack size prompt).
 - Non-interactive/testing envs: `RECENT_NONINTERACTIVE`, `TODO_SCAN_NONINTERACTIVE`, `LOGGREP_NONINTERACTIVE`, `GWORKTREE_NONINTERACTIVE`, `LOGGREP_FOLLOW_ONCE=1` (one-line follow), `JP_SMOKE_SYNC_PUSH=1` (enable push/pull check in jp-smoke).
 - Quiet/dry-run: cleanzip/snaprepo/jp-sync/snap support `--quiet`; `cleanzip`/`snaprepo`/`jp-sync snap` log excludes and human-readable size in normal mode; `log_run` respects `JP_DRY_RUN=1`.
 - Smoke controls: `JP_SMOKE=1` (set by jp-smoke) skips redundant jp-sync checks; `JP_SMOKE_MAX_TIME` optionally aborts long runs; `JP_SMOKE_SYNC_PUSH=1` opt-in to push/pull smoke.
@@ -125,6 +125,14 @@ work umaf     # run UMAF workspace script
 | note-search | Fzf search across daily Markdown notes and jump to a match             | bash, rg, fzf, bat              |
 | standup-note | Run standup and append the output into today’s note as a section      | bash, standup, git              |
 | cliphist | Clipboard history: save, browse (fzf+bat), restore                        | bash, pbcopy, pbpaste, fzf, bat |
+
+---
+
+## AI / prompts
+
+| Command | What | Requires |
+| ------- | ---- | -------- |
+| ai-pack | Select files (fzf or args) and copy Markdown blocks for LLM prompts; skips binaries and warns on large packs | bash, fzf (fd/bat/numfmt/pbcopy optional) |
 
 ---
 

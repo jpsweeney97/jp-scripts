@@ -1,0 +1,291 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: ai-pack
+# Category: ai
+# Description: Select files via fzf (or args) and copy them to clipboard as a Markdown prompt context.
+# Requires: bash, fzf
+# Optional: fd, bat, numfmt (or gnumfmt), pbcopy
+# Usage:
+#   ai-pack                   # Interactive fzf selection (multi-select with TAB)
+#   ai-pack src/              # Recursively pack a directory
+#   ai-pack main.rs lib.rs    # Pack specific files
+#   ai-pack --print           # Print to stdout instead of copying
+#   ai-pack --allow-binary    # Include binary files (normally skipped)
+#
+# Notes:
+#   - Respects .gitignore if 'fd' is installed (optional).
+#   - Skips binary files automatically (unless --allow-binary).
+#   - Warns/prompts on large contexts; `AI_PACK_ALLOW_LARGE=1` skips the prompt.
+#   - Optional deps: fd (faster file list), bat (preview), numfmt/gnumfmt (sizes), pbcopy (clipboard).
+
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/fzf.sh disable=SC1091
+. "$REPO_ROOT/lib/fzf.sh"
+
+ROOT="."
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  ROOT="$(git rev-parse --show-toplevel)"
+fi
+
+# Configuration
+COPY_TO_CLIPBOARD=true
+MAX_SIZE_BYTES=$((100 * 1024))  # Warn if over 100KB
+MAX_PER_FILE_BYTES=$((400 * 1024)) # Skip files over ~400KB by default
+MAX_TOTAL_BYTES=$((500 * 1024)) # Prompt if pack exceeds 500KB
+ALLOW_OVER_CAP="${AI_PACK_ALLOW_LARGE:-}"
+ALLOW_BINARY=false
+
+human_bytes() {
+  local bytes="$1"
+  if command -v numfmt >/dev/null 2>&1; then
+    numfmt --to=iec --suffix=B "$bytes"
+  elif command -v gnumfmt >/dev/null 2>&1; then
+    gnumfmt --to=iec --suffix=B "$bytes"
+  else
+    printf "%sB" "$bytes"
+  fi
+}
+
+abs_path() {
+  local path="$1"
+  local dir base
+  dir="$(dirname -- "$path")" || return 1
+  base="$(basename -- "$path")" || return 1
+  local abs_dir
+  if [[ "$path" = /* ]]; then
+    abs_dir="$(cd "$dir" 2>/dev/null && pwd)" || return 1
+  else
+    abs_dir="$(cd "$ROOT" && cd "$dir" 2>/dev/null && pwd)" || return 1
+  fi
+  printf "%s\n" "$abs_dir/$base"
+}
+
+display_path() {
+  local abs="$1"
+  if [[ "$abs" == "$ROOT/"* ]]; then
+    printf "%s" "${abs#$ROOT/}"
+  else
+    printf "%s" "$abs"
+  fi
+}
+
+confirm_over_cap() {
+  local upcoming="$1"
+  log_warn "Packing would exceed $(human_bytes "$MAX_TOTAL_BYTES") (next: $(human_bytes "$upcoming")). Continue? [y/N]"
+  if [ -t 0 ]; then
+    read -r reply
+    case "$reply" in
+      y|Y|yes|YES) return 0 ;;
+    esac
+  fi
+  return 1
+}
+
+output_file="$(mktemp -t ai-pack.XXXXXX)"
+cleanup() {
+  rm -f "$output_file"
+}
+trap cleanup EXIT
+
+# Parse args
+files=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --print)
+      COPY_TO_CLIPBOARD=false
+      shift
+      ;;
+    --allow-binary)
+      ALLOW_BINARY=true
+      shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    *)
+      # Accumulate remaining args as paths/globs
+      files+=("$1")
+      shift
+      ;;
+  esac
+done
+
+if [ "$ALLOW_BINARY" = true ]; then
+  log_warn "Including binary files; size caps still apply."
+fi
+
+# If no args provided, gather file list interactively
+if [ ${#files[@]} -eq 0 ]; then
+  # Prefer fd for gitignore respect, fall back to find
+  if command -v fd >/dev/null 2>&1; then
+    # fd is installed; honor .gitignore and strip cwd prefix
+    mapfile -t candidate_files < <(cd "$ROOT" && fd --type f --hidden --strip-cwd-prefix --exclude .git --exclude node_modules --exclude dist --exclude build --exclude '.env*' .)
+  else
+    # Fallback to find with basic excludes
+    mapfile -t candidate_files < <(cd "$ROOT" && find . -type f -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/build/*' -not -name '.env*' | sed 's|^\./||')
+  fi
+
+  if [ ${#candidate_files[@]} -eq 0 ]; then
+    log_warn "No files found to pack."
+    exit 0
+  fi
+
+  deps_require fzf fzf || exit 1
+  deps_warn_missing bat bat "preview highlighting" || true
+
+  header="Select files to pack (TAB for multi-select)"
+  fzf_set_common_opts "ai-pack> " "$header"
+  preview_cmd='p=$(printf "%s" "{}" | cut -f2); file="$p"; if [ -n "$AI_PACK_ROOT" ] && [ -f "$AI_PACK_ROOT/$p" ]; then file="$AI_PACK_ROOT/$p"; fi; [ -f "$file" ] || exit 0; if command -v bat >/dev/null 2>&1; then bat --style=plain --color=always --line-range=1:200 "$file"; else sed -n "1,200p" "$file"; fi'
+  FZF_COMMON_OPTS+=(--delimiter=$'\t' --with-nth=2.. --preview="$preview_cmd" --preview-window=down,60%,border-top)
+
+  fzf_lines=()
+  for path in "${candidate_files[@]}"; do
+    abs="$(abs_path "$path")" || continue
+    [ -f "$abs" ] || continue
+    size_bytes="$(wc -c < "$abs" | tr -d ' ')" || continue
+    size_display="$(human_bytes "$size_bytes")"
+    rel_path="$(display_path "$abs")"
+    fzf_lines+=("$(printf "%s\t%s" "$size_display" "$rel_path")")
+  done
+
+  if [ ${#fzf_lines[@]} -eq 0 ]; then
+    log_warn "No files found to pack."
+    exit 0
+  fi
+
+  # Selection
+  selection="$(printf '%s\n' "${fzf_lines[@]}" | AI_PACK_ROOT="$ROOT" fzf -m "${FZF_COMMON_OPTS[@]}")" || exit 0
+
+  mapfile -t files < <(printf '%s\n' "$selection" | cut -f2)
+else
+  # User provided args; expand directories if necessary
+  # (Simple expansion: if arg is dir, find files inside. If file, keep it.)
+  expanded_files=()
+  for item in "${files[@]}"; do
+    if [ -d "$item" ]; then
+      if command -v fd >/dev/null 2>&1; then
+        while IFS= read -r f; do expanded_files+=("$f"); done < <(fd --type f --hidden --exclude .git --exclude node_modules --exclude dist --exclude build --exclude '.env*' . "$item")
+      else
+        while IFS= read -r f; do expanded_files+=("$f"); done < <(find "$item" -type f -not -path '*/.git/*' -not -path '*/node_modules/*' -not -path '*/dist/*' -not -path '*/build/*' -not -name '.env*')
+      fi
+    elif [ -f "$item" ]; then
+      expanded_files+=("$item")
+    fi
+  done
+  files=("${expanded_files[@]}")
+fi
+
+if [ ${#files[@]} -eq 0 ] || [ -z "${files[0]}" ]; then
+  log_warn "No files selected."
+  exit 0
+fi
+
+# Build the prompt content
+skipped_count=0
+packed_count=0
+total_bytes=0
+declare -A seen
+
+for f in "${files[@]}"; do
+  abs="$(abs_path "$f")" || continue
+  display="$(display_path "$abs")"
+
+  # Dedup
+  if [ -n "${seen["$abs"]+yes}" ]; then
+    log_debug "Skipping duplicate path: $display"
+    continue
+  fi
+  seen["$abs"]=1
+
+  # Check if file exists
+  if [ ! -f "$abs" ]; then continue; fi
+
+  # Binary check (Perl/grep trick is faster than 'file' command on large loops)
+  if ! grep -qI . "$abs" 2>/dev/null; then
+    if [ "$ALLOW_BINARY" = false ]; then
+      log_debug "Skipping binary file: $display"
+      skipped_count=$((skipped_count + 1))
+      continue
+    else
+      log_warn "Including binary file: $display"
+    fi
+  fi
+
+  file_bytes="$(wc -c < "$abs" | tr -d ' ')" || continue
+  if [ "$file_bytes" -gt "$MAX_PER_FILE_BYTES" ]; then
+    log_warn "Skipping oversized file (> $(human_bytes "$MAX_PER_FILE_BYTES")): $display ($(human_bytes "$file_bytes"))"
+    skipped_count=$((skipped_count + 1))
+    continue
+  fi
+
+  next_total=$((total_bytes + file_bytes))
+  if [ "$next_total" -gt "$MAX_TOTAL_BYTES" ] && [ -z "$ALLOW_OVER_CAP" ]; then
+    if confirm_over_cap "$next_total"; then
+      ALLOW_OVER_CAP=1
+    else
+      log_warn "Stopping before exceeding total cap ($(human_bytes "$MAX_TOTAL_BYTES"))."
+      break
+    fi
+  fi
+  total_bytes="$next_total"
+
+  base="${display##*/}"
+  ext="text"
+  if [[ "$base" == *.* ]]; then
+    ext="${base##*.}"
+    [ -z "$ext" ] && ext="text"
+  fi
+
+  {
+    printf 'File: %s\n```%s\n' "$display" "$ext"
+    cat "$abs"
+    printf '\n```\n\n'
+  } >> "$output_file"
+  packed_count=$((packed_count + 1))
+done
+
+if [ "$packed_count" -eq 0 ]; then
+  log_warn "No valid text files were packed."
+  exit 0
+fi
+
+# Statistics
+byte_count="$(wc -c < "$output_file" | tr -d ' ')"
+# Rough estimate: 1 token ~= 4 characters
+token_est=$((byte_count / 4))
+
+if [ "$COPY_TO_CLIPBOARD" = true ]; then
+  if command -v pbcopy >/dev/null 2>&1; then
+    cat "$output_file" | pbcopy
+    log_info "Packed $packed_count file(s) to clipboard."
+  else
+    log_warn "pbcopy not found (are you on macOS?). Printing to stdout instead."
+    cat "$output_file"
+  fi
+else
+  cat "$output_file"
+fi
+
+# Summary / Warnings
+if [ "$skipped_count" -gt 0 ]; then
+  log_warn "Skipped $skipped_count file(s) (binary or oversized)."
+fi
+
+human_size="$(human_bytes "$byte_count")"
+log_info "Size: $human_size (~$token_est tokens)"
+
+if [ "$byte_count" -gt "$MAX_SIZE_BYTES" ]; then
+  log_warn "Warning: Content exceeds $(human_bytes "$MAX_SIZE_BYTES"). This may truncate in some LLM web interfaces."
+fi
