@@ -109,7 +109,7 @@ snapshots_dir = "~/snapshots"
 log_level = "INFO"
 ```
 
-## 🤖 Codex & Agent Integration
+## Codex & Agent Integration
 
 This repository includes an `AGENTS.md` file specifically designed to steer OpenAI's Codex.
 
@@ -121,6 +121,6 @@ This repository includes an `AGENTS.md` file specifically designed to steer Open
 
 > "Read AGENTS.md. Create a new command `jp network-scan` in `src/jpscripts/commands/system.py` that uses `lsof` to find listening ports. Follow the existing patterns for `process-kill`."
 
-## 📜 License
+## License
 
 MIT
