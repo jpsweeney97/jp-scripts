@@ -2,80 +2,44 @@
 
 ## Project Overview
 
-This repository contains a personal command toolbox for macOS (Homebrew assumed). It consists of composable Bash scripts located in `bin/` and shared helpers in `lib/`.
+`jpscripts` is a Python 3.11+ command toolbox for macOS. The legacy Bash scripts are kept only for reference under `legacy/`; all active commands live in the Python package.
 
 ## Directory Structure
 
-- `bin/`: Executable scripts. All scripts here must be on the `$PATH`.
-- `lib/`: Shared Bash libraries (`log.sh`, `deps.sh`, `config.sh`, `fzf.sh`, `git.sh`).
-- `registry/`: Contains `commands.json`, the source of truth for command metadata.
+- `src/jpscripts/` – Python package
+  - `core/` – shared utilities (console, config, git helpers)
+  - `commands/` – Typer subcommands (git, nav, system, notes, search, init)
+  - `main.py` – Typer app entrypoint (`jp`)
+- `tests/` – pytest-based smoke tests
+- `legacy/` – archived `bin/`, `lib/`, and `registry/` from the Bash era
 
 ## Development Standards
 
-### 1. Script Format
+### Commands
 
-All new scripts in `bin/` must adhere to the following standards:
+- Use Typer functions in `src/jpscripts/commands/`. Keep implementations small and composable; prefer helpers in `core/` for reuse.
+- Register new commands in `src/jpscripts/main.py` via `app.command("name")(function)`.
+- Use Rich for user-facing output; avoid plain `print` unless emitting machine-readable data.
+- Validate external tools gracefully (e.g., check `shutil.which`) and provide install hints.
 
-- **Shebang & Safety**: Must start with `#!/usr/bin/env bash` and `set -euo pipefail`.
-- **Headers**: Must include a standard comment header block for documentation parsing:
+### Configuration
 
-  ```bash
-  # Name: <script-name>
-  # Category: <category>
-  # Description: <short summary>
-  # Usage:
-  #   <script-name> [flags]
-  ```
+- Configuration is modeled with Pydantic in `core/config.py`. Respect defaults and environment overrides. Do not read arbitrary files directly; use `load_config`.
 
-- **Helpers**: Source shared libraries using the standard repo-root resolution pattern found in existing scripts:
+### Dependencies
 
-  ```bash
-  SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
-  REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
-  . "$REPO_ROOT/lib/log.sh"
-  . "$REPO_ROOT/lib/deps.sh"
-  ```
-
-### 2. Registry Registration
-
-Every executable in `bin/` **must** have a corresponding entry in `registry/commands.json`.
-
-- When creating a new script, you must append a JSON object to the `commands` array.
-- Required fields: `name`, `path` (`bin/<name>`), `category`, `description`, `tags` (array), `requires` (array of binaries), `examples` (array).
-
-### 3. Dependencies
-
-- Do not assume tools are installed. Use `deps_require` from `lib/deps.sh` to enforce dependencies.
-- Example: `deps_require jq jq` (checks for `jq`, suggests `brew install jq`).
-
-### 4. Output & Logging
-
-- Use `lib/log.sh` for all status output.
-- Use `log_info`, `log_warn`, `log_error`, and `log_fatal`.
-- Avoid raw `echo` for logging unless printing data for a pipe.
+- Runtime deps are declared in `pyproject.toml` under `[project.dependencies]`; dev/test deps live under `[project.optional-dependencies].dev`.
+- Prefer Python libraries (`pathlib`, `psutil`, `asyncio`, `subprocess`) over shelling out where feasible.
 
 ## Verification & Testing
 
-Before declaring a task complete, run the following health checks:
+- Run `pytest` for smoke coverage (`tests/test_smoke.py`). Add focused tests for new modules where appropriate.
+- Keep tests isolated from user state by using the fixtures in `tests/conftest.py` (they stub config and console).
 
-1.  **Linting**: Run `bin/jp-lint`.
+## Adding a Command (quick recipe)
 
-    - This checks `shellcheck` (if installed), verifies script headers, and ensures `registry/commands.json` matches the contents of `bin/`.
-    - Fix any errors regarding missing metadata or registry drift.
-
-2.  **Smoke Tests**: Run `bin/jp-smoke`.
-
-    - This runs a non-interactive suite of tests to verify the runtime health of core utilities.
-
-## Common Tasks
-
-- **Creating a new script**:
-
-  1.  Create `bin/<name>`.
-  2.  `chmod +x bin/<name>`.
-  3.  Add entry to `registry/commands.json`.
-  4.  Run `bin/jp-lint` to verify.
-
-- **Refactoring**:
-
-  - If you move logic into `lib/`, ensure you update the `requires` array in `commands.json` if the dependency requirements change.
+1. Create `src/jpscripts/commands/<name>.py` or add to an existing module.
+2. Implement a Typer command function that accepts `typer.Context` when config/logging is needed.
+3. Register it in `src/jpscripts/main.py`.
+4. Add a short README note if it’s user-facing.
+5. Add or extend a pytest to cover the basics.

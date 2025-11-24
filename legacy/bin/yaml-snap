@@ -1,0 +1,150 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Name: yaml-snap
+# Category: files
+# Description: Create a machine-readable multi-document YAML snapshot of a directory.
+# Usage:
+#   yaml-snap [path]
+
+usage() {
+  sed -n '4,40p' "$0" | sed 's/^# \?//'
+}
+
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]:-$0}")" && pwd)"
+REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd)"
+
+# shellcheck source=../lib/log.sh disable=SC1091
+. "$REPO_ROOT/lib/log.sh"
+# shellcheck source=../lib/deps.sh disable=SC1091
+. "$REPO_ROOT/lib/deps.sh"
+
+case "${1-}" in
+  -h|--help)
+    usage
+    exit 0
+    ;;
+esac
+
+TARGET_PATH="${1:-.}"
+if ! TARGET_ABS="$(cd -- "$TARGET_PATH" 2>/dev/null && pwd)"; then
+  log_error "Unable to resolve path: $TARGET_PATH"
+  exit 1
+fi
+
+deps_require python3 python || exit 1
+
+OUTPUT_DIR="/Users/jp/Projects/snapshots"
+if [ ! -d "$OUTPUT_DIR" ]; then
+  log_info "Creating snapshot directory at $OUTPUT_DIR"
+  mkdir -p "$OUTPUT_DIR"
+fi
+
+REPO_NAME="$(basename "$TARGET_ABS")"
+TIMESTAMP="$(date +%Y-%m-%d_%H%M%S)"
+OUTPUT_FILE="$OUTPUT_DIR/${REPO_NAME}_snapshot_${TIMESTAMP}.yaml"
+
+log_info "Generating YAML snapshot for $TARGET_ABS"
+log_info "Writing to $OUTPUT_FILE"
+
+python3 - "$TARGET_ABS" "$OUTPUT_FILE" <<'PY'
+import datetime
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1]).resolve()
+output_file = pathlib.Path(sys.argv[2])
+
+exclude_names = {'.DS_Store', '.git', '.env', 'node_modules', '__pycache__', '.venv', 'dist', 'build'}
+
+def should_skip(path: pathlib.Path) -> bool:
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    for part in rel_parts:
+        if part in exclude_names or part.startswith('.env'):
+            return True
+    return False
+
+def yaml_quote(text: str) -> str:
+    if text == '':
+        return "''"
+    return "'" + text.replace("'", "''") + "'"
+
+def tree_lines(path: pathlib.Path, prefix: str = ''):
+    entries = []
+    for entry in sorted(path.iterdir(), key=lambda p: p.name):
+        if should_skip(entry):
+            continue
+        entries.append(entry)
+
+    for idx, entry in enumerate(entries):
+        connector = '└── ' if idx == len(entries) - 1 else '├── '
+        line = f"{prefix}{connector}{entry.name}{'/' if entry.is_dir() else ''}"
+        yield line
+        if entry.is_dir():
+            extension = '    ' if idx == len(entries) - 1 else '│   '
+            yield from tree_lines(entry, prefix + extension)
+
+def collect_files():
+    files = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirpath = pathlib.Path(dirpath)
+        dirnames[:] = [d for d in dirnames if not should_skip(dirpath / d)]
+        filenames = [f for f in filenames if not should_skip(dirpath / f)]
+        for name in filenames:
+            files.append(dirpath / name)
+    return sorted(files)
+
+timestamp = datetime.datetime.now().isoformat()
+
+header_lines = [
+    '---',
+    f"repo: {root.name}",
+    f"timestamp: {timestamp}",
+    "structure: |",
+    f"  {root.name}/",
+]
+for line in tree_lines(root):
+    header_lines.append(f"  {line}")
+header_content = '\n'.join(header_lines) + '\n'
+
+with output_file.open('w', encoding='utf-8') as fh:
+    fh.write(header_content)
+
+    for file_path in collect_files():
+        rel_path = file_path.relative_to(root).as_posix()
+        try:
+            content = file_path.read_text(encoding='utf-8')
+        except UnicodeDecodeError:
+            content = f"[binary content omitted: {file_path.name}]"
+        except Exception as exc:  # pragma: no cover - defensive
+            content = f"[error reading file: {exc}]"
+
+        content = content.replace('\r\n', '\n')
+        block_lines = content.splitlines() or ['']
+
+        doc_lines = [
+            '---',
+            f"path: {yaml_quote(rel_path)}",
+            "content: |",
+        ]
+        doc_lines.extend([f"  {ln}" for ln in block_lines])
+        doc_lines.append('')  # ensure newline at end of document
+
+        fh.write('\n'.join(doc_lines))
+PY
+
+if [ ! -f "$OUTPUT_FILE" ]; then
+  log_error "Snapshot generation failed; file not created."
+  exit 1
+fi
+
+log_info "Snapshot complete."
+if command -v open >/dev/null 2>&1; then
+  open -R "$OUTPUT_FILE" >/dev/null 2>&1 || log_warn "open -R failed for $OUTPUT_FILE"
+else
+  log_warn "open not available; skipping Finder reveal."
+fi

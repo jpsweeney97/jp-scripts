@@ -38,6 +38,15 @@
       "examples": ["cleanzip", "cleanzip --dry-run", "cleanzip --include-env ."]
     },
     {
+      "name": "yaml-snap",
+      "path": "bin/yaml-snap",
+      "category": "files",
+      "description": "Generate a multi-document YAML snapshot of a directory (structure + per-file content).",
+      "tags": ["files", "yaml", "snapshot", "python"],
+      "requires": ["bash", "python3"],
+      "examples": ["yaml-snap", "yaml-snap /path/to/project"]
+    },
+    {
       "name": "rename-edit",
       "path": "bin/rename-edit",
       "category": "files",
