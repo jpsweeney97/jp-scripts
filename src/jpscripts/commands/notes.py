@@ -14,20 +14,11 @@ from rich.table import Table
 
 from jpscripts.core.console import console
 from jpscripts.core import git as git_core
+from jpscripts.core import notes_impl
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"
 CLIPHIST_DB = CLIPHIST_DIR / "history.db"
-
-
-def _ensure_notes_dir(notes_dir: Path) -> None:
-    notes_dir.mkdir(parents=True, exist_ok=True)
-
-
-def _today_path(notes_dir: Path) -> Path:
-    today = dt.date.today().isoformat()
-    return notes_dir / f"{today}.md"
-
 
 def note(
     ctx: typer.Context,
@@ -36,13 +27,14 @@ def note(
     """Append to today's note or open it in the configured editor."""
     state = ctx.obj
     notes_dir = state.config.notes_dir.expanduser()
-    _ensure_notes_dir(notes_dir)
-    note_path = _today_path(notes_dir)
+
+    # Use core logic to get the path
+    notes_impl.ensure_notes_dir(notes_dir)
+    note_path = notes_impl.get_today_path(notes_dir)
 
     if message:
-        timestamp = dt.datetime.now().strftime("%H:%M")
-        with note_path.open("a", encoding="utf-8") as f:
-            f.write(f"- [{timestamp}] {message}\n")
+        # Use core logic to write
+        notes_impl.append_to_daily_note(notes_dir, message)
         console.print(f"[green]Appended to[/green] {note_path}")
         return
 
@@ -52,7 +44,6 @@ def note(
     except FileNotFoundError:
         console.print(f"[red]Editor not found:[/red] {state.config.editor}")
         raise typer.Exit(code=1)
-
 
 def note_search(
     ctx: typer.Context,
