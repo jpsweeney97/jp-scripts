@@ -139,7 +139,6 @@ def search_codebase(pattern: str, path: str = ".") -> str:
 
 # --- GIT ---
 
-
 @mcp.tool()
 def get_git_status() -> str:
     """Return a summarized git status for the current repository."""
@@ -176,5 +175,33 @@ def git_commit(message: str) -> str:
         logger.error("MCP Tool Execution Failed: git_commit", exc_info=e)
         return f"Error committing changes: {str(e)}"
 
+# --- WEB ---
+
+@mcp.tool()
+def fetch_url_content(url: str) -> str:
+    """
+    Fetch and parse a webpage into clean Markdown.
+    Use this to read documentation, issue trackers, or blog posts.
+    """
+    try:
+        import trafilatura
+        downloaded = trafilatura.fetch_url(url)
+        if not downloaded:
+            return f"Error: Failed to download {url}"
+
+        text = trafilatura.extract(
+            downloaded,
+            include_comments=False,
+            output_format="markdown",
+            url=url
+        )
+        return text if text else "Error: Could not extract content."
+    except ImportError:
+        return "Error: trafilatura not installed. Run `pip install jpscripts[full]`"
+    except Exception as e:
+        logger.error("MCP fetch_url failed", exc_info=e)
+        return f"Error fetching URL: {str(e)}"
+
 if __name__ == "__main__":
     mcp.run()
+

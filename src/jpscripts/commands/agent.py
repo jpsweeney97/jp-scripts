@@ -24,8 +24,10 @@ def codex_exec(
     prompt: str = typer.Argument(..., help="Instruction for Codex."),
     attach_recent: bool = typer.Option(False, "--recent", "-r", help="Attach top 5 recently modified files to context."),
     full_auto: bool = typer.Option(False, "--full-auto", "-y", help="Run without asking for confirmation (dangerous)."),
-    model: str = typer.Option("gpt-5.1-codex-max", "--model", "-m", help="Model to use."),
+    model: str = typer.Option(None, "--model", "-m", help="Model to use. Defaults to config."),
 ) -> None:
+    state = ctx.obj
+    target_model = model or getattr(state.config, "default_model", "gpt-5.1-codex-max")
     """Delegate a task to the Codex agent."""
     codex_bin = _ensure_codex()
 
