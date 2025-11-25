@@ -48,21 +48,25 @@ def test_codex_exec_attaches_recent_files(runner):
     """Verify --recent flag scans and attaches files."""
     mock_entry = MagicMock()
     mock_entry.path = Path("fake_recent.py")
+    mock_entry.path.write_text("hello world", encoding="utf-8")
 
     mock_proc = MagicMock()
     mock_proc.stdout = io.StringIO("")
     mock_proc.stderr = io.StringIO("")
     mock_proc.wait.return_value = 0
 
+    async def fake_scan_recent(*_args, **_kwargs):
+        return [mock_entry]
+
     with patch("jpscripts.commands.agent.subprocess.Popen", return_value=mock_proc) as mock_popen, \
          patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"), \
-         patch("jpscripts.commands.agent.scan_recent", return_value=[mock_entry]):
+         patch("jpscripts.commands.agent.scan_recent", side_effect=fake_scan_recent):
 
         result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
         assert result.exit_code == 0
         cmd = mock_popen.call_args[0][0]
 
-        # Ensure the file flag was added
-        assert "--file" in cmd
-        assert "fake_recent.py" in cmd
+        # Prompt (last arg) should include the recent file snippet/path
+        prompt_arg = cmd[-1]
+        assert "fake_recent.py" in prompt_arg

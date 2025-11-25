@@ -1,16 +1,32 @@
 # Changelog
 
+## [0.2.1] - November 25th Update
+
+### Added
+
+- **Semantic Memory:** Local, offline embedding engine (MPS-accelerated) for `jp memory search`.
+- **Safety Core:** Unified context limiting (`JP_MAX_FILE_CONTEXT_CHARS`) and streaming I/O to prevent OOM.
+- **MCP Hardening:** Full tool exposure (`read_file`, `search_codebase`) with enforced safety truncation.
+
+### Changed
+
+- **Performance:** Lazy loading of heavy AI libraries (torch/numpy) keeps CLI startup under 100ms.
+- **Git Ops:** Optimized `status-all` commit counting to O(1) using raw plumbing commands.
+
 ## [0.2.0] - The Stability Update
 
 ### Changed
+
 - `cliphist` now uses a SQLite database (`history.db`) for atomic, corruption-free writes.
 - `jp doctor` install hints are now platform-agnostic.
 
 ### Added
+
 - New `ignore_dirs` configuration option in `~/.jpconfig` to override default ignored directories in `jp nav`.
 - Comprehensive unit testing infrastructure (`tests/unit/`) and a project `Makefile` for standardized workflows (`install`, `test`, `format`).
 
 ### Fixed
+
 - Reliable macOS detection in `jp web-snap` using `sys.platform`.
 
 ## [0.1.0] - Python Rewrite

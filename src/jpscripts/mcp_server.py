@@ -13,7 +13,9 @@ from jpscripts.core import search as search_core
 from jpscripts.core import system as system_core
 from jpscripts.core.config import load_config
 from jpscripts.core.console import get_logger
+from jpscripts.core import memory as memory_core
 from jpscripts.core.notes_impl import append_to_daily_note
+from jpscripts.core.context import read_file_context
 
 # Initialize logger
 logger = get_logger("mcp")
@@ -34,7 +36,7 @@ except Exception as e:
 @mcp.tool()
 async def read_file(path: str) -> str:
     """
-    Read the full content of a file.
+    Read the content of a file (truncated to JP_MAX_FILE_CONTEXT_CHARS).
     Use this to inspect code, config files, or logs.
     """
     try:
@@ -44,8 +46,11 @@ async def read_file(path: str) -> str:
         if not target.is_file():
             return f"Error: {target} is not a file."
 
-        # Async file read to keep server responsive
-        return await asyncio.to_thread(target.read_text, encoding="utf-8")
+        max_chars = getattr(config, "max_file_context_chars", 50000)
+        content = await asyncio.to_thread(read_file_context, target, max_chars)
+        if content is None:
+            return f"Error: Could not read file {target} (unsupported encoding or IO error)."
+        return content
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
@@ -83,6 +88,7 @@ async def search_codebase(pattern: str, path: str = ".") -> str:
     Returns the raw text matches with line numbers.
     """
     try:
+        max_chars = getattr(config, "max_file_context_chars", 50000)
         search_root = Path(path).expanduser()
         if str(search_root) == ".":
              search_root = Path.cwd()
@@ -93,31 +99,56 @@ async def search_codebase(pattern: str, path: str = ".") -> str:
             pattern,
             search_root,
             line_number=True,
-            context=1
+            context=1,
+            max_chars=max_chars,
         )
-        return result if result else "No matches found."
+        if not result:
+            return "No matches found."
+
+        return result
     except Exception as e:
         return f"Error searching codebase: {str(e)}"
+
 
 # --- NAVIGATION ---
 
 @mcp.tool()
 async def list_recent_files(limit: int = 20) -> str:
-    """List files modified recently in the current workspace root."""
+    """List files modified recently in the current workspace root and surface related memories."""
     try:
         if config is None:
             return "Config not loaded."
         root = config.workspace_root.expanduser()
 
-        entries = await nav_core.scan_recent(
+        # 1. Parallel execution: Scan Files AND Query Memory
+        # We offload the blocking memory query to a thread
+        scan_task = nav_core.scan_recent(
             root,
             max_depth=3,
             include_dirs=False,
             ignore_dirs=set(config.ignore_dirs)
         )
 
+        # Generate a heuristic query based on recent files isn't possible until we have them.
+        # So we await scan first.
+        entries = await scan_task
         lines = [f"{e.path.relative_to(root) if e.path.is_relative_to(root) else e.path}" for e in entries[:limit]]
-        return "\n".join(lines) if lines else "No recent files found."
+
+        # 2. Query Memory (Non-Blocking)
+        query_hint = " ".join(Path(line).stem for line in lines[:5]) or Path.cwd().name
+
+        # FIX: Wrap synchronous IO in to_thread
+        memories = await asyncio.to_thread(
+            memory_core.query_memory,
+            query_hint,
+            limit=3,
+            config=config
+        )
+
+        mem_block = "\n".join(memories) if memories else "No related memories."
+        recent_block = "\n".join(lines) if lines else "No recent files found."
+
+        return f"Recent files:\n{recent_block}\n\nRelevant memories:\n{mem_block}"
     except Exception as e:
         return f"Error scanning recent files: {str(e)}"
 
@@ -210,6 +241,34 @@ def fetch_url_content(url: str) -> str:
         return "Error: trafilatura not installed. Run `pip install jpscripts[full]`"
     except Exception as e:
         return f"Error fetching URL: {str(e)}"
+
+
+# --- MEMORY ---
+
+@mcp.tool()
+def remember(fact: str, tags: str | None = None) -> str:
+    """
+    Save a fact or lesson to the persistent memory store.
+    Tags can be provided as a comma-separated list.
+    """
+    if config is None:
+        return "Config not loaded."
+
+    tag_list = [t.strip() for t in (tags.split(",") if tags else []) if t.strip()]
+    entry = memory_core.save_memory(fact, tag_list, config=config)
+    return f"Saved memory at {entry.ts}"
+
+
+@mcp.tool()
+def recall(query: str, limit: int = 5) -> str:
+    """
+    Retrieve the most relevant memories for a query.
+    """
+    if config is None:
+        return "Config not loaded."
+
+    results = memory_core.query_memory(query, limit=limit, config=config)
+    return "\n".join(results) if results else "No matching memories."
 
 if __name__ == "__main__":
     mcp.run()

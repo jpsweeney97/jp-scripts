@@ -24,7 +24,7 @@ This is a **Typer** application organized by domain:
 
 ```bash
 # Install in editable mode with dev dependencies
-pip install -e ".[dev]"
+pip install -e ".[dev,ai]"
 
 # Run tests
 pytest

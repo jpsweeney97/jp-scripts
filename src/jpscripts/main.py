@@ -15,7 +15,7 @@ from rich.table import Table
 from typer.main import get_command
 
 from . import __version__
-from .commands import agent, git_extra, git_ops, init, nav, notes, search, system, web
+from .commands import agent, git_extra, git_ops, init, memory, nav, notes, search, system, team, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 
@@ -51,6 +51,7 @@ DEFAULT_TOOLS: list[ExternalTool] = [
     ExternalTool(name="ripgrep", binary="rg", install_hint="Install via your package manager (brew, apt, etc.)"),
     ExternalTool(name="fzf", binary="fzf", install_hint="Install via your package manager (brew, apt, etc.)"),
     ExternalTool(name="GitHub CLI", binary="gh", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(name="Codex", binary="codex", install_hint="npm install -g @openai/codex"),
     ExternalTool(name="Python", binary="python3", install_hint="Install via your package manager (brew, apt, etc.)"),
     ExternalTool(name="Homebrew", binary="brew", install_hint="macOS: https://brew.sh"),
     ExternalTool(name="System Clipboard", binary="pbcopy", install_hint="macOS: Built-in. Linux: Install xclip/xsel.", required=False),
@@ -226,6 +227,8 @@ app.command("sync")(git_ops.sync)
 app.command("recent")(nav.recent)
 app.command("proj")(nav.proj)
 app.command("init")(init.init)
+app.add_typer(team.app, name="team")
+app.add_typer(memory.app, name="memory")
 app.command("web-snap")(web.web_snap)
 app.command("process-kill")(system.process_kill)
 app.command("port-kill")(system.port_kill)

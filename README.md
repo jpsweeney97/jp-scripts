@@ -70,6 +70,9 @@ _Development setup:_
 git clone [https://github.com/jpsweeney97/jp-scripts.git](https://github.com/jpsweeney97/jp-scripts.git)
 cd jp-scripts
 pip install -e ".[dev]"
+
+# Install with AI memory support
+pip install -e ".[ai]"
 ```
 
 ## Command Reference
@@ -129,6 +132,23 @@ _Capture thoughts and context._
 | `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context.   |                              |
 | `jp repo-map`     | Pack repo files into XML for LLM paste (respects .gitignore) | `--max-lines`                |
 
+### Agents
+
+_Direct multi-role Codex helpers._
+
+| Command         | Description                                                 | Key Flags |
+| :-------------- | :---------------------------------------------------------- | :-------- |
+| `jp team swarm` | Launch architect/engineer/QA agents in parallel for a task. |           |
+
+### Memory
+
+_Persistent ADRs and lessons learned._
+
+| Command            | Description                         | Key Flags        |
+| :----------------- | :---------------------------------- | :--------------- |
+| `jp memory add`    | Append a memory with optional tags. | `--tag` (repeat) |
+| `jp memory search` | Search stored memories for a query. | `--limit`        |
+
 ### Core
 
 | Command      | Description                                         |
@@ -141,9 +161,12 @@ _Capture thoughts and context._
 
 `jpscripts` exposes a "God-Mode" MCP server that allows AI agents (like Claude or Codex) to directly control your tools.
 
-**Capabilities:**
+**Tools (truncated safely for file/search outputs):**
 
-- `append_daily_note`: Log thoughts directly to your `notes_dir`.
+- **OS & Perception:** `read_file`, `list_directory`, `list_processes`
+- **Search & Navigation:** `search_codebase`, `list_recent_files`, `list_projects`
+- **Git Operations:** `get_git_status`, `git_commit`
+- **Knowledge & Memory:** `remember`, `recall`, `append_daily_note`, `fetch_url_content`
 
 **Running the Server:**
 You can run the server using `uv` or `python`. It operates over Stdio.
@@ -194,6 +217,18 @@ snapshots_dir = "~/snapshots"
 
 # Global log level (DEBUG, INFO, WARNING, ERROR)
 log_level = "INFO"
+
+# Default LLM model for Codex integrations
+default_model = "gpt-5.1-codex"
+
+# Memory store location and semantic search settings
+memory_store = "~/.jp_memory.jsonl"
+memory_model = "all-MiniLM-L6-v2" # embedding model
+use_semantic_search = true        # enable semantic recall
+
+# Context limits (characters)
+max_file_context_chars = 50000       # file reads for agents/UI
+max_command_output_chars = 20000     # captured command output for prompts
 ```
 
 ## Codex & Agent Integration

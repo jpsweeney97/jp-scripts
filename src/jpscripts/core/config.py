@@ -19,6 +19,12 @@ ENV_VAR_MAP: dict[str, str] = {
     "log_level": "JP_LOG_LEVEL",
     "worktree_root": "JP_WORKTREE_ROOT",
     "focus_audio_device": "JP_FOCUS_AUDIO_DEVICE",
+    "default_model": "JP_DEFAULT_MODEL",
+    "memory_store": "JP_MEMORY_STORE",
+    "memory_model": "JP_MEMORY_MODEL",
+    "use_semantic_search": "JP_USE_SEMANTIC_SEARCH",
+    "max_file_context_chars": "JP_MAX_FILE_CONTEXT_CHARS",
+    "max_command_output_chars": "JP_MAX_COMMAND_OUTPUT_CHARS",
 }
 
 
@@ -42,6 +48,12 @@ class AppConfig(BaseModel):
     editor: str = Field(default="code -w", description="Editor command used for interactive edits.")
     notes_dir: Path = Field(default_factory=lambda: Path.home() / "Notes" / "quick-notes")
     workspace_root: Path = Field(default_factory=lambda: Path.home() / "Projects")
+    default_model: str = Field(default="gpt-5.1-codex", description="Default Codex/LLM model.")
+    memory_store: Path = Field(default_factory=lambda: Path.home() / ".jp_memory.jsonl", description="Path to the memory store file.")
+    memory_model: str = Field(default="all-MiniLM-L6-v2", description="Embedding model for semantic memory search.")
+    use_semantic_search: bool = Field(default=True, description="Enable semantic search with embeddings.")
+    max_file_context_chars: int = Field(default=50000, description="Maximum characters to read when attaching file context.")
+    max_command_output_chars: int = Field(default=20000, description="Maximum characters from captured command output for prompts.")
     ignore_dirs: list[str] = Field(
         default_factory=lambda: [
             ".git",

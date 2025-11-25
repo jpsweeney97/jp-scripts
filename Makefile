@@ -1,7 +1,7 @@
 .PHONY: install test format clean
 
 install:
-	pip install -e ".[dev]"
+	pip install -e ".[dev,ai]"
 
 test:
 	pytest

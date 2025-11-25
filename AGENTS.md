@@ -32,3 +32,8 @@ When using `@codex` or `jp fix`:
 
 - **`search.py`**: Convert `todo_scan` to use the `mcp_server` logic to allow agents to auto-fix found TODOs.
 - **`system.py`**: `brew_explorer` invokes `brew` synchronously. Refactor to `asyncio.create_subprocess_exec` to prevent UI blocking during network hangs.
+
+## 4. Memory Protocol
+
+- **Retrieval**: Before answering complex questions about the user's preferences or infrastructure, ALWAYS run `jp memory search "<concept>"`.
+- **Storage**: When the user makes a decision (e.g., "We are switching to uv for package management"), ALWAYS run `jp memory add "We use uv for package management" --tag infrastructure`.

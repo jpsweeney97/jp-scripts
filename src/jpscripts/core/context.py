@@ -9,7 +9,7 @@ from jpscripts.core.console import console
 
 # Regex to catch file paths, often with line numbers (e.g., "src/main.py:42")
 # Matches: (start of line or space) (relative path) (:line_number optional)
-FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+\.[a-z0-9]+)(?::\d+)?", re.MULTILINE | re.IGNORECASE)
+FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE | re.IGNORECASE)
 
 async def run_and_capture(command: str, cwd: Path) -> str:
     """Run a shell command and return combined stdout/stderr."""
@@ -51,3 +51,16 @@ async def gather_context(command: str, root: Path) -> tuple[str, set[Path]]:
     output = await run_and_capture(command, root)
     files = resolve_files_from_output(output, root)
     return output, files
+
+
+def read_file_context(path: Path, max_chars: int) -> str | None:
+    """
+    Read file content safely and truncate to max_chars.
+    Returns None on any read/encoding error.
+    """
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            text = fh.read(max_chars)
+    except (OSError, UnicodeDecodeError):
+        return None
+    return text

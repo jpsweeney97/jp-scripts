@@ -14,7 +14,7 @@ from rich.panel import Panel
 from jpscripts.core.console import console
 from jpscripts.core.nav import scan_recent
 # NEW IMPORT
-from jpscripts.core.context import gather_context
+from jpscripts.core.context import gather_context, read_file_context
 
 def _ensure_codex() -> str:
     binary = shutil.which("codex")
@@ -35,11 +35,12 @@ def codex_exec(
     """Delegate a task to the Codex agent."""
     state = ctx.obj
     root = state.config.workspace_root or state.config.notes_dir
-    target_model = model or getattr(state.config, "default_model", "gpt-5.1-codex-max")
+    target_model = model or state.config.default_model
     codex_bin = _ensure_codex()
 
     # 1. Build the base command
-    cmd = [codex_bin, "exec", prompt, "--model", target_model, "--json"]
+    # Option flags must precede the prompt; prompt stays last.
+    cmd = [codex_bin, "exec", "--json", "--model", target_model, "-c", "reasoning.effort=medium"]
 
     if full_auto:
         cmd.append("--full-auto")
@@ -51,19 +52,20 @@ def codex_exec(
         with console.status(f"Diagnosing with `{run_command}`...", spinner="dots"):
             output, detected_files = asyncio.run(gather_context(run_command, root.expanduser()))
 
-        if not detected_files:
-            console.print("[yellow]No files detected in command output. Proceeding without file context.[/yellow]")
-        else:
+        attached: list[str] = []
+        if detected_files:
             console.print(f"[green]Detected relevant files:[/green] {', '.join(f.name for f in detected_files)}")
-            for path in detected_files:
-                cmd.extend(["--file", str(path)])
+            for path in list(detected_files)[:5]:
+                snippet = read_file_context(Path(path), state.config.max_file_context_chars)
+                if snippet:
+                    attached.append(f"File: {path}\n```\n{snippet}\n```")
+        else:
+            console.print("[yellow]No files detected in command output. Proceeding without file context.[/yellow]")
 
-        # We also attach the output log as a temporary file context or preamble?
-        # Simpler: Just append it to the prompt so Codex sees the error.
-        # This is "God Mode" - we modify the user prompt transparently.
-        prompt += f"\n\nCommand `{run_command}` Output:\n```\n{output[-2000:]}\n```" # limit to last 2k chars to avoid token limit
-        # Update the command list prompt argument (index 2)
-        cmd[2] = prompt
+        # Include diagnostic output and any file snippets in the prompt for context.
+        prompt += f"\n\nCommand `{run_command}` Output:\n```\n{output[-state.config.max_command_output_chars:]}\n```"
+        if attached:
+            prompt += "\n\nAttached files:\n" + "\n\n".join(attached)
 
     # Strategy B: Recent Files (Heuristic)
     elif attach_recent:
@@ -75,13 +77,21 @@ def codex_exec(
                 ignore_dirs=set(state.config.ignore_dirs)
             ))
 
-        # Attach top 5 files
+        # Attach top 5 files as inline snippets
+        attached: list[str] = []
         for entry in recents[:5]:
-            cmd.extend(["--file", str(entry.path)])
-            console.print(f"[dim]Attaching context: {entry.path.name}[/dim]")
+            snippet = read_file_context(entry.path, state.config.max_file_context_chars)
+            if snippet:
+                attached.append(f"File: {entry.path}\n```\n{snippet}\n```")
+                console.print(f"[dim]Attaching context: {entry.path.name}[/dim]")
+        if attached:
+            prompt += "\n\nRecent file context:\n" + "\n\n".join(attached)
 
     # 3. Handoff (Existing Logic)
     console.print(Panel("Handing off to [bold magenta]Codex[/bold magenta]...", box=box.SIMPLE))
+
+    # Prompt must be last argument
+    cmd.append(prompt)
 
     assistant_parts: list[str] = []
     status = None

@@ -104,7 +104,7 @@ def web_snap(
     metadata = {
         "url": url,
         "domain": parsed.netloc,
-        "timestamp": dt.datetime.utcnow().isoformat() + "Z",
+        "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
         "title": title,
     }
 

@@ -29,6 +29,10 @@ dev = [
   "pytest-asyncio>=0.23.0",
   "ruff>=0.4.0",
 ]
+ai = [
+  "sentence-transformers>=3.0.0",
+  "numpy>=1.26.0",
+]
 
 [project.scripts]
 jp = "jpscripts.main:app"

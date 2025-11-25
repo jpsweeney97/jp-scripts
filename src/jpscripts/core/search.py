@@ -18,6 +18,7 @@ def run_ripgrep(
     follow: bool = False,
     pcre2: bool = False,
     extra_args: list[str] | None = None,
+    max_chars: int | None = None,
 ) -> str:
     """
     Execute ripgrep and return the standard output as a string.
@@ -30,6 +31,7 @@ def run_ripgrep(
         follow: Follow symlinks.
         pcre2: Use PCRE2 regex engine.
         extra_args: Additional CLI arguments for rg.
+        max_chars: Optional cap on bytes read from stdout.
     """
     binary = _ensure_rg()
     path = path.expanduser()
@@ -51,16 +53,35 @@ def run_ripgrep(
     cmd.append(str(path))
 
     try:
-        # Capture stdout and stderr
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        with subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=4096,
+        ) as proc:
+            chunks: list[str] = []
+            bytes_read = 0
+            assert proc.stdout is not None
+            for chunk in iter(lambda: proc.stdout.read(4096), ""):
+                if chunk == "":
+                    break
+                chunks.append(chunk)
+                bytes_read += len(chunk)
+                if max_chars is not None and bytes_read >= max_chars:
+                    proc.terminate()
+                    return "".join(chunks)[:max_chars] + "\n... [truncated]"
+
+            stdout = "".join(chunks)
+            stderr = proc.stderr.read() if proc.stderr else ""
+            proc.wait()
+
+            if proc.returncode == 2:
+                raise RuntimeError(f"ripgrep error: {stderr.strip()}")
+
+            return stdout.strip()
     except FileNotFoundError:
         raise RuntimeError("ripgrep execution failed.")
-
-    # rg returns 0 on match, 1 on no match, 2 on error
-    if proc.returncode == 2:
-        raise RuntimeError(f"ripgrep error: {proc.stderr.strip()}")
-
-    return proc.stdout.strip()
 
 def get_ripgrep_cmd(
     pattern: str,

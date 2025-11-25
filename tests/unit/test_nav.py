@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import asyncio
 from datetime import datetime
 
 # FIX: Import from the new core module location
@@ -32,7 +33,7 @@ def test_scan_recent_sorts_and_ignores(tmp_path):
     ignored_file.write_text("ignore")
 
     # FIX: Use public core function 'scan_recent'
-    entries = scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"})
+    entries = asyncio.run(scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"}))
     names = [entry.path.name for entry in entries]
 
     assert names[0] == "keep.txt"

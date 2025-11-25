@@ -46,7 +46,8 @@ def get_upstream(repo: Repo) -> str | None:
 
 def _count_commits(repo: Repo, ref_range: str) -> int:
     try:
-        return sum(1 for _ in repo.iter_commits(ref_range))
+        output = repo.git.rev_list("--count", ref_range)
+        return int(output.strip())
     except GitCommandError:
         return 0
 
