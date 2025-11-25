@@ -119,15 +119,15 @@ _Control your machine._
 
 _Capture thoughts and context._
 
-| Command           | Description                                                | Key Flags                    |
-| :---------------- | :--------------------------------------------------------- | :--------------------------- |
-| `jp note`         | Append to today's daily note (or open it).                 | `--message`                  |
-| `jp note-search`  | Grep through daily notes with preview.                     | `--no-fzf`                   |
-| `jp standup`      | Aggregate commits across all repos for the last N days.    | `--days`                     |
-| `jp standup-note` | Run `standup` and append to today's note.                  | `--days`                     |
-| `jp cliphist`     | Manage clipboard history backed by SQLite (no corruption). | `--action [add\|pick\|show]` |
-| `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context. |                              |
-| `jp repo-map`     | Pack repo files into XML for LLM paste (respects .gitignore)| `--max-lines`                |
+| Command           | Description                                                  | Key Flags                    |
+| :---------------- | :----------------------------------------------------------- | :--------------------------- |
+| `jp note`         | Append to today's daily note (or open it).                   | `--message`                  |
+| `jp note-search`  | Grep through daily notes with preview.                       | `--no-fzf`                   |
+| `jp standup`      | Aggregate commits across all repos for the last N days.      | `--days`                     |
+| `jp standup-note` | Run `standup` and append to today's note.                    | `--days`                     |
+| `jp cliphist`     | Manage clipboard history backed by SQLite (no corruption).   | `--action [add\|pick\|show]` |
+| `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context.   |                              |
+| `jp repo-map`     | Pack repo files into XML for LLM paste (respects .gitignore) | `--max-lines`                |
 
 ### Core
 
@@ -136,6 +136,32 @@ _Capture thoughts and context._
 | `jp init`    | Interactive setup wizard for `~/.jpconfig`.         |
 | `jp config`  | View active configuration and source (file vs env). |
 | `jp version` | Show version.                                       |
+
+## Model Context Protocol (MCP)
+
+`jpscripts` exposes a "God-Mode" MCP server that allows AI agents (like Claude or Codex) to directly control your tools.
+
+**Capabilities:**
+
+- `append_daily_note`: Log thoughts directly to your `notes_dir`.
+
+**Running the Server:**
+You can run the server using `uv` or `python`. It operates over Stdio.
+
+```bash
+# Via Python directly
+python -m jpscripts.mcp_server
+
+# Or configure it in your AI client (e.g. Claude Desktop config):
+# {
+#   "mcpServers": {
+#     "jpscripts": {
+#       "command": "uv",
+#       "args": ["run", "jpscripts.mcp_server"]
+#     }
+#   }
+# }
+```
 
 ## Configuration
 

@@ -144,8 +144,10 @@ def standup_note(ctx: typer.Context, days: int = typer.Option(3, "--days", "-d",
     """Run standup and append its output to today's note."""
     state = ctx.obj
     notes_dir = state.config.notes_dir.expanduser()
-    _ensure_notes_dir(notes_dir)
-    note_path = _today_path(notes_dir)
+
+    # FIX: Use the core module instead of the deleted local helpers
+    notes_impl.ensure_notes_dir(notes_dir)     # Was _ensure_notes_dir(notes_dir)
+    note_path = notes_impl.get_today_path(notes_dir) # Was _today_path(notes_dir)
 
     with console.capture() as capture:
         standup(ctx, days=days)
@@ -160,7 +162,6 @@ def standup_note(ctx: typer.Context, days: int = typer.Option(3, "--days", "-d",
         f.write("\n" + heading + captured + "\n")
     console.print(f"[green]Appended standup to[/green] {note_path}")
     console.print(captured)
-
 
 def _init_db() -> sqlite3.Connection:
     """Initialize the clipboard history database and return a connection."""
