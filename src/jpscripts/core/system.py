@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import http.server
 import shutil
 import socketserver
@@ -8,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import psutil
+
+# ... (Keep ProcessInfo, _format_cmdline, find_processes, kill_process as they are) ...
 
 @dataclass
 class ProcessInfo:
@@ -27,16 +30,9 @@ def _format_cmdline(proc: psutil.Process) -> str:
         return proc.name()
 
 def find_processes(name_filter: str | None = None, port_filter: int | None = None) -> list[ProcessInfo]:
-    """
-    Scan for processes matching the given name substring or listening on a specific port.
-    Returns a list of ProcessInfo objects.
-    """
     matches: list[ProcessInfo] = []
-
-    # We iterate once to be efficient
     for proc in psutil.process_iter(["pid", "name", "username"]):
         try:
-            # 1. Check Port (if requested)
             if port_filter is not None:
                 has_port = False
                 for conn in proc.connections(kind="inet"):
@@ -46,7 +42,6 @@ def find_processes(name_filter: str | None = None, port_filter: int | None = Non
                 if not has_port:
                     continue
 
-            # 2. Check Name (if requested)
             cmd = _format_cmdline(proc)
             if name_filter and name_filter.lower() not in cmd.lower():
                 continue
@@ -65,9 +60,6 @@ def find_processes(name_filter: str | None = None, port_filter: int | None = Non
     return sorted(matches, key=lambda p: p.pid)
 
 def kill_process(pid: int, force: bool = False) -> str:
-    """
-    Kill a process by PID. Returns a status string ('killed', 'terminated', etc).
-    """
     try:
         p = psutil.Process(pid)
         if force:
@@ -81,7 +73,7 @@ def kill_process(pid: int, force: bool = False) -> str:
         return "permission denied"
 
 def get_audio_devices() -> list[str]:
-    """List available audio output devices via SwitchAudioSource."""
+    # ... (Keep existing implementation) ...
     switch_cmd = shutil.which("SwitchAudioSource")
     if not switch_cmd:
         raise RuntimeError("SwitchAudioSource binary not found")
@@ -93,7 +85,7 @@ def get_audio_devices() -> list[str]:
     return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
 
 def set_audio_device(device_name: str) -> None:
-    """Set the audio output device."""
+    # ... (Keep existing implementation) ...
     switch_cmd = shutil.which("SwitchAudioSource")
     if not switch_cmd:
         raise RuntimeError("SwitchAudioSource binary not found")
@@ -103,7 +95,7 @@ def set_audio_device(device_name: str) -> None:
         raise RuntimeError(f"Failed to switch device: {proc.stderr}")
 
 def get_ssh_hosts(config_path: Path | None = None) -> list[str]:
-    """Parse ssh config for Host entries."""
+    # ... (Keep existing implementation) ...
     target = config_path or Path.home() / ".ssh" / "config"
     if not target.exists():
         return []
@@ -118,7 +110,6 @@ def get_ssh_hosts(config_path: Path | None = None) -> list[str]:
         line = line.strip()
         if not line or line.startswith("#"):
             continue
-        # Rudimentary parsing for 'Host alias'
         if line.lower().startswith("host "):
             entries = line.split()[1:]
             hosts.extend([h for h in entries if h != "*"])
@@ -126,15 +117,53 @@ def get_ssh_hosts(config_path: Path | None = None) -> list[str]:
     return sorted(hosts)
 
 def run_temp_server(directory: Path, port: int) -> None:
-    """Blocking call to run a simple HTTP server."""
+    # ... (Keep existing implementation) ...
     handler = http.server.SimpleHTTPRequestHandler
-
-    # We use partial application to pass the directory
     def handler_factory(*args, **kwargs):
         return handler(*args, directory=str(directory), **kwargs)
-
     class _ThreadingServer(socketserver.ThreadingMixIn, http.server.ThreadingHTTPServer):
         daemon_threads = True
-
     with _ThreadingServer(("", port), handler_factory) as httpd:
         httpd.serve_forever()
+
+# --- Async Homebrew Wrappers ---
+
+async def search_brew(query: str | None) -> list[str]:
+    """Async wrapper for `brew search`."""
+    brew = shutil.which("brew")
+    if not brew:
+        raise RuntimeError("Homebrew is required.")
+
+    args = [brew, "search"]
+    if query:
+        args.append(query)
+
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"brew search failed: {stderr.decode().strip()}")
+
+    return [line.strip() for line in stdout.decode().splitlines() if line.strip()]
+
+async def get_brew_info(name: str) -> str:
+    """Async wrapper for `brew info`."""
+    brew = shutil.which("brew")
+    if not brew:
+        raise RuntimeError("Homebrew is required.")
+
+    proc = await asyncio.create_subprocess_exec(
+        brew, "info", name,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"brew info failed: {stderr.decode().strip()}")
+
+    return stdout.decode().strip()

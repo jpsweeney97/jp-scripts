@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 from textwrap import dedent
 
 import typer
 from rich.prompt import Prompt
+from rich import box
+from rich.panel import Panel
 
 from jpscripts.core.console import console
 from jpscripts.core.config import AppConfig
-
 
 def _write_config(path: Path, config: AppConfig) -> None:
     ignore_dirs_literal = ", ".join(json.dumps(item) for item in config.ignore_dirs)
@@ -71,3 +74,48 @@ def init(ctx: typer.Context, config_path: Path | None = typer.Option(None, help=
     _write_config(target_path, config)
     console.print(f"[green]Wrote config to[/green] {target_path}")
     console.print("You can rerun `jp init` anytime to update these values.")
+
+def config_fix(ctx: typer.Context) -> None:
+    """Attempt to fix a broken configuration file using Codex."""
+    state = ctx.obj
+    path = state.config_meta.path
+
+    if not path.exists():
+        console.print(f"[red]Config file {path} does not exist. Run `jp init` to create one.[/red]")
+        raise typer.Exit(code=1)
+
+    if not state.config_meta.error:
+        console.print(f"[green]Config file {path} is valid. No fix needed.[/green]")
+        return
+
+    # Read the broken content
+    content = path.read_text(encoding="utf-8")
+
+    console.print(Panel(f"Attempting to fix {path}...", title="Self-Healing", box=box.SIMPLE))
+
+    # Check for Codex
+    codex_bin = shutil.which("codex")
+    if not codex_bin:
+        console.print("[red]Codex CLI not found. Cannot auto-fix.[/red]")
+        console.print("Please fix the file manually or run `jp init` to overwrite it.")
+        raise typer.Exit(code=1)
+
+    # Construct the prompt
+    prompt = (
+        f"The following TOML configuration file is invalid.\n"
+        f"Error: {state.config_meta.error}\n\n"
+        f"Content:\n```toml\n{content}\n```\n\n"
+        f"Fix the syntax errors and overwrite the file at {path} with the corrected TOML."
+    )
+
+    # Delegate to Codex
+    # We use --full-auto (YOLO mode) because we are fixing a broken config
+    cmd = [codex_bin, "exec", prompt, "--full-auto", "--model", "gpt-5.1-codex-max"]
+
+    try:
+        subprocess.run(cmd, check=True)
+        console.print(f"[green]Repaired[/green] {path}")
+    except subprocess.CalledProcessError:
+        console.print("[red]Codex failed to fix the configuration.[/red]")
+        raise typer.Exit(code=1)
+

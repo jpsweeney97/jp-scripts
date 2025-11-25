@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 import threading
@@ -10,7 +11,6 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
-# Import the new core logic
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
 from jpscripts.core.ui import fzf_select
@@ -166,23 +166,17 @@ def brew_explorer(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Search brew formulas/casks and show info."""
-    # NOTE: This logic remains here for now as core/system.py does not yet implement brew support.
-    # Ideally, move this to system_core.search_brew(query) in the future.
 
-    if not shutil.which("brew"):
-        console.print("[red]Homebrew is required for brew-explorer.[/red]")
-        raise typer.Exit(code=1)
+    async def run_search():
+        try:
+            with console.status("Searching Homebrew...", spinner="dots"):
+                return await system_core.search_brew(query)
+        except RuntimeError as e:
+            console.print(f"[red]{e}[/red]")
+            raise typer.Exit(code=1)
 
-    search_cmd = ["brew", "search"]
-    if query:
-        search_cmd.append(query)
+    items = asyncio.run(run_search())
 
-    search = subprocess.run(search_cmd, capture_output=True, text=True)
-    if search.returncode != 0:
-        console.print(f"[red]brew search failed:[/red] {search.stderr}")
-        raise typer.Exit(code=1)
-
-    items = [line.strip() for line in search.stdout.splitlines() if line.strip()]
     if not items:
         console.print("[yellow]No results from brew search.[/yellow]")
         return
@@ -203,8 +197,13 @@ def brew_explorer(
     if not isinstance(selection, str) or not selection:
         return
 
-    info = subprocess.run(["brew", "info", selection], capture_output=True, text=True)
-    if info.stdout:
-        console.print(Panel(info.stdout.strip(), title=f"brew info {selection}", box=box.SIMPLE))
-    if info.returncode != 0:
-        console.print(f"[red]brew info failed:[/red] {info.stderr}")
+    async def run_info():
+        with console.status(f"Fetching info for {selection}...", spinner="dots"):
+            return await system_core.get_brew_info(selection)
+
+    try:
+        info = asyncio.run(run_info())
+        if info:
+            console.print(Panel(info, title=f"brew info {selection}", box=box.SIMPLE))
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")

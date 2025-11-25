@@ -45,6 +45,7 @@ class ToolCheck:
     message: str | None = None
 
 
+
 DEFAULT_TOOLS: list[ExternalTool] = [
     ExternalTool(name="Git", binary="git", install_hint="Install via your package manager (brew, apt, etc.)"),
     ExternalTool(name="ripgrep", binary="rg", install_hint="Install via your package manager (brew, apt, etc.)"),
@@ -52,10 +53,10 @@ DEFAULT_TOOLS: list[ExternalTool] = [
     ExternalTool(name="GitHub CLI", binary="gh", install_hint="Install via your package manager (brew, apt, etc.)"),
     ExternalTool(name="Python", binary="python3", install_hint="Install via your package manager (brew, apt, etc.)"),
     ExternalTool(name="Homebrew", binary="brew", install_hint="macOS: https://brew.sh"),
+    ExternalTool(name="System Clipboard", binary="pbcopy", install_hint="macOS: Built-in. Linux: Install xclip/xsel.", required=False),
     ExternalTool(name="SwitchAudioSource", binary="SwitchAudioSource", required=False),
     ExternalTool(name="zoxide", binary="zoxide", install_hint="Install via your package manager (brew, apt, etc.)", required=False),
 ]
-
 
 @app.callback()
 def main(
@@ -63,16 +64,24 @@ def main(
     config: Path | None = typer.Option(None, "--config", "-c", help="Path to a jp config file (TOML or JSON)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
 ) -> None:
-    try:
-        loaded_config, meta = load_config(config_path=config)
-    except ConfigError as exc:
-        console.print(f"[red]Config error:[/red] {exc}")
-        raise typer.Exit(code=1)
+    # We no longer try/except here because load_config is safe
+    loaded_config, meta = load_config(config_path=config)
 
     logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
     ctx.obj = AppState(config=loaded_config, config_meta=meta, logger=logger)
-    logger.debug("Loaded configuration from %s (env overrides: %s)", meta.path, sorted(meta.env_overrides))
 
+    if meta.error:
+        # Display "Safe Mode" Warning
+        console.print(
+            Panel(
+                f"[bold red]Configuration Error - Safe Mode Active[/bold red]\n\n"
+                f"Failed to load {meta.path}:\n{meta.error}\n\n"
+                f"[yellow]Using default settings. Run `jp config-fix` to repair.[/yellow]",
+                border_style="red"
+            )
+        )
+    else:
+        logger.debug("Loaded configuration from %s (env overrides: %s)", meta.path, sorted(meta.env_overrides))
 
 @app.command("com")
 def command_catalog() -> None:
@@ -108,11 +117,13 @@ async def _check_tool(tool: ExternalTool) -> ToolCheck:
         return ToolCheck(tool=tool, status="missing", version=None, message=tool.install_hint)
 
     try:
+        # FIX: Redirect stdin to DEVNULL to prevent interactive tools (like pbcopy) from hanging
         process = await asyncio.create_subprocess_exec(
             resolved,
             *tool.version_args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,  # <--- CRITICAL FIX
         )
     except FileNotFoundError:
         return ToolCheck(tool=tool, status="missing", version=None, message=tool.install_hint)
@@ -238,6 +249,7 @@ app.command("git-branchcheck")(git_extra.git_branchcheck)
 app.command("stashview")(git_extra.stashview)
 app.command("fix")(agent.codex_exec)  # "jp fix" is faster to type than "jp agent"
 app.command("agent")(agent.codex_exec) # Alias
+app.command("config-fix")(init.config_fix)
 
 def cli() -> None:
     app()

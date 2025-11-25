@@ -1,86 +1,34 @@
 # AGENTS.md
 
-> **Role**: You are a Principal Software Engineer maintaining `jpscripts`.
-> **Context**: This is a Python 3.11+ Typer CLI managed with `hatch`.
-> **Philosophy**: Speed (<50ms startup), Type Safety (Strict MyPy), and Modularity.
+> **Role**: Principal System Engineer & CLI Architect.
+> **Objective**: Maintain `jpscripts` as the "God-Mode" interface for macOS.
 
-## 1. Map of the Territory
+## 1. Architectural Invariants
 
-To save context, assume this architecture without reading files:
+- **The Core/Command Barrier**:
 
-- **Entry**: `src/jpscripts/main.py` initializes `AppState` and Typer.
-- **Config**: `src/jpscripts/core/config.py` loads `~/.jpconfig` (TOML) + Env Vars.
-- **Git Core**: `src/jpscripts/core/git.py` wraps `GitPython`. **Invariant**: Never use `subprocess` for git ops unless `GitPython` is insufficient.
-- **Commands**:
-  - `nav.py`: File system traversal (Zoxide, recents).
-  - `git_ops.py`: Async status checks.
-  - `context.py`: LLM context packing.
-  - `system.py`: OS interactions (processes, ports).
-  - `agent.py`: Codex wrapper and context loading.
+  - `commands/` modules handles I/O, CLI arguments (Typer), and UI rendering (Rich).
+  - `core/` modules contain pure logic, data classes, and subprocess/git wrappers.
+  - **Violation**: A command module importing another command module.
 
-## 2. Review Guidelines (Codex Strict Mode)
+- **Performance Contracts**:
+  - `jp recent` and `jp nav` must resolve in <100ms.
+  - Heavy Git operations (`fetch`, `status-all`) must use `asyncio` and provide a `rich.live.Live` spinner.
 
-Codex, when running `@codex review`, prioritize these findings:
+## 2. Codex Interaction Protocol
 
-- **P0 (Blocking)**:
+When using `@codex` or `jp fix`:
 
-  - **XML/Injection Safety**: Ensure content packed for LLMs or Shells is escaped.
-  - **Blocking I/O**: Any synchronous file/network IO inside `async def` functions.
-  - **Type Safety**: Any usage of `Any` or missing return type annotations.
-  - **Path Safety**: Use `pathlib.Path` exclusively. No string concatenation for paths.
+1.  **Smart Context**: Prefer `jp fix -x "pytest" "Fix tests"` over blindly attaching recent files. This grabs the exact files involved in the stack trace.
+2.  **Safety**:
+    - NEVER write `subprocess.run("rm -rf ...")` without an explicit `typer.confirm`.
+    - Git operations must check `git_core.describe_status(repo)` to ensure no uncommitted changes are clobbered.
+3.  **MCP Usage**:
+    - **Perception**: Use `list_directory`, `read_file`, and `search_codebase` (grep) to investigate the environment before acting.
+    - **Knowledge**: Use `fetch_url_content` to read external documentation.
+    - **Action**: Use `append_daily_note` to log architectural decisions.
 
-- **P1 (High Priority)**:
-  - **Missing Docs**: New commands must have a docstring.
-  - **Fragile Imports**: Top-level imports of heavy libraries (`git`, `pandas`) must be deferred to the function scope to protect startup time.
+## 3. High-Leverage Refactoring Targets
 
-## 3. Cognitive Model & Decision Tree
-
-1.  **Dependency Check**:
-
-    - Need a binary (e.g., `gh`, `fzf`)? -> Check `DEFAULT_TOOLS` in `main.py`.
-    - Need a library? -> Check `pyproject.toml`. Do not add heavy deps without approval.
-
-2.  **Concurrency Check**:
-
-    - Operation > 100ms? -> Must use `asyncio` and `rich.live.Live` or `rich.progress`.
-    - File system scan? -> Use iterators, do not load full lists into memory.
-
-3.  **UI Check**:
-    - **PROHIBITED**: `print()`, `input()`.
-    - **REQUIRED**: `console.print()`, `rich.prompt.Prompt`.
-
-## 4. Architectural Invariants & Cognitive Model
-
-### The "Command Pattern" Heuristic
-
-When creating a new command, the Agent MUST follow this mental graph:
-
-1.  **Input**: Define strict `typer.Option` types. Never use `input()`.
-2.  **Logic**: If logical complexity > 5 lines, move to `src/jpscripts/core/{domain}.py`.
-3.  **Output**: Use `console.print` with Rich markup.
-4.  **Registration**: The Agent MUST automatically register the command in `src/jpscripts/main.py` or the build is broken.
-
-### Context Awareness
-
-- **Configuration**: The Agent must never hardcode paths. Always resolve via `ctx.obj.config`.
-- **Git Operations**: Use `jpscripts.core.git`. Do not shell out to `subprocess.run("git", ...)` unless `GitPython` lacks the specific plumbing (e.g., complex interactive rebase).
-
-## 5. Tool Usage Guidelines (Codex Specific)
-
-When operating in this repository, you have access to the `jp` CLI. PREFER using `jp` commands over writing custom Python scripts for system tasks.
-
-- **Searching**: Do not write python scripts to walk directories. Use `jp ripper --no-fzf "pattern"` (if interactive) or `rg` directly.
-- **Git Context**: To understand the state of the workspace, run `jp status-all`.
-- **Debugging**: If a port is blocked, run `jp port-kill <port> --force`.
-
-## 6. Codex Integration Strategy
-
-- **Tool Exposure**: The `mcp_server.py` MUST expose logic from `src/jpscripts/core/`. It must NEVER import from `commands/` to avoid circular deps and UI pollution.
-- **Agent Command**: `jp fix` uses the `codex` binary. It is the only command allowed to launch a subprocess for an AI agent.
-- **Data Flow**: `commands/` -> `core/` -> `Data Class`. Commands should be thin wrappers around Core logic.
-
-## Review Guidelines
-
-- All new commands must use `jpscripts.core.console` for user-facing output; `print()` is prohibited.
-- Strict typing is required for all arguments and return types—no implicit `Any`.
-- No direct usage of `subprocess` is allowed for Git operations; use `jpscripts.core.git` wrappers instead.
+- **`search.py`**: Convert `todo_scan` to use the `mcp_server` logic to allow agents to auto-fix found TODOs.
+- **`system.py`**: `brew_explorer` invokes `brew` synchronously. Refactor to `asyncio.create_subprocess_exec` to prevent UI blocking during network hangs.

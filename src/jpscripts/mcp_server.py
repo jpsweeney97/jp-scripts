@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import os
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -13,86 +15,101 @@ from jpscripts.core.config import load_config
 from jpscripts.core.console import get_logger
 from jpscripts.core.notes_impl import append_to_daily_note
 
-# Initialize logger for observability
+# Initialize logger
 logger = get_logger("mcp")
 
-# Initialize the server
+# Initialize server
 mcp = FastMCP("jpscripts")
 
-# Load config independently of Typer
+# Load config
 config = None
 try:
     config, _ = load_config()
     logger.info("MCP Server loaded config from %s", config.notes_dir)
 except Exception as e:
     logger.error("Failed to load config during MCP startup", exc_info=e)
-    # We continue; config might be needed for tools, handled individually if so.
 
-# --- NOTES ---
-
-@mcp.tool()
-def append_daily_note(message: str) -> str:
-    """
-    Append a log entry to the user's daily note system.
-    This uses the configured 'notes_dir' from ~/.jpconfig.
-    """
-    try:
-        if config is None:
-            return "Config not loaded."
-        target_dir = config.notes_dir.expanduser()
-        logger.debug(f"Appending note to {target_dir}: {message[:20]}...")
-        path = append_to_daily_note(target_dir, message)
-        return f"Successfully logged to daily note: {path}"
-    except Exception as e:
-        logger.error("MCP Tool Execution Failed: append_daily_note", exc_info=e)
-        return f"Error appending note: {str(e)}"
-
-# --- SYSTEM ---
+# --- OS PRIMITIVES (God Mode Enablers) ---
 
 @mcp.tool()
-def list_processes(name_filter: str | None = None, port_filter: int | None = None) -> str:
+async def read_file(path: str) -> str:
     """
-    List running processes, optionally filtering by name or port.
-    Returns a formatted string list of 'PID - Name (User) [Command]'.
+    Read the full content of a file.
+    Use this to inspect code, config files, or logs.
     """
     try:
-        procs = system_core.find_processes(name_filter, port_filter)
-        if not procs:
-            return "No matching processes found."
+        target = Path(path).expanduser()
+        if not target.exists():
+            return f"Error: File {target} does not exist."
+        if not target.is_file():
+            return f"Error: {target} is not a file."
 
-        # Format for LLM consumption
-        lines = [f"{p.pid} - {p.name} ({p.username}) [{p.cmdline}]" for p in procs[:50]]
-        if len(procs) > 50:
-            lines.append(f"... and {len(procs) - 50} more.")
-        return "\n".join(lines)
+        # Async file read to keep server responsive
+        return await asyncio.to_thread(target.read_text, encoding="utf-8")
     except Exception as e:
-        return f"Error listing processes: {str(e)}"
+        return f"Error reading file: {str(e)}"
 
 @mcp.tool()
-def kill_process(pid: int, force: bool = False) -> str:
+async def list_directory(path: str) -> str:
     """
-    Kill a process by PID. Set force=True to use SIGKILL.
+    List contents of a directory (like ls).
+    Returns a list of 'd: dir_name' and 'f: file_name'.
     """
     try:
-        result = system_core.kill_process(pid, force)
-        return f"Process {pid}: {result}"
+        target = Path(path).expanduser()
+        if not target.exists():
+            return f"Error: Path {target} does not exist."
+        if not target.is_dir():
+            return f"Error: {target} is not a directory."
+
+        def _ls():
+            entries = []
+            with os.scandir(target) as it:
+                for entry in it:
+                    prefix = "d" if entry.is_dir() else "f"
+                    entries.append(f"{prefix}: {entry.name}")
+            return "\n".join(sorted(entries))
+
+        return await asyncio.to_thread(_ls)
     except Exception as e:
-        return f"Error killing process {pid}: {str(e)}"
+        return f"Error listing directory: {str(e)}"
+
+# --- SEARCH ---
+
+@mcp.tool()
+async def search_codebase(pattern: str, path: str = ".") -> str:
+    """
+    Search the codebase using ripgrep (grep).
+    Returns the raw text matches with line numbers.
+    """
+    try:
+        search_root = Path(path).expanduser()
+        if str(search_root) == ".":
+             search_root = Path.cwd()
+
+        # Offload the subprocess blocking call to a thread
+        result = await asyncio.to_thread(
+            search_core.run_ripgrep,
+            pattern,
+            search_root,
+            line_number=True,
+            context=1
+        )
+        return result if result else "No matches found."
+    except Exception as e:
+        return f"Error searching codebase: {str(e)}"
 
 # --- NAVIGATION ---
 
 @mcp.tool()
-def list_recent_files(limit: int = 20) -> str:
-    """
-    List files modified recently in the current workspace root.
-    Useful for understanding active context.
-    """
+async def list_recent_files(limit: int = 20) -> str:
+    """List files modified recently in the current workspace root."""
     try:
         if config is None:
             return "Config not loaded."
         root = config.workspace_root.expanduser()
-        # We assume sensible defaults for the agent
-        entries = nav_core.scan_recent(
+
+        entries = await nav_core.scan_recent(
             root,
             max_depth=3,
             include_dirs=False,
@@ -105,103 +122,94 @@ def list_recent_files(limit: int = 20) -> str:
         return f"Error scanning recent files: {str(e)}"
 
 @mcp.tool()
-def list_projects() -> str:
-    """List known projects (via zoxide) to find valid paths."""
+async def list_projects() -> str:
+    """List known projects (via zoxide)."""
     try:
-        paths = nav_core.get_zoxide_projects()
+        paths = await nav_core.get_zoxide_projects()
         return "\n".join(paths) if paths else "No projects found."
     except Exception as e:
         return f"Error listing projects: {str(e)}"
 
-# --- SEARCH ---
+# --- NOTES ---
 
 @mcp.tool()
-def search_codebase(pattern: str, path: str = ".") -> str:
-    """
-    Search the codebase using ripgrep (grep).
-    Returns the raw text matches with line numbers.
-    """
+def append_daily_note(message: str) -> str:
+    """Append a log entry to the user's daily note system."""
     try:
-        # Resolve path relative to workspace if it's "."
-        search_root = Path(path).expanduser()
-        if str(search_root) == ".":
-             search_root = Path.cwd()
-
-        result = search_core.run_ripgrep(
-            pattern,
-            search_root,
-            line_number=True,
-            context=1 # Provide 1 line of context for the LLM
-        )
-        return result if result else "No matches found."
+        if config is None:
+            return "Config not loaded."
+        target_dir = config.notes_dir.expanduser()
+        path = append_to_daily_note(target_dir, message)
+        return f"Successfully logged to daily note: {path}"
     except Exception as e:
-        return f"Error searching codebase: {str(e)}"
+        return f"Error appending note: {str(e)}"
+
+# --- SYSTEM ---
+
+@mcp.tool()
+def list_processes(name_filter: str | None = None, port_filter: int | None = None) -> str:
+    """List running processes."""
+    try:
+        procs = system_core.find_processes(name_filter, port_filter)
+        if not procs:
+            return "No matching processes found."
+        lines = [f"{p.pid} - {p.name} ({p.username}) [{p.cmdline}]" for p in procs[:50]]
+        if len(procs) > 50:
+            lines.append(f"... and {len(procs) - 50} more.")
+        return "\n".join(lines)
+    except Exception as e:
+        return f"Error listing processes: {str(e)}"
+
+@mcp.tool()
+def kill_process(pid: int, force: bool = False) -> str:
+    """Kill a process by PID."""
+    try:
+        result = system_core.kill_process(pid, force)
+        return f"Process {pid}: {result}"
+    except Exception as e:
+        return f"Error killing process {pid}: {str(e)}"
 
 # --- GIT ---
 
 @mcp.tool()
 def get_git_status() -> str:
-    """Return a summarized git status for the current repository."""
+    """Return a summarized git status."""
     try:
         repo = git_core.open_repo(Path.cwd())
         status = git_core.describe_status(repo)
-        logger.debug(
-            "MCP git status: branch=%s upstream=%s ahead=%s behind=%s dirty=%s",
-            status.branch,
-            status.upstream,
-            status.ahead,
-            status.behind,
-            status.dirty,
-        )
         return git_ops_core.format_status(status)
     except Exception as e:
-        logger.error("MCP Tool Execution Failed: get_git_status", exc_info=e)
         return f"Error retrieving git status: {str(e)}"
-
 
 @mcp.tool()
 def git_commit(message: str) -> str:
-    """Stage all changes and create a commit in the current repository."""
+    """Stage all changes and create a commit."""
     try:
         repo = git_core.open_repo(Path.cwd())
         sha = git_ops_core.commit_all(repo, message)
         status = git_core.describe_status(repo)
-        logger.info("MCP git commit created %s on %s", sha, status.branch)
         return f"Committed {sha} on {status.branch}\n{git_ops_core.format_status(status)}"
     except git_ops_core.GitOperationError as exc:
-        logger.warning("MCP git_commit failed: %s", exc)
         return f"Git commit failed: {exc}"
     except Exception as e:
-        logger.error("MCP Tool Execution Failed: git_commit", exc_info=e)
         return f"Error committing changes: {str(e)}"
 
 # --- WEB ---
 
 @mcp.tool()
 def fetch_url_content(url: str) -> str:
-    """
-    Fetch and parse a webpage into clean Markdown.
-    Use this to read documentation, issue trackers, or blog posts.
-    """
+    """Fetch and parse a webpage into clean Markdown."""
     try:
         import trafilatura
         downloaded = trafilatura.fetch_url(url)
         if not downloaded:
             return f"Error: Failed to download {url}"
-
-        text = trafilatura.extract(
-            downloaded,
-            include_comments=False,
-            output_format="markdown",
-            url=url
-        )
+        text = trafilatura.extract(downloaded, include_comments=False, output_format="markdown", url=url)
         return text if text else "Error: Could not extract content."
     except ImportError:
         return "Error: trafilatura not installed. Run `pip install jpscripts[full]`"
     except Exception as e:
-        logger.error("MCP fetch_url failed", exc_info=e)
         return f"Error fetching URL: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()
-

@@ -34,25 +34,6 @@ def run_ripgrep(
     binary = _ensure_rg()
     path = path.expanduser()
 
-    cmd = [binary, "--color=always", str(path)]
-
-    # Arguments mapping
-    if context > 0:
-        cmd.append(f"-C{context}")
-    if line_number:
-        cmd.append("--line-number")
-    if follow:
-        cmd.append("--follow")
-    if pcre2:
-        cmd.append("--pcre2")
-    if extra_args:
-        cmd.extend(extra_args)
-
-    # Pattern must often be last or near end depending on rg syntax,
-    # but standard is `rg [options] PATTERN [PATH]`
-    # We constructed `rg [options] PATH` above, which is wrong for `rg`.
-    # `rg` syntax is `rg [OPTIONS] PATTERN [PATH ...]`.
-
     # Correction:
     cmd = [binary, "--color=always"]
     if context > 0:

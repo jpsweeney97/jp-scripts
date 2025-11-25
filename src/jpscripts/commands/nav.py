@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -46,13 +47,18 @@ def recent(
     state = ctx.obj
     ignore_dirs = set(state.config.ignore_dirs)
 
-    # LOGIC: Delegate to core
-    entries = nav_core.scan_recent(
-        base_root,
-        max_depth=max_depth,
-        include_dirs=include_dirs,
-        ignore_dirs=ignore_dirs
-    )[:limit]
+    async def run_scan():
+        with console.status(f"Scanning {base_root}...", spinner="dots"):
+            return await nav_core.scan_recent(
+                base_root,
+                max_depth=max_depth,
+                include_dirs=include_dirs,
+                ignore_dirs=ignore_dirs
+            )
+
+    # LOGIC: Delegate to async core
+    entries = asyncio.run(run_scan())
+    entries = entries[:limit]
 
     if not entries:
         console.print(f"[yellow]No recent files found under {base_root}.[/yellow]")
@@ -87,14 +93,16 @@ def proj(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick a project using zoxide + fzf and print the path."""
-    try:
-        # LOGIC: Delegate to core
-        paths = nav_core.get_zoxide_projects()
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
-        if "not found" in str(e):
-             console.print("[red]Install with `brew install zoxide`.[/red]")
-        raise typer.Exit(code=1)
+    async def run_query():
+        try:
+            return await nav_core.get_zoxide_projects()
+        except RuntimeError as e:
+            console.print(f"[red]{e}[/red]")
+            if "not found" in str(e):
+                 console.print("[red]Install with `brew install zoxide`.[/red]")
+            raise typer.Exit(code=1)
+
+    paths = asyncio.run(run_query())
 
     if not paths:
         console.print("[yellow]No zoxide entries found.[/yellow]")

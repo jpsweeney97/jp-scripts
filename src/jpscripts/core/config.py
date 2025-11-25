@@ -31,6 +31,7 @@ class ConfigLoadResult:
     path: Path
     file_loaded: bool
     env_overrides: set[str]
+    error: str | None = None  # NEW: Capture error instead of crashing
 
 
 class AppConfig(BaseModel):
@@ -84,7 +85,8 @@ def _read_config_file(path: Path) -> dict[str, Any]:
     try:
         data = parser(raw)
     except (json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
-        raise ConfigError(f"Failed to parse config at {path}: {exc}") from exc
+        # Re-raise as ConfigError to be caught by load_config
+        raise ConfigError(f"Syntax error in {path}: {exc}") from exc
 
     if not isinstance(data, dict):
         raise ConfigError(f"Config root in {path} must be a mapping.")
@@ -96,22 +98,31 @@ def load_config(
     config_path: Path | None = None,
     env: Mapping[str, str] | None = None,
 ) -> tuple[AppConfig, ConfigLoadResult]:
+    """
+    Load configuration with Safe Mode fallback.
+    If the file is invalid, returns default config + error message.
+    """
     env_vars: Mapping[str, str] = env or os.environ
     resolved_path = _resolve_config_path(config_path, env_vars)
-
     env_overrides = _read_env_overrides(env_vars)
-    file_data = _read_config_file(resolved_path)
-    merged = {**file_data, **env_overrides}
 
     try:
+        file_data = _read_config_file(resolved_path)
+        merged = {**file_data, **env_overrides}
         config = AppConfig.model_validate(merged)
-    except ValidationError as exc:
-        raise ConfigError(f"Invalid configuration values in {resolved_path}") from exc
+        error = None
+        file_loaded = resolved_path.exists()
+    except (ConfigError, ValidationError) as exc:
+        # Safe Mode: Fallback to defaults + env vars only
+        config = AppConfig.model_validate(env_overrides)
+        error = str(exc)
+        file_loaded = False
 
     load_result = ConfigLoadResult(
         path=resolved_path,
-        file_loaded=resolved_path.exists(),
+        file_loaded=file_loaded,
         env_overrides=set(env_overrides.keys()),
+        error=error,
     )
 
     return config, load_result

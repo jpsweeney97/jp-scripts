@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -12,11 +12,8 @@ class RecentEntry:
     mtime: float
     is_dir: bool
 
-def scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
-    """
-    Scan the root directory for recently modified files/directories.
-    Returns a list of RecentEntry objects sorted by mtime (descending).
-    """
+def _scan_recent_sync(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
+    """Synchronous implementation of the scan."""
     entries: list[RecentEntry] = []
     stack: list[tuple[Path, int]] = [(root, 0)]
     ignored = set(ignore_dirs)
@@ -44,21 +41,27 @@ def scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set
 
     return sorted(entries, key=lambda e: e.mtime, reverse=True)
 
-def get_zoxide_projects() -> list[str]:
-    """Query zoxide for a list of frequent directories."""
+async def scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
+    """
+    Async wrapper for filesystem scanning.
+    Offloads the blocking IO to a thread so the UI loop stays responsive.
+    """
+    return await asyncio.to_thread(_scan_recent_sync, root, max_depth, include_dirs, ignore_dirs)
+
+async def get_zoxide_projects() -> list[str]:
+    """Async query to zoxide for frequent directories."""
     zoxide = shutil.which("zoxide")
     if not zoxide:
-        # In core we raise errors rather than printing
         raise RuntimeError("zoxide binary not found")
 
-    try:
-        proc = subprocess.run(
-            [zoxide, "query", "-l"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        raise RuntimeError(f"zoxide query failed: {exc.stderr or exc}")
+    proc = await asyncio.create_subprocess_exec(
+        zoxide, "query", "-l",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
 
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    if proc.returncode != 0:
+        raise RuntimeError(f"zoxide query failed: {stderr.decode().strip()}")
+
+    return [line.strip() for line in stdout.decode().splitlines() if line.strip()]
