@@ -10,9 +10,11 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+# Import the new core logic
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
 from jpscripts.core.ui import fzf_select
+
 
 def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, prompt: str) -> int | None:
     """Helper to handle the UI selection of a process."""
@@ -41,6 +43,7 @@ def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, promp
     console.print(Panel("Re-run with fzf installed for interactive selection.", style="yellow"))
     return None
 
+
 def process_kill(
     name: str = typer.Option("", "--name", "-n", help="Filter processes containing this substring."),
     port: int | None = typer.Option(None, "--port", "-p", help="Filter processes listening on a port."),
@@ -48,14 +51,18 @@ def process_kill(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Interactively select and kill a process."""
+    # LOGIC: Delegate to core
     matches = system_core.find_processes(name_filter=name, port_filter=port)
-    use_fzf = shutil.which("fzf") and not no_fzf
 
+    use_fzf = shutil.which("fzf") and not no_fzf
     pid = _select_process(matches, use_fzf, prompt="kill> ")
+
     if pid:
+        # ACTION: Delegate to core
         result = system_core.kill_process(pid, force)
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
+
 
 def port_kill(
     port: int = typer.Argument(..., help="Port to search for."),
@@ -63,14 +70,18 @@ def port_kill(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Find processes bound to a port and kill one."""
+    # LOGIC: Delegate to core
     matches = system_core.find_processes(port_filter=port)
-    use_fzf = shutil.which("fzf") and not no_fzf
 
+    use_fzf = shutil.which("fzf") and not no_fzf
     pid = _select_process(matches, use_fzf, prompt=f"port-kill ({port})> ")
+
     if pid:
+        # ACTION: Delegate to core
         result = system_core.kill_process(pid, force)
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
+
 
 def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available.")) -> None:
     """Switch audio output device using SwitchAudioSource."""
@@ -97,6 +108,7 @@ def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf e
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
 
+
 def ssh_open(
     host: str | None = typer.Option(None, "--host", "-h", help="Host alias to connect to. If omitted, opens fzf picker."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
@@ -122,8 +134,9 @@ def ssh_open(
         return
 
     console.print(f"[green]Connecting to[/green] {target} ...")
-    # SSH execution remains in command layer as it takes over the terminal
+    # NOTE: We keep subprocess here because ssh requires taking over the terminal TTY
     subprocess.run(["ssh", target])
+
 
 def tmpserver(
     directory: Path = typer.Option(Path("."), "--dir", "-d", help="Directory to serve."),
@@ -137,9 +150,7 @@ def tmpserver(
 
     console.print(f"[green]Serving {directory} on port {port}[/green]")
 
-    # We run the blocking core function in a thread to catch KeyboardInterrupt gracefully in the CLI
-    # or we can just run it directly. Let's keep the existing behavior of threading for clean shutdown handling.
-    def serve_wrapper():
+    def serve_wrapper() -> None:
         system_core.run_temp_server(directory, port)
 
     thread = threading.Thread(target=serve_wrapper, daemon=True)
@@ -149,14 +160,14 @@ def tmpserver(
     except KeyboardInterrupt:
         console.print("[yellow]Stopping server...[/yellow]")
 
+
 def brew_explorer(
     query: str = typer.Option("", "--query", "-q", help="Optional search term for brew search."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Search brew formulas/casks and show info."""
-    # NOTE: To be completely strict, the subprocess calls here should also move to core/system.py
-    # or core/brew.py. For this specific 'system.py' refactor, I am keeping it here
-    # to minimize file churn unless you requested it, but `system_core` is the place for it.
+    # NOTE: This logic remains here for now as core/system.py does not yet implement brew support.
+    # Ideally, move this to system_core.search_brew(query) in the future.
 
     if not shutil.which("brew"):
         console.print("[red]Homebrew is required for brew-explorer.[/red]")
