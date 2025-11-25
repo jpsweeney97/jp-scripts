@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.0] - 2025-11-25
+
+### Security Hardening
+
+- Enforced workspace-root sandbox for MCP file tools via `validate_path`, rejecting traversal and symlink escapes.
+- Hard-capped context reads at 100KB to prevent prompt/context DOS attacks in MCP and agent flows.
+
+### Refactoring
+
+- Restored strict Core/Command separation (UI helpers moved to commands, agent orchestration lives in core, git ops consolidated).
+- Git utilities now share core helpers for undo/branch status, keeping command surfaces thin and reusable.
+
 ## [0.2.1] - November 25th Update
 
 ### Added

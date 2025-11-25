@@ -11,10 +11,8 @@ import typer
 from rich import box
 from rich.panel import Panel
 
+from jpscripts.core.agent import PreparedPrompt, prepare_agent_prompt
 from jpscripts.core.console import console
-from jpscripts.core.nav import scan_recent
-# NEW IMPORT
-from jpscripts.core.context import gather_context, read_file_context
 
 def _ensure_codex() -> str:
     binary = shutil.which("codex")
@@ -46,52 +44,40 @@ def codex_exec(
         cmd.append("--full-auto")
 
     # 2. Context Injection Strategy
-
-    # Strategy A: JIT Context (Run & Scrape)
+    status_msg = None
     if run_command:
-        with console.status(f"Diagnosing with `{run_command}`...", spinner="dots"):
-            output, detected_files = asyncio.run(gather_context(run_command, root.expanduser()))
-
-        attached: list[str] = []
-        if detected_files:
-            console.print(f"[green]Detected relevant files:[/green] {', '.join(f.name for f in detected_files)}")
-            for path in list(detected_files)[:5]:
-                snippet = read_file_context(Path(path), state.config.max_file_context_chars)
-                if snippet:
-                    attached.append(f"File: {path}\n```\n{snippet}\n```")
-        else:
-            console.print("[yellow]No files detected in command output. Proceeding without file context.[/yellow]")
-
-        # Include diagnostic output and any file snippets in the prompt for context.
-        prompt += f"\n\nCommand `{run_command}` Output:\n```\n{output[-state.config.max_command_output_chars:]}\n```"
-        if attached:
-            prompt += "\n\nAttached files:\n" + "\n\n".join(attached)
-
-    # Strategy B: Recent Files (Heuristic)
+        status_msg = f"Diagnosing with `{run_command}`..."
     elif attach_recent:
-        with console.status("Scanning for recent context...", spinner="dots"):
-            recents = asyncio.run(scan_recent(
-                root.expanduser(),
-                max_depth=3,
-                include_dirs=False,
-                ignore_dirs=set(state.config.ignore_dirs)
-            ))
+        status_msg = "Scanning for recent context..."
 
-        # Attach top 5 files as inline snippets
-        attached: list[str] = []
-        for entry in recents[:5]:
-            snippet = read_file_context(entry.path, state.config.max_file_context_chars)
-            if snippet:
-                attached.append(f"File: {entry.path}\n```\n{snippet}\n```")
-                console.print(f"[dim]Attaching context: {entry.path.name}[/dim]")
-        if attached:
-            prompt += "\n\nRecent file context:\n" + "\n\n".join(attached)
+    prepare_kwargs = dict(
+        base_prompt=prompt,
+        root=root,
+        run_command=run_command,
+        attach_recent=attach_recent,
+        ignore_dirs=state.config.ignore_dirs,
+        max_file_context_chars=state.config.max_file_context_chars,
+        max_command_output_chars=state.config.max_command_output_chars,
+    )
+
+    if status_msg:
+        with console.status(status_msg, spinner="dots"):
+            prepared: PreparedPrompt = asyncio.run(prepare_agent_prompt(**prepare_kwargs))
+    else:
+        prepared = asyncio.run(prepare_agent_prompt(**prepare_kwargs))
+
+    if prepared.attached_files:
+        console.print(f"[green]Attached files:[/green] {', '.join(p.name for p in prepared.attached_files)}")
+    elif run_command:
+        console.print("[yellow]No files detected in command output. Proceeding without file context.[/yellow]")
+
+    final_prompt = prepared.prompt
 
     # 3. Handoff (Existing Logic)
     console.print(Panel("Handing off to [bold magenta]Codex[/bold magenta]...", box=box.SIMPLE))
 
     # Prompt must be last argument
-    cmd.append(prompt)
+    cmd.append(final_prompt)
 
     assistant_parts: list[str] = []
     status = None

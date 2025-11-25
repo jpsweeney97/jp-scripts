@@ -5,6 +5,7 @@ import subprocess
 
 from jpscripts.core.console import console
 
+
 def fzf_select(
     lines: list[str],
     prompt: str = "> ",

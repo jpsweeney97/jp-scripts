@@ -13,7 +13,7 @@ from rich.table import Table
 
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
-from jpscripts.core.ui import fzf_select
+from jpscripts.commands.ui import fzf_select
 
 
 def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, prompt: str) -> int | None:

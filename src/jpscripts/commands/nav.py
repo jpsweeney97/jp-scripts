@@ -13,7 +13,7 @@ from rich.table import Table
 # Import core logic
 from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
-from jpscripts.core.ui import fzf_select
+from jpscripts.commands.ui import fzf_select
 
 
 def _human_time(timestamp: float) -> str:

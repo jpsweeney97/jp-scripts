@@ -5,11 +5,11 @@ import re
 import shutil
 from pathlib import Path
 
-from jpscripts.core.console import console
-
 # Regex to catch file paths, often with line numbers (e.g., "src/main.py:42")
 # Matches: (start of line or space) (relative path) (:line_number optional)
 FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE | re.IGNORECASE)
+
+HARD_FILE_CONTEXT_LIMIT = 100_000
 
 async def run_and_capture(command: str, cwd: Path) -> str:
     """Run a shell command and return combined stdout/stderr."""
@@ -47,7 +47,6 @@ async def gather_context(command: str, root: Path) -> tuple[str, set[Path]]:
     Run a command, capture output, and find relevant files.
     Returns (output_log, set_of_paths).
     """
-    console.print(f"[dim]Running diagnostic: {command}[/dim]")
     output = await run_and_capture(command, root)
     files = resolve_files_from_output(output, root)
     return output, files
@@ -58,9 +57,10 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
     Read file content safely and truncate to max_chars.
     Returns None on any read/encoding error.
     """
+    limit = max(0, min(max_chars, HARD_FILE_CONTEXT_LIMIT))
     try:
         with path.open("r", encoding="utf-8") as fh:
-            text = fh.read(max_chars)
+            text = fh.read(limit)
     except (OSError, UnicodeDecodeError):
         return None
     return text

@@ -37,3 +37,12 @@ When using `@codex` or `jp fix`:
 
 - **Retrieval**: Before answering complex questions about the user's preferences or infrastructure, ALWAYS run `jp memory search "<concept>"`.
 - **Storage**: When the user makes a decision (e.g., "We are switching to uv for package management"), ALWAYS run `jp memory add "We use uv for package management" --tag infrastructure`.
+
+## 5. Security Model
+
+- **Workspace Root Sandbox**: All MCP and CLI file system access must pass through `validate_path` to stay inside `config.workspace_root` (or `config.notes_dir` for notes). Absolute and relative paths are forbidden from escaping the sandbox.
+- **Symlink Prohibition**: Symlinks that resolve outside the allowed root are rejected; do not bypass the sandbox via symlink tricks.
+
+## 6. Core Invariants
+
+- The Core layer (`src/jpscripts/core`) is FORBIDDEN from importing `rich` or printing to stdout. Presentation lives in `commands/`; core is pure logic and subprocess wrappers only.

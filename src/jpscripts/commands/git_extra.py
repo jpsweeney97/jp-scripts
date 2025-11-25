@@ -12,8 +12,9 @@ from rich import box
 from rich.table import Table
 
 from jpscripts.core import git as git_core
+from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core.console import console
-from jpscripts.core.ui import fzf_select
+from jpscripts.commands.ui import fzf_select
 
 app = typer.Typer()
 
@@ -51,27 +52,13 @@ def gundo_last(
     repo_path = repo_path.expanduser()
     repo = _ensure_repo(repo_path)
 
-    # Check if we have any commits to undo
     try:
-        repo.head.commit
-    except ValueError:
-        console.print("[red]Repo has no commits to undo.[/red]")
+        message = git_ops_core.undo_last_commit(repo, hard=hard)
+    except git_ops_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
 
-    status = git_core.describe_status(repo)
-
-    # SAFETY CHECK: Only block if we are pushing BEHIND upstream (rewriting shared history)
-    # If upstream exists and we are behind, we risk messing up the remote.
-    if status.upstream and status.behind > 0:
-         console.print("[red]Refusing to undo: branch is behind upstream. Pull first.[/red]")
-         raise typer.Exit(code=1)
-
-    # If we are effectively rewriting history that has been pushed:
-    # (This is a complex check, but simplistic 'ahead > 0' is wrong for local-only work)
-
-    mode = "--hard" if hard else "--soft"
-    repo.git.reset(mode, "HEAD~1")
-    console.print(f"[green]Reset {status.branch} one commit back ({mode}).[/green]")
+    console.print(f"[green]{message}[/green]")
 
 
 app.command("gundo-last")(gundo_last)
@@ -232,23 +219,19 @@ def git_branchcheck(
 ) -> None:
     """List branches with upstream and ahead/behind counts."""
     repo = _ensure_repo(repo_path.expanduser())
+    summaries = git_ops_core.branch_statuses(repo)
     table = Table(title="Branches", box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Branch", style="cyan", no_wrap=True)
     table.add_column("Upstream", style="white", no_wrap=True)
     table.add_column("Ahead/Behind", style="white", no_wrap=True)
 
-    for branch in repo.branches:
-        upstream = None
-        ahead = behind = 0
-        try:
-            tracking = branch.tracking_branch()
-            upstream = str(tracking) if tracking else None
-            if tracking:
-                ahead = sum(1 for _ in repo.iter_commits(f"{tracking}..{branch.name}"))
-                behind = sum(1 for _ in repo.iter_commits(f"{branch.name}..{tracking}"))
-            table.add_row(branch.name, upstream or "none", f"{ahead}/{behind}")
-        except Exception as exc:
-            table.add_row(branch.name, "error", str(exc), style="red")
+    for summary in summaries:
+        upstream = summary.upstream or "none"
+        ahead_behind = f"{summary.ahead}/{summary.behind}"
+        if summary.error:
+            table.add_row(summary.name, "error", summary.error, style="red")
+        else:
+            table.add_row(summary.name, upstream, ahead_behind)
 
     console.print(table)
 

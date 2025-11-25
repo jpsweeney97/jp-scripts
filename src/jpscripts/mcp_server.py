@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -16,6 +17,7 @@ from jpscripts.core.console import get_logger
 from jpscripts.core import memory as memory_core
 from jpscripts.core.notes_impl import append_to_daily_note
 from jpscripts.core.context import read_file_context
+from jpscripts.core.security import validate_path
 
 # Initialize logger
 logger = get_logger("mcp")
@@ -40,7 +42,13 @@ async def read_file(path: str) -> str:
     Use this to inspect code, config files, or logs.
     """
     try:
-        target = Path(path).expanduser()
+        if config is None:
+            return "Config not loaded."
+
+        root = config.workspace_root.expanduser()
+        base = Path(path)
+        candidate = base if base.is_absolute() else root / base
+        target = validate_path(candidate, root)
         if not target.exists():
             return f"Error: File {target} does not exist."
         if not target.is_file():
@@ -61,7 +69,13 @@ async def list_directory(path: str) -> str:
     Returns a list of 'd: dir_name' and 'f: file_name'.
     """
     try:
-        target = Path(path).expanduser()
+        if config is None:
+            return "Config not loaded."
+
+        root = config.workspace_root.expanduser()
+        base = Path(path)
+        candidate = base if base.is_absolute() else root / base
+        target = validate_path(candidate, root)
         if not target.exists():
             return f"Error: Path {target} does not exist."
         if not target.is_dir():
@@ -88,15 +102,20 @@ async def search_codebase(pattern: str, path: str = ".") -> str:
     Returns the raw text matches with line numbers.
     """
     try:
+        if config is None:
+            return "Config not loaded."
+
         max_chars = getattr(config, "max_file_context_chars", 50000)
-        search_root = Path(path).expanduser()
-        if str(search_root) == ".":
-             search_root = Path.cwd()
+        root = config.workspace_root.expanduser()
+        base = Path(path)
+        candidate = base if base.is_absolute() else root / base
+        search_root = validate_path(candidate, root)
+        safe_pattern = re.escape(pattern)
 
         # Offload the subprocess blocking call to a thread
         result = await asyncio.to_thread(
             search_core.run_ripgrep,
-            pattern,
+            safe_pattern,
             search_root,
             line_number=True,
             context=1,
