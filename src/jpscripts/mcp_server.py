@@ -63,6 +63,40 @@ async def read_file(path: str) -> str:
     except Exception as e:
         return f"Error reading file: {str(e)}"
 
+
+@mcp.tool()
+async def write_file(path: str, content: str, overwrite: bool = False) -> str:
+    """
+    Create or overwrite a file with the given content.
+    Enforces workspace sandbox. Requires overwrite=True to replace existing files.
+    """
+    try:
+        if config is None:
+            return "Config not loaded."
+
+        from jpscripts.core.security import validate_path
+
+        root = config.workspace_root.expanduser()
+        target = validate_path(Path(path).expanduser(), root)
+
+        if target.exists() and not overwrite:
+            return f"Error: File {target.name} already exists. Pass overwrite=True to replace it."
+
+        # Create parent directories if needed
+        target.parent.mkdir(parents=True, exist_ok=True)
+
+        # Write content (offloaded to thread)
+        def _write():
+            target.write_text(content, encoding="utf-8")
+            return len(content.encode("utf-8"))
+
+        size = await asyncio.to_thread(_write)
+        logger.info("Wrote %d bytes to %s", size, target)
+        return f"Successfully wrote {target.name} ({size} bytes)."
+
+    except Exception as e:
+        return f"Error writing file: {str(e)}"
+
 @mcp.tool()
 async def list_directory(path: str) -> str:
     """

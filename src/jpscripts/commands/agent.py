@@ -38,7 +38,7 @@ def codex_exec(
 
     # 1. Build the base command
     # Option flags must precede the prompt; prompt stays last.
-    cmd = [codex_bin, "exec", "--json", "--model", target_model, "-c", "reasoning.effort=medium"]
+    cmd = [codex_bin, "exec", "--json", "--model", target_model, "-c", "reasoning.effort=high"]
 
     if full_auto:
         cmd.append("--full-auto")

@@ -45,31 +45,6 @@ def ripper(
             raise typer.Exit(code=1)
 
 
-_BAT_WARNED = False
-
-def _print_with_bat(content: str, language: str = "md") -> None:
-    """Safely try to use bat for syntax highlighting, fallback to rich."""
-    global _BAT_WARNED
-
-    if shutil.which("bat"):
-        try:
-            subprocess.run(
-                ["bat", "--language", language, "--style", "plain", "--paging", "never"],
-                input=content,
-                text=True,
-                check=False
-            )
-            return
-        except Exception:
-            pass # Fallback on error
-
-    # Fallback
-    console.print(content)
-    if not shutil.which("bat") and not _BAT_WARNED:
-        console.print("[dim]Tip: Install `bat` for syntax highlighting.[/dim]")
-        _BAT_WARNED = True
-
-
 def todo_scan(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Path to scan."),
     types: str = typer.Option("TODO|FIXME|HACK|BUG", "--types", help="Patterns to search for."),
