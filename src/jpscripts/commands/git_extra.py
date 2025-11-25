@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import webbrowser
 from pathlib import Path
+from typing import Optional
 
 import typer
+from pydantic import BaseModel
 from rich import box
 from rich.table import Table
 
@@ -14,6 +17,17 @@ from jpscripts.core.console import console
 from jpscripts.core.ui import fzf_select
 
 app = typer.Typer()
+
+class PullRequest(BaseModel):
+    number: int
+    title: str
+    headRefName: str
+    url: str
+    author: dict[str, str]
+
+    @property
+    def label(self) -> str:
+        return f"#{self.number} {self.title} ([cyan]{self.headRefName}[/])"
 
 
 @app.callback()
@@ -105,51 +119,72 @@ def gstage(
 
 def gpr(
     ctx: typer.Context,
-    action: str = typer.Option("view", "--action", "-a", help="view (browser), checkout, or copy"),
+    action: str = typer.Option("view", "--action", "-a", help="view, checkout, or copy"),
     limit: int = typer.Option(30, "--limit", help="Max PRs to list."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
-    """Interact with GitHub PRs via gh."""
-    if not shutil.which("gh"):
-        console.print("[red]GitHub CLI (gh) is required for gpr.[/red]")
+    """Interact with GitHub PRs via gh (Typed & Robust)."""
+    try:
+        prs = _get_prs(limit)
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")
         raise typer.Exit(code=1)
 
-    list_proc = subprocess.run(
-        ["gh", "pr", "list", f"--limit={limit}", "--json", "number,title,headRefName,author,url"],
-        capture_output=True,
-        text=True,
-    )
-    if list_proc.returncode != 0:
-        console.print(f"[red]gh pr list failed:[/red] {list_proc.stderr}")
-        raise typer.Exit(code=1)
-
-    import json
-
-    prs = json.loads(list_proc.stdout)
     if not prs:
         console.print("[yellow]No open PRs.[/yellow]")
         return
 
-    lines = [f"{pr['number']}\t{pr['title']} ({pr['headRefName']})" for pr in prs]
     use_fzf = shutil.which("fzf") and not no_fzf
-    selection = fzf_select(lines, prompt="pr> ") if use_fzf else lines[0]
-    selection_str = selection if isinstance(selection, str) else None
-    if not selection_str:
+
+    if use_fzf:
+        # We pass the lookup key (number) as the prefix
+        lines = [f"{pr.number}\t{pr.title} ({pr.headRefName})" for pr in prs]
+        selection = fzf_select(lines, prompt="pr> ")
+        if not selection or not isinstance(selection, str):
+            return
+        number = int(selection.split("\t")[0])
+    else:
+        # Fallback table
+        table = Table(title="Open PRs", box=box.SIMPLE_HEAVY)
+        table.add_column("#", style="cyan")
+        table.add_column("Title", style="white")
+        table.add_column("Branch", style="dim")
+        for pr in prs[:15]:
+            table.add_row(str(pr.number), pr.title, pr.headRefName)
+        console.print(table)
+        # Simple selector logic could go here, or just exit
         return
 
-    number = selection_str.split("\t", 1)[0]
-
+    # Action dispatch
     if action == "checkout":
-        subprocess.run(["gh", "pr", "checkout", number])
-        return
-    if action == "view":
-        subprocess.run(["gh", "pr", "view", number, "--web"])
-        return
-    if action == "copy":
-        subprocess.run(["gh", "pr", "view", number, "--json", "url", "--jq", ".url"])
-        return
+        subprocess.run(["gh", "pr", "checkout", str(number)])
+    elif action == "view":
+        subprocess.run(["gh", "pr", "view", str(number), "--web"])
+    elif action == "copy":
+        # Find the PR object to get the URL directly without another shell call
+        target_pr = next((p for p in prs if p.number == number), None)
+        if target_pr:
+            import pyperclip
+            pyperclip.copy(target_pr.url)
+            console.print(f"[green]Copied[/green] {target_pr.url}")
+    else:
+        console.print(f"[red]Unknown action: {action}[/red]")
 
-    console.print("[red]Unknown action. Use view, checkout, or copy.[/red]")
+def _get_prs(limit: int) -> list[PullRequest]:
+    if not shutil.which("gh"):
+        raise RuntimeError("GitHub CLI (gh) is required.")
+
+    proc = subprocess.run(
+        ["gh", "pr", "list", f"--limit={limit}", "--json", "number,title,headRefName,author,url"],
+        capture_output=True,
+        text=True,
+    )
+
+    if proc.returncode != 0:
+        raise RuntimeError(f"gh failed: {proc.stderr}")
+
+    data = json.loads(proc.stdout)
+    return [PullRequest(**item) for item in data]
 
 
 def _repo_web_url(repo: git_core.Repo) -> str | None:

@@ -15,7 +15,7 @@ from rich.table import Table
 from typer.main import get_command
 
 from . import __version__
-from .commands import git_extra, git_ops, init, nav, notes, search, system, web
+from .commands import agent, git_extra, git_ops, init, nav, notes, search, system, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 
@@ -236,6 +236,8 @@ app.command("gpr")(git_extra.gpr)
 app.command("gbrowse")(git_extra.gbrowse)
 app.command("git-branchcheck")(git_extra.git_branchcheck)
 app.command("stashview")(git_extra.stashview)
+app.command("fix")(agent.codex_exec)  # "jp fix" is faster to type than "jp agent"
+app.command("agent")(agent.codex_exec) # Alias
 
 def cli() -> None:
     app()

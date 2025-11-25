@@ -71,3 +71,9 @@ When operating in this repository, you have access to the `jp` CLI. PREFER using
 - **Searching**: Do not write python scripts to walk directories. Use `jp ripper --no-fzf "pattern"` (if interactive) or `rg` directly.
 - **Git Context**: To understand the state of the workspace, run `jp status-all`.
 - **Debugging**: If a port is blocked, run `jp port-kill <port> --force`.
+
+## 6. Codex Integration Strategy
+
+- **Tool Exposure**: The `mcp_server.py` MUST expose logic from `src/jpscripts/core/`. It must NEVER import from `commands/` to avoid circular deps and UI pollution.
+- **Agent Command**: `jp fix` uses the `codex` binary. It is the only command allowed to launch a subprocess for an AI agent.
+- **Data Flow**: `commands/` -> `core/` -> `Data Class`. Commands should be thin wrappers around Core logic.
