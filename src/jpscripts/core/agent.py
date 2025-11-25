@@ -25,34 +25,46 @@ async def prepare_agent_prompt(
     max_command_output_chars: int,
 ) -> PreparedPrompt:
     """
-    Build the Codex prompt with optional diagnostic command output or recent file snippets.
+    Builds a structured, XML-delimited prompt for Codex.
     """
-    prompt = base_prompt.strip()
+    # 1. System Pulse
+    prompt = (
+        f"<system_context>\n"
+        f"  <workspace_root>{root}</workspace_root>\n"
+        f"  <mode>God-Mode CLI</mode>\n"
+        f"</system_context>\n\n"
+    )
+
     attached: list[Path] = []
-    workspace_root = root.expanduser()
 
+    # 2. Command Output (Diagnostic)
     if run_command:
-        output, detected_files = await gather_context(run_command, workspace_root)
-        trimmed_output = output[-max_command_output_chars:] if max_command_output_chars > 0 else ""
-        if trimmed_output:
-            prompt += f"\n\nCommand `{run_command}` Output:\n```\n{trimmed_output}\n```"
+        output, detected_files = await gather_context(run_command, root)
+        trimmed = output[-max_command_output_chars:]
+        prompt += (
+            f"<diagnostic_command>\n"
+            f"  <cmd>{run_command}</cmd>\n"
+            f"  <output>\n{trimmed}\n  </output>\n"
+            f"</diagnostic_command>\n\n"
+        )
 
+        # Prioritize files detected in the stack trace
         for path in sorted(detected_files)[:5]:
             snippet = read_file_context(path, max_file_context_chars)
             if snippet:
-                prompt += f"\n\nFile: {path}\n```\n{snippet}\n```"
+                prompt += f"<file_context path='{path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n"
                 attached.append(path)
+
+    # 3. Recent Context (Ambient)
     elif attach_recent:
-        recents = await scan_recent(
-            workspace_root,
-            max_depth=3,
-            include_dirs=False,
-            ignore_dirs=set(ignore_dirs),
-        )
+        recents = await scan_recent(root, 3, False, set(ignore_dirs))
         for entry in recents[:5]:
             snippet = read_file_context(entry.path, max_file_context_chars)
             if snippet:
-                prompt += f"\n\nFile: {entry.path}\n```\n{snippet}\n```"
+                prompt += f"<file_context path='{entry.path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n"
                 attached.append(entry.path)
+
+    # 4. The User Instruction
+    prompt += f"\n<instruction>\n{base_prompt.strip()}\n</instruction>"
 
     return PreparedPrompt(prompt=prompt, attached_files=attached)

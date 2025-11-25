@@ -3,7 +3,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-
+import asyncio
 import typer
 from rich import box
 from rich.table import Table
@@ -52,7 +52,8 @@ def todo_scan(
     """Scan for TODO items and display a structured table."""
 
     try:
-        todos = search_core.scan_todos(path, types=types)
+        # UPDATED: Run the async core function
+        todos = asyncio.run(search_core.scan_todos(path, types=types))
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(code=1)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
@@ -107,26 +108,38 @@ class TodoEntry:
     type: str
     text: str
 
-def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[TodoEntry]:
+async def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[TodoEntry]:
     """
     Scan for TODO markers and return structured data using ripgrep --json.
+    OPTIMIZED: Uses async streaming to avoid loading massive outputs into memory.
     """
     binary = _ensure_rg()
     path = path.expanduser()
 
+    # Use create_subprocess_exec for async streaming
     # We use --json to safely parse output
-    cmd = [binary, "--json", types, str(path)]
+    proc = await asyncio.create_subprocess_exec(
+        binary, "--json", types, str(path),
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
 
     entries: list[TodoEntry] = []
 
-    try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    except FileNotFoundError:
-        raise RuntimeError("ripgrep execution failed.")
+    # Stream output line by line
+    # This prevents memory spikes on large repos (e.g. monorepos)
+    assert proc.stdout is not None
+    while True:
+        line = await proc.stdout.readline()
+        if not line:
+            break
 
-    for line in proc.stdout.splitlines():
         try:
-            data = json.loads(line)
+            # Decode line-by-line
+            line_str = line.decode("utf-8").strip()
+            if not line_str:
+                continue
+            data = json.loads(line_str)
         except json.JSONDecodeError:
             continue
 
@@ -150,4 +163,7 @@ def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[TodoEntry
                 text=line_text
             ))
 
+    await proc.wait()
+
+    # We ignore return codes because grep returns 1 if no matches found, which is valid.
     return entries

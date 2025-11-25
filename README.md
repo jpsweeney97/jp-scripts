@@ -41,6 +41,27 @@ graph TD
     Cmds -.->|subprocess| Gh
 ```
 
+graph TD
+subgraph "The Loop"
+Input[User Request] --> Agent[Codex / JP Agent]
+Agent --> |Perception| Tools[MCP / CLI Tools]
+
+        subgraph "Context Engine"
+            Tools --> |Scan| FS[File System]
+            Tools --> |Recall| Mem[Vector DB (Memory)]
+            Tools --> |Search| Search[Ripgrep / FZF]
+        end
+
+        FS --> Agent
+        Mem --> Agent
+        Search --> Agent
+
+        Agent --> |Action| Edit[Write Code / Git Ops]
+        Agent --> |Learning| Store[Save Memory / Daily Note]
+    end
+
+    Edit --> Output[Refined Codebase]
+
 ## Prerequisites
 
 `jpscripts` orchestrates powerful system binaries. You must have these installed:

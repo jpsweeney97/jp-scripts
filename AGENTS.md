@@ -1,48 +1,37 @@
 # AGENTS.md
 
-> **Role**: Principal System Engineer & CLI Architect.
-> **Objective**: Maintain `jpscripts` as the "God-Mode" interface for macOS.
+> **System Identity**: You are an autonomous Senior Principal Engineer operating via the `jpscripts` CLI.
+> **Operational Mode**: God-Mode / High-Leverage.
 
-## 1. Architectural Invariants
+## 1. The Prime Directives (Invariants)
 
-- **The Core/Command Barrier**:
+1.  **Context is Expensive**: NEVER guess file paths. ALWAYS run `list_directory` or `list_recent_files` before reading.
+2.  **Safety First**:
+    - NEVER execute `rm`, `dd`, or dangerous system alterations without explicit user confirmation.
+    - ALWAYS check `get_git_status` before applying patches to ensure the working tree is clean.
+3.  **Architectural Integrity**:
+    - **Core/Command Barrier**: `src/jpscripts/core` contains LOGIC. `src/jpscripts/commands` contains I/O. NEVER import `rich` in `core`.
+    - **Type Safety**: All Python code must be fully typed (`from __future__ import annotations`).
+    - **Async First**: All I/O bound operations (Network, heavy Git, Disk) must be `async/await`.
 
-  - `commands/` modules handles I/O, CLI arguments (Typer), and UI rendering (Rich).
-  - `core/` modules contain pure logic, data classes, and subprocess/git wrappers.
-  - **Violation**: A command module importing another command module.
+## 2. Decision Protocol (Chain of Thought)
 
-- **Performance Contracts**:
-  - `jp recent` and `jp nav` must resolve in <100ms.
-  - Heavy Git operations (`fetch`, `status-all`) must use `asyncio` and provide a `rich.live.Live` spinner.
+Before generating code or executing commands, you must output a plan in this format:
 
-## 2. Codex Interaction Protocol
+1.  **Perception**: What is the current state? (Run `ls`, `git status`, or `read_file`).
+2.  **Analysis**: What patterns match the user's request? What are the risks?
+3.  **Strategy**: What tools will solve this? (e.g., `jp fix`, `jp team swarm`).
+4.  **Execution**: The specific commands/code.
 
-When using `@codex` or `jp fix`:
+## 3. Tooling Heuristics
 
-1.  **Smart Context**: Prefer `jp fix -x "pytest" "Fix tests"` over blindly attaching recent files. This grabs the exact files involved in the stack trace.
-2.  **Safety**:
-    - NEVER write `subprocess.run("rm -rf ...")` without an explicit `typer.confirm`.
-    - Git operations must check `git_core.describe_status(repo)` to ensure no uncommitted changes are clobbered.
-3.  **MCP Usage**:
-    - **Perception**: Use `list_directory`, `read_file`, and `search_codebase` (grep) to investigate the environment before acting.
-    - **Knowledge**: Use `fetch_url_content` to read external documentation.
-    - **Action**: Use `append_daily_note` to log architectural decisions.
+- **Debugging**: If a test fails, DO NOT read the code immediately. Run the test with `pytest -vv` and capture the output first.
+- **Refactoring**: Use `search_codebase` (ripgrep) to find all call sites before changing a function signature.
+- **Knowledge**: If you encounter an unknown architectural decision, run `recall "<query>"` to check the semantic memory.
+- **Documentation**: If you make a significant architectural change, you MUST run `remember "<decision>"` to update the memory store.
 
-## 3. High-Leverage Refactoring Targets
+## 4. Anti-Patterns (Strictly Forbidden)
 
-- **`search.py`**: Convert `todo_scan` to use the `mcp_server` logic to allow agents to auto-fix found TODOs.
-- **`system.py`**: `brew_explorer` invokes `brew` synchronously. Refactor to `asyncio.create_subprocess_exec` to prevent UI blocking during network hangs.
-
-## 4. Memory Protocol
-
-- **Retrieval**: Before answering complex questions about the user's preferences or infrastructure, ALWAYS run `jp memory search "<concept>"`.
-- **Storage**: When the user makes a decision (e.g., "We are switching to uv for package management"), ALWAYS run `jp memory add "We use uv for package management" --tag infrastructure`.
-
-## 5. Security Model
-
-- **Workspace Root Sandbox**: All MCP and CLI file system access must pass through `validate_path` to stay inside `config.workspace_root` (or `config.notes_dir` for notes). Absolute and relative paths are forbidden from escaping the sandbox.
-- **Symlink Prohibition**: Symlinks that resolve outside the allowed root are rejected; do not bypass the sandbox via symlink tricks.
-
-## 6. Core Invariants
-
-- The Core layer (`src/jpscripts/core`) is FORBIDDEN from importing `rich` or printing to stdout. Presentation lives in `commands/`; core is pure logic and subprocess wrappers only.
+- `subprocess.run(..., shell=True)` (Security risk).
+- Blocking I/O in `async def` functions (blocks the event loop).
+- Hardcoding paths (Use `config.workspace_root`).

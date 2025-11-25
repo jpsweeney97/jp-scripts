@@ -128,6 +128,39 @@ async def list_directory(path: str) -> str:
     except Exception as e:
         return f"Error listing directory: {str(e)}"
 
+@mcp.tool()
+async def run_tests(target: str = ".", verbose: bool = False) -> str:
+    """
+    Run pytest on a specific target (directory or file) and return the results.
+    Use this to verify fixes.
+    """
+    if config is None:
+        return "Config not loaded."
+
+    cmd = ["pytest"]
+    if verbose:
+        cmd.append("-vv")
+    cmd.append(target)
+
+    try:
+        # Use the core system wrapper to handle process execution safely
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=config.workspace_root.expanduser(),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await proc.communicate()
+
+        output = (stdout + stderr).decode(errors="replace")
+
+        if proc.returncode == 0:
+            return f"Tests Passed:\n{output}"
+        else:
+            return f"Tests Failed (Exit Code {proc.returncode}):\n{output[-5000:]}" # Return last 5k chars
+    except Exception as e:
+        return f"Error executing tests: {e}"
+
 # --- SEARCH ---
 
 @mcp.tool()
@@ -177,28 +210,20 @@ async def find_todos(path: str = ".") -> str:
         # Security Check
         from jpscripts.core.security import validate_path
 
-        # Determine root to scan (default to CWD if "." passed)
         scan_root = Path.cwd() if path == "." else Path(path).expanduser()
-
-        # Validate that the scan target is inside the workspace
-        # We use the configured workspace_root as the sandbox boundary
         sandbox_root = config.workspace_root.expanduser()
 
-        # If the path is just ".", we assume it's safe (CWD), but let's verify
-        # if CWD is inside workspace_root. If not, we might restrict or allow.
-        # For now, let's enforce validation against the config root.
         try:
             target = validate_path(scan_root, sandbox_root)
         except PermissionError:
              return f"Error: Access denied. {path} is outside workspace {sandbox_root}."
 
-        # Execute Core Logic (Offloaded to thread)
-        entries = await asyncio.to_thread(search_core.scan_todos, target)
+        # UPDATED: Await the async function directly (no more to_thread)
+        entries = await search_core.scan_todos(target)
 
         if not entries:
             return "[]"
 
-        # Convert dataclasses to dicts for JSON serialization
         import dataclasses
         return json.dumps([dataclasses.asdict(e) for e in entries], indent=2)
 
