@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import json
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
@@ -128,6 +129,47 @@ async def search_codebase(pattern: str, path: str = ".") -> str:
     except Exception as e:
         return f"Error searching codebase: {str(e)}"
 
+
+@mcp.tool()
+async def find_todos(path: str = ".") -> str:
+    """
+    Scan for TODO/FIXME/HACK comments in the codebase.
+    Returns a JSON list of objects: {type, file, line, text}.
+    """
+    try:
+        if config is None:
+            return "Config not loaded."
+
+        # Security Check
+        from jpscripts.core.security import validate_path
+
+        # Determine root to scan (default to CWD if "." passed)
+        scan_root = Path.cwd() if path == "." else Path(path).expanduser()
+
+        # Validate that the scan target is inside the workspace
+        # We use the configured workspace_root as the sandbox boundary
+        sandbox_root = config.workspace_root.expanduser()
+
+        # If the path is just ".", we assume it's safe (CWD), but let's verify
+        # if CWD is inside workspace_root. If not, we might restrict or allow.
+        # For now, let's enforce validation against the config root.
+        try:
+            target = validate_path(scan_root, sandbox_root)
+        except PermissionError:
+             return f"Error: Access denied. {path} is outside workspace {sandbox_root}."
+
+        # Execute Core Logic (Offloaded to thread)
+        entries = await asyncio.to_thread(search_core.scan_todos, target)
+
+        if not entries:
+            return "[]"
+
+        # Convert dataclasses to dicts for JSON serialization
+        import dataclasses
+        return json.dumps([dataclasses.asdict(e) for e in entries], indent=2)
+
+    except Exception as e:
+        return f"Error scanning todos: {str(e)}"
 
 # --- NAVIGATION ---
 

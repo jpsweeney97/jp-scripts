@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 def _ensure_rg() -> str:
@@ -22,21 +24,10 @@ def run_ripgrep(
 ) -> str:
     """
     Execute ripgrep and return the standard output as a string.
-
-    Args:
-        pattern: Regex pattern to search for.
-        path: Root path to search in.
-        context: Number of context lines (-C).
-        line_number: Show line numbers (-n).
-        follow: Follow symlinks.
-        pcre2: Use PCRE2 regex engine.
-        extra_args: Additional CLI arguments for rg.
-        max_chars: Optional cap on bytes read from stdout.
     """
     binary = _ensure_rg()
     path = path.expanduser()
 
-    # Correction:
     cmd = [binary, "--color=always"]
     if context > 0:
         cmd.append(f"-C{context}")
@@ -108,3 +99,55 @@ def get_ripgrep_cmd(
     cmd.append(pattern)
     cmd.append(str(path.expanduser()))
     return cmd
+
+@dataclass
+class TodoEntry:
+    file: str
+    line: int
+    type: str
+    text: str
+
+def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[TodoEntry]:
+    """
+    Scan for TODO markers and return structured data using ripgrep --json.
+    """
+    binary = _ensure_rg()
+    path = path.expanduser()
+
+    # We use --json to safely parse output
+    cmd = [binary, "--json", types, str(path)]
+
+    entries: list[TodoEntry] = []
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        raise RuntimeError("ripgrep execution failed.")
+
+    for line in proc.stdout.splitlines():
+        try:
+            data = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        if data.get("type") == "match":
+            # Extract structured data from rg JSON event
+            data_data = data.get("data", {})
+            file_path = data_data.get("path", {}).get("text", "")
+            line_num = data_data.get("line_number", 0)
+
+            # Identify which tag matched
+            submatches = data_data.get("submatches", [])
+            tag_type = submatches[0].get("match", {}).get("text", "TODO") if submatches else "TODO"
+
+            # Get full line text
+            line_text = data_data.get("lines", {}).get("text", "").strip()
+
+            entries.append(TodoEntry(
+                file=file_path,
+                line=line_num,
+                type=tag_type,
+                text=line_text
+            ))
+
+    return entries
