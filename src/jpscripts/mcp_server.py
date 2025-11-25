@@ -1,16 +1,17 @@
-import asyncio
+from __future__ import annotations
+
 from pathlib import Path
-import json
 
 from mcp.server.fastmcp import FastMCP
-from jpscripts.core.config import load_config
-from jpscripts.core.notes_impl import append_to_daily_note
-from jpscripts.core.console import get_logger
 
-# Import new core modules
-from jpscripts.core import system as system_core
+from jpscripts.core import git as git_core
+from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core import nav as nav_core
 from jpscripts.core import search as search_core
+from jpscripts.core import system as system_core
+from jpscripts.core.config import load_config
+from jpscripts.core.console import get_logger
+from jpscripts.core.notes_impl import append_to_daily_note
 
 # Initialize logger for observability
 logger = get_logger("mcp")
@@ -19,9 +20,10 @@ logger = get_logger("mcp")
 mcp = FastMCP("jpscripts")
 
 # Load config independently of Typer
+config = None
 try:
     config, _ = load_config()
-    logger.info(f"MCP Server loaded config from {config.notes_dir}")
+    logger.info("MCP Server loaded config from %s", config.notes_dir)
 except Exception as e:
     logger.error("Failed to load config during MCP startup", exc_info=e)
     # We continue; config might be needed for tools, handled individually if so.
@@ -35,6 +37,8 @@ def append_daily_note(message: str) -> str:
     This uses the configured 'notes_dir' from ~/.jpconfig.
     """
     try:
+        if config is None:
+            return "Config not loaded."
         target_dir = config.notes_dir.expanduser()
         logger.debug(f"Appending note to {target_dir}: {message[:20]}...")
         path = append_to_daily_note(target_dir, message)
@@ -84,6 +88,8 @@ def list_recent_files(limit: int = 20) -> str:
     Useful for understanding active context.
     """
     try:
+        if config is None:
+            return "Config not loaded."
         root = config.workspace_root.expanduser()
         # We assume sensible defaults for the agent
         entries = nav_core.scan_recent(
@@ -130,6 +136,45 @@ def search_codebase(pattern: str, path: str = ".") -> str:
         return result if result else "No matches found."
     except Exception as e:
         return f"Error searching codebase: {str(e)}"
+
+# --- GIT ---
+
+
+@mcp.tool()
+def get_git_status() -> str:
+    """Return a summarized git status for the current repository."""
+    try:
+        repo = git_core.open_repo(Path.cwd())
+        status = git_core.describe_status(repo)
+        logger.debug(
+            "MCP git status: branch=%s upstream=%s ahead=%s behind=%s dirty=%s",
+            status.branch,
+            status.upstream,
+            status.ahead,
+            status.behind,
+            status.dirty,
+        )
+        return git_ops_core.format_status(status)
+    except Exception as e:
+        logger.error("MCP Tool Execution Failed: get_git_status", exc_info=e)
+        return f"Error retrieving git status: {str(e)}"
+
+
+@mcp.tool()
+def git_commit(message: str) -> str:
+    """Stage all changes and create a commit in the current repository."""
+    try:
+        repo = git_core.open_repo(Path.cwd())
+        sha = git_ops_core.commit_all(repo, message)
+        status = git_core.describe_status(repo)
+        logger.info("MCP git commit created %s on %s", sha, status.branch)
+        return f"Committed {sha} on {status.branch}\n{git_ops_core.format_status(status)}"
+    except git_ops_core.GitOperationError as exc:
+        logger.warning("MCP git_commit failed: %s", exc)
+        return f"Git commit failed: {exc}"
+    except Exception as e:
+        logger.error("MCP Tool Execution Failed: git_commit", exc_info=e)
+        return f"Error committing changes: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()

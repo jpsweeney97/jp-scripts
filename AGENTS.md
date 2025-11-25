@@ -78,3 +78,9 @@ When operating in this repository, you have access to the `jp` CLI. PREFER using
 - **Tool Exposure**: The `mcp_server.py` MUST expose logic from `src/jpscripts/core/`. It must NEVER import from `commands/` to avoid circular deps and UI pollution.
 - **Agent Command**: `jp fix` uses the `codex` binary. It is the only command allowed to launch a subprocess for an AI agent.
 - **Data Flow**: `commands/` -> `core/` -> `Data Class`. Commands should be thin wrappers around Core logic.
+
+## Review Guidelines
+
+- All new commands must use `jpscripts.core.console` for user-facing output; `print()` is prohibited.
+- Strict typing is required for all arguments and return types—no implicit `Any`.
+- No direct usage of `subprocess` is allowed for Git operations; use `jpscripts.core.git` wrappers instead.

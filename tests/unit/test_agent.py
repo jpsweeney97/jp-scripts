@@ -1,7 +1,10 @@
 from __future__ import annotations
-from unittest.mock import patch, MagicMock
-import typer
+from unittest.mock import MagicMock, patch
+import io
 from pathlib import Path
+
+import typer
+
 from jpscripts.commands.agent import codex_exec
 
 # Setup a test harness that mimics the main app's context injection
@@ -21,14 +24,19 @@ agent_app.command(name="fix")(codex_exec)
 def test_codex_exec_builds_command(runner):
     """Verify jp fix constructs the correct codex CLI call."""
     # We patch shutil.which to ensure the command doesn't fail validation
-    with patch("jpscripts.commands.agent.subprocess.run") as mock_run, \
+    mock_proc = MagicMock()
+    mock_proc.stdout = io.StringIO("")
+    mock_proc.stderr = io.StringIO("")
+    mock_proc.wait.return_value = 0
+
+    with patch("jpscripts.commands.agent.subprocess.Popen", return_value=mock_proc) as mock_popen, \
          patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"):
 
         result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
         assert result.exit_code == 0
 
-        args, _ = mock_run.call_args
+        args, _ = mock_popen.call_args
         cmd = args[0]
 
         assert cmd[0] == "/usr/bin/codex"
@@ -41,14 +49,19 @@ def test_codex_exec_attaches_recent_files(runner):
     mock_entry = MagicMock()
     mock_entry.path = Path("fake_recent.py")
 
-    with patch("jpscripts.commands.agent.subprocess.run") as mock_run, \
+    mock_proc = MagicMock()
+    mock_proc.stdout = io.StringIO("")
+    mock_proc.stderr = io.StringIO("")
+    mock_proc.wait.return_value = 0
+
+    with patch("jpscripts.commands.agent.subprocess.Popen", return_value=mock_proc) as mock_popen, \
          patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"), \
          patch("jpscripts.commands.agent.scan_recent", return_value=[mock_entry]):
 
         result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
         assert result.exit_code == 0
-        cmd = mock_run.call_args[0][0]
+        cmd = mock_popen.call_args[0][0]
 
         # Ensure the file flag was added
         assert "--file" in cmd

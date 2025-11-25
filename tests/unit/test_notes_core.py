@@ -4,7 +4,6 @@ import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
 from jpscripts.core import notes_impl
 
 def test_ensure_notes_dir_creates_directory(tmp_path):

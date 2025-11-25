@@ -1,3 +1,3 @@
 from __future__ import annotations
 
-__all__ = ["console", "config", "git"]
+__all__ = ["console", "config", "git", "git_ops"]

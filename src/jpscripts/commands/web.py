@@ -19,7 +19,7 @@ from jpscripts.core.config import AppConfig
 
 # TYPE_CHECKING block ensures MyPy still works, but runtime doesn't import
 if TYPE_CHECKING:
-    import trafilatura
+    pass
 
 BROWSER_UA = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
