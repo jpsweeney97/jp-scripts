@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
-from jpscripts.commands.nav import _human_time, _scan_recent
+from jpscripts.core.nav import scan_recent
+from jpscripts.commands.nav import _human_time
 
 
 def test_human_time_formats_timestamp():
@@ -29,7 +30,7 @@ def test_scan_recent_sorts_and_ignores(tmp_path):
     ignored_file = ignored_dir / "ignore.js"
     ignored_file.write_text("ignore")
 
-    entries = _scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"})
+    entries = scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"})
     names = [entry.path.name for entry in entries]
 
     assert names[0] == "keep.txt"
