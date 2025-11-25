@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import os
 import shutil
-import subprocess
-from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -12,48 +9,14 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+# Import core logic
+from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
 from jpscripts.core.ui import fzf_select
 
 
-@dataclass
-class RecentEntry:
-    path: Path
-    mtime: float
-    is_dir: bool
-
-
 def _human_time(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
-
-
-def _scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
-    entries: list[RecentEntry] = []
-    stack: list[tuple[Path, int]] = [(root, 0)]
-    ignored = set(ignore_dirs)
-
-    while stack:
-        current, depth = stack.pop()
-        try:
-            with os.scandir(current) as it:
-                for entry in it:
-                    if entry.name in ignored:
-                        continue
-                    try:
-                        is_dir = entry.is_dir(follow_symlinks=False)
-                        mtime = entry.stat(follow_symlinks=False).st_mtime
-                    except OSError:
-                        continue
-
-                    if include_dirs or not is_dir:
-                        entries.append(RecentEntry(path=Path(entry.path), mtime=mtime, is_dir=is_dir))
-
-                    if is_dir and depth < max_depth:
-                        stack.append((Path(entry.path), depth + 1))
-        except OSError:
-            continue
-
-    return sorted(entries, key=lambda e: e.mtime, reverse=True)
 
 
 def recent(
@@ -82,7 +45,15 @@ def recent(
     include_dirs = include_dirs and not files_only
     state = ctx.obj
     ignore_dirs = set(state.config.ignore_dirs)
-    entries = _scan_recent(base_root, max_depth=max_depth, include_dirs=include_dirs, ignore_dirs=ignore_dirs)[:limit]
+
+    # LOGIC: Delegate to core
+    entries = nav_core.scan_recent(
+        base_root,
+        max_depth=max_depth,
+        include_dirs=include_dirs,
+        ignore_dirs=ignore_dirs
+    )[:limit]
+
     if not entries:
         console.print(f"[yellow]No recent files found under {base_root}.[/yellow]")
         return
@@ -116,30 +87,22 @@ def proj(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick a project using zoxide + fzf and print the path."""
-    zoxide = shutil.which("zoxide")
-    if not zoxide:
-        console.print("[red]zoxide is required for jp proj. Install with `brew install zoxide`.[/red]")
-        raise typer.Exit(code=1)
-
-    use_fzf = shutil.which("fzf") and not no_fzf
-
     try:
-        proc = subprocess.run(
-            [zoxide, "query", "-l"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-    except subprocess.CalledProcessError as exc:
-        console.print(f"[red]zoxide query failed: {exc.stderr or exc}[/red]")
+        # LOGIC: Delegate to core
+        paths = nav_core.get_zoxide_projects()
+    except RuntimeError as e:
+        console.print(f"[red]{e}[/red]")
+        if "not found" in str(e):
+             console.print("[red]Install with `brew install zoxide`.[/red]")
         raise typer.Exit(code=1)
 
-    paths = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
     if not paths:
         console.print("[yellow]No zoxide entries found.[/yellow]")
         return
 
+    use_fzf = shutil.which("fzf") and not no_fzf
     selection: str | None = None
+
     if use_fzf:
         fzf_selection = fzf_select(paths, prompt="proj> ", extra_args=["--no-sort"])
         selection = fzf_selection if isinstance(fzf_selection, str) else None
