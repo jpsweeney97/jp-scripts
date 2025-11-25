@@ -5,9 +5,9 @@ from pathlib import Path
 from jpscripts.commands.agent import codex_exec
 
 # Setup a test harness that mimics the main app's context injection
-test_app = typer.Typer()
+agent_app = typer.Typer()
 
-@test_app.callback()
+@agent_app.callback()
 def main_callback(ctx: typer.Context):
     # Inject a mock state object so ctx.obj.config works
     mock_state = MagicMock()
@@ -16,7 +16,7 @@ def main_callback(ctx: typer.Context):
     mock_state.config.ignore_dirs = [".git", "node_modules"]
     ctx.obj = mock_state
 
-test_app.command(name="fix")(codex_exec)
+agent_app.command(name="fix")(codex_exec)
 
 def test_codex_exec_builds_command(runner):
     """Verify jp fix constructs the correct codex CLI call."""
@@ -24,7 +24,7 @@ def test_codex_exec_builds_command(runner):
     with patch("jpscripts.commands.agent.subprocess.run") as mock_run, \
          patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"):
 
-        result = runner.invoke(test_app, ["fix", "Fix the bug", "--full-auto"])
+        result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
         assert result.exit_code == 0
 
@@ -45,7 +45,7 @@ def test_codex_exec_attaches_recent_files(runner):
          patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"), \
          patch("jpscripts.commands.agent.scan_recent", return_value=[mock_entry]):
 
-        result = runner.invoke(test_app, ["fix", "Refactor", "--recent"])
+        result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
         assert result.exit_code == 0
         cmd = mock_run.call_args[0][0]
