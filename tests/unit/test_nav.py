@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 
+# FIX: Import from core, not commands
 from jpscripts.core.nav import scan_recent
 from jpscripts.commands.nav import _human_time
 
@@ -30,6 +31,7 @@ def test_scan_recent_sorts_and_ignores(tmp_path):
     ignored_file = ignored_dir / "ignore.js"
     ignored_file.write_text("ignore")
 
+    # FIX: Use the new core function name
     entries = scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"})
     names = [entry.path.name for entry in entries]
 
