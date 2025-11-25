@@ -63,3 +63,11 @@ When creating a new command, the Agent MUST follow this mental graph:
 
 - **Configuration**: The Agent must never hardcode paths. Always resolve via `ctx.obj.config`.
 - **Git Operations**: Use `jpscripts.core.git`. Do not shell out to `subprocess.run("git", ...)` unless `GitPython` lacks the specific plumbing (e.g., complex interactive rebase).
+
+## 5. Tool Usage Guidelines (Codex Specific)
+
+When operating in this repository, you have access to the `jp` CLI. PREFER using `jp` commands over writing custom Python scripts for system tasks.
+
+- **Searching**: Do not write python scripts to walk directories. Use `jp ripper --no-fzf "pattern"` (if interactive) or `rg` directly.
+- **Git Context**: To understand the state of the workspace, run `jp status-all`.
+- **Debugging**: If a port is blocked, run `jp port-kill <port> --force`.
