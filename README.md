@@ -7,6 +7,9 @@
 
 `jpscripts` is a complete rewrite of legacy Bash tooling into a unified Python application powered by **Typer**, **Rich**, and **GitPython**. It provides high-leverage utilities for git repository management, deep system navigation, productivity logging, and AI-context generation.
 
+> **User Guide**
+> Beyond the command reference, check out the [**JPScripts Handbook**](https://github.com/jpsweeney97/jp-scripts/blob/main/HANDBOOK.md) for daily workflows, AI-augmented strategies, and power-user keyboard shortcuts.
+
 ## Architecture
 
 ```mermaid
