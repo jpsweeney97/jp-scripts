@@ -16,6 +16,7 @@ To save context, assume this architecture without reading files:
   - `git_ops.py`: Async status checks.
   - `context.py`: LLM context packing.
   - `system.py`: OS interactions (processes, ports).
+  - `agent.py`: Codex wrapper and context loading.
 
 ## 2. Review Guidelines (Codex Strict Mode)
 
