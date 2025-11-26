@@ -14,7 +14,8 @@ import yaml  # type: ignore[import-untyped]
 # Matches: (start of line or space) (relative path) (:line_number optional)
 FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE | re.IGNORECASE)
 
-HARD_FILE_CONTEXT_LIMIT = 100_000
+# Hard safety cap to prevent excessive memory usage when reading files for context.
+HARD_CONTEXT_CAP = 500_000
 STRUCTURED_EXTENSIONS = {".json", ".yml", ".yaml"}
 SYNTAX_WARNING = "# [WARN] Syntax error detected. AST features disabled.\n"
 
@@ -61,7 +62,7 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
     Read file content safely and truncate to max_chars.
     Returns None on any read/encoding error.
     """
-    limit = max(0, min(max_chars, HARD_FILE_CONTEXT_LIMIT))
+    limit = max(0, min(max_chars, HARD_CONTEXT_CAP))
     try:
         with path.open("r", encoding="utf-8") as fh:
             text = fh.read(limit)
@@ -72,7 +73,7 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
 
 def smart_read_context(path: Path, max_chars: int) -> str:
     """Read files with syntax-aware truncation to keep output parsable."""
-    limit = max(0, min(max_chars, HARD_FILE_CONTEXT_LIMIT))
+    limit = max(0, min(max_chars, HARD_CONTEXT_CAP))
     if limit == 0:
         return ""
 
@@ -160,7 +161,7 @@ def get_file_skeleton(path: Path) -> str:
         module = ast.parse(source)
     except SyntaxError as exc:
         offsets = _line_offsets(source)
-        limit_offset = min(HARD_FILE_CONTEXT_LIMIT, offsets[-1] if offsets else HARD_FILE_CONTEXT_LIMIT)
+        limit_offset = min(HARD_CONTEXT_CAP, offsets[-1] if offsets else HARD_CONTEXT_CAP)
         return _fallback_read(source, limit_offset, exc)
 
     new_body: list[ast.stmt] = []
@@ -177,7 +178,7 @@ def get_file_skeleton(path: Path) -> str:
             new_body.append(_skeletonize_class(stmt))
 
     if not new_body:
-        return source[:HARD_FILE_CONTEXT_LIMIT]
+        return source[:HARD_CONTEXT_CAP]
 
     lines: list[str] = []
     for stmt in new_body:
@@ -187,15 +188,15 @@ def get_file_skeleton(path: Path) -> str:
             continue
 
     if not lines:
-        return source[:HARD_FILE_CONTEXT_LIMIT]
+        return source[:HARD_CONTEXT_CAP]
 
-    return "\n\n".join(lines)[:HARD_FILE_CONTEXT_LIMIT]
+    return "\n\n".join(lines)[:HARD_CONTEXT_CAP]
 
 
 def _read_text_for_context(path: Path) -> str | None:
     try:
         with path.open("r", encoding="utf-8") as fh:
-            return fh.read(HARD_FILE_CONTEXT_LIMIT)
+            return fh.read(HARD_CONTEXT_CAP)
     except (OSError, UnicodeDecodeError):
         return None
 

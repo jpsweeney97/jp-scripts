@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
+import tomllib
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Mapping
@@ -13,12 +16,15 @@ from pydantic import BaseModel, Field
 from rich import box
 from rich.panel import Panel
 from rich.table import Table
+from rich.tree import Tree
 from typer.main import get_command
 
 from . import __version__
-from .commands import agent, git_extra, git_ops, init, map, memory, nav, notes, search, system, team, web
+from .commands import agent, git_extra, git_ops, handbook, init, map, memory, nav, notes, search, system, team, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
+from .core.memory import LanceDBStore
+from .core.security import WorkspaceValidationError, validate_workspace_root
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
 
@@ -44,6 +50,97 @@ class ToolCheck:
     status: str
     version: str | None
     message: str | None = None
+
+
+class DiagnosticCheck(ABC):
+    name: str
+
+    @abstractmethod
+    async def run(self) -> tuple[str, str]:
+        """Run the diagnostic and return (status, message)."""
+
+
+class ConfigCheck(DiagnosticCheck):
+    def __init__(self, config: AppConfig, config_path: Path | None) -> None:
+        self.config = config
+        self.config_path = config_path
+        self.name = "Config"
+
+    async def run(self) -> tuple[str, str]:
+        issues: list[str] = []
+        if self.config_path and self.config_path.exists():
+            try:
+                _ = tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+            except Exception as exc:
+                issues.append(f"Invalid config TOML: {exc}")
+        elif self.config_path:
+            issues.append(f"Config file missing: {self.config_path}")
+
+        for label, path in (("workspace_root", self.config.workspace_root), ("notes_dir", self.config.notes_dir)):
+            expanded = path.expanduser()
+            if not expanded.exists():
+                issues.append(f"{label} missing: {expanded}")
+            elif not os.access(expanded, os.W_OK):
+                issues.append(f"{label} not writable: {expanded}")
+            else:
+                try:
+                    validate_workspace_root(expanded) if label == "workspace_root" else None
+                except WorkspaceValidationError as exc:
+                    issues.append(str(exc))
+
+        if issues:
+            return "error", "; ".join(issues)
+        return "ok", "Configuration valid."
+
+
+class AuthCheck(DiagnosticCheck):
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+        self.name = "Auth"
+
+    async def run(self) -> tuple[str, str]:
+        model = (self.config.default_model or "").lower()
+        if "local" in model or "offline" in model:
+            return "ok", "Local model in use; API key not required."
+        if os.environ.get("OPENAI_API_KEY"):
+            return "ok", "OPENAI_API_KEY present."
+        return "warn", "OPENAI_API_KEY missing for remote models."
+
+
+class VectorDBCheck(DiagnosticCheck):
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+        self.name = "VectorDB"
+
+    async def run(self) -> tuple[str, str]:
+        store_path = Path(self.config.memory_store).expanduser()
+        try:
+            store = LanceDBStore(store_path, embedding_dim=1)
+            _ = store.search([0.0], limit=1)
+            return "ok", f"LanceDB ready at {store_path}"
+        except ImportError:
+            return "warn", "lancedb not installed; vector memory unavailable."
+        except Exception as exc:
+            return "error", f"Vector DB check failed: {exc}"
+
+
+class MCPCheck(DiagnosticCheck):
+    def __init__(self) -> None:
+        self.name = "MCP"
+        self.config_path = Path.home() / ".codex" / "config.toml"
+
+    async def run(self) -> tuple[str, str]:
+        if not self.config_path.exists():
+            return "warn", f"MCP config missing at {self.config_path}"
+        try:
+            data = tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            return "warn", f"MCP config unreadable: {exc}"
+
+        servers = data.get("mcpServers") if isinstance(data, dict) else None
+        if isinstance(servers, dict) and "jpscripts" in servers:
+            return "ok", "jpscripts MCP server registered."
+        return "warn", "jpscripts MCP server not registered."
 
 
 
@@ -152,33 +249,14 @@ async def _run_doctor(tools: list[ExternalTool]) -> list[ToolCheck]:
 
 
 def _render_tool_checks(results: list[ToolCheck]) -> None:
-    table = Table(title="External tools", box=box.SIMPLE, expand=True)
-    table.add_column("Tool", style="cyan", no_wrap=True)
-    table.add_column("Binary", style="white", no_wrap=True)
-    table.add_column("Status", style="white", no_wrap=True)
-    table.add_column("Version / Message", style="white")
-    table.add_column("Install hint", style="white")
-
+    tree = Tree("Binaries")
+    style_map = {"ok": "green", "missing": "red", "error": "yellow"}
     for result in results:
-        status_text = {
-            "ok": "[green]ok[/]",
-            "missing": "[red]missing[/]",
-            "error": "[yellow]error[/]",
-        }.get(result.status, result.status)
-
-        table.add_row(
-            result.tool.name,
-            result.tool.binary,
-            status_text,
-            result.version or result.message or "",
-            result.tool.install_hint or "",
-        )
-
-    console.print(table)
-
-    missing = [r.tool.name for r in results if r.status == "missing" and r.tool.required]
-    if missing:
-        console.print(Panel.fit("Missing required tools: " + ", ".join(missing), style="red"))
+        status_style = style_map.get(result.status, "white")
+        status_text = f"[{status_style}]{result.status}[/{status_style}]"
+        message = result.version or result.message or result.tool.install_hint or ""
+        tree.add(f"{status_text} {result.tool.name} ({result.tool.binary}) {message}".strip())
+    console.print(tree)
 
 
 @app.command("doctor")
@@ -191,8 +269,37 @@ def doctor(
     state.logger.debug("Running doctor for tools: %s", tool or "all")
 
     tools = _select_tools(tool)
-    results = asyncio.run(_run_doctor(tools))
-    _render_tool_checks(results)
+
+    async def _run_checks() -> tuple[list[tuple[str, str, str]], list[ToolCheck]]:
+        diag_checks: list[DiagnosticCheck] = [
+            ConfigCheck(state.config, state.config_meta.path),
+            AuthCheck(state.config),
+            VectorDBCheck(state.config),
+            MCPCheck(),
+        ]
+        diag_results: list[tuple[str, str, str]] = []
+        for check in diag_checks:
+            status, message = await check.run()
+            diag_results.append((check.name, status, message))
+        tool_results = await _run_doctor(tools)
+        return diag_results, tool_results
+
+    diag_results, tool_results = asyncio.run(_run_checks())
+
+    tree = Tree("System Health")
+    style_map = {"ok": "green", "warn": "yellow", "error": "red", "missing": "red"}
+    diag_branch = tree.add("Deep Checks")
+    for name, status, message in diag_results:
+        style = style_map.get(status, "white")
+        diag_branch.add(f"[{style}]{status}[/{style}] {name}: {message}")
+
+    tools_branch = tree.add("Binaries")
+    for result in tool_results:
+        style = style_map.get(result.status, "white")
+        message = result.version or result.message or result.tool.install_hint or ""
+        tools_branch.add(f"[{style}]{result.status}[/{style}] {result.tool.name} ({result.tool.binary}) {message}".strip())
+
+    console.print(tree)
 
 
 @app.command("config")
@@ -263,6 +370,7 @@ app.command("stashview")(git_extra.stashview)
 app.command("fix")(agent.codex_exec)  # "jp fix" is faster to type than "jp agent"
 app.command("agent")(agent.codex_exec) # Alias
 app.command("config-fix")(init.config_fix)
+app.command("handbook")(handbook.handbook)
 
 def cli() -> None:
     app()

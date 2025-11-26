@@ -45,6 +45,10 @@ class AppConfig(BaseSettings):
     memory_store: Path = Field(default_factory=lambda: Path.home() / ".jp_memory.sqlite", description="Path to the memory store file.")
     memory_model: str = Field(default="all-MiniLM-L6-v2", description="Embedding model for semantic memory search.")
     use_semantic_search: bool = Field(default=True, description="Enable semantic search with embeddings.")
+    model_context_limits: dict[str, int] = Field(
+        default_factory=lambda: {"gpt-5.1-codex": 128_000, "gpt-4-turbo": 32_000, "default": 50_000},
+        description="Per-model soft context limits used for prompt construction.",
+    )
     max_file_context_chars: int = Field(default=50000, description="Maximum characters to read when attaching file context.")
     max_command_output_chars: int = Field(default=20000, description="Maximum characters from captured command output for prompts.")
     ignore_dirs: list[str] = Field(

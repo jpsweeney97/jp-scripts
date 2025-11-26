@@ -46,6 +46,7 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
     assert "sample.txt" in prompt["file_context"]
     assert "constitution" in prompt["system_context"]
     assert "response_contract" in prompt
+    assert "tools" in prompt
 
 
 @pytest.mark.asyncio

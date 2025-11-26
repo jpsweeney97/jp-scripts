@@ -22,8 +22,10 @@ def _ensure_codex() -> str:
     return binary
 
 
-def _build_codex_command(codex_bin: str, model: str, prompt: str, full_auto: bool) -> list[str]:
+def _build_codex_command(codex_bin: str, model: str, prompt: str, full_auto: bool, web: bool) -> list[str]:
     cmd = [codex_bin, "exec", "--json", "--model", model, "-c", "reasoning.effort=high"]
+    if web:
+        cmd.append("--search")
     if full_auto:
         cmd.append("--full-auto")
     cmd.append(prompt)
@@ -92,8 +94,8 @@ async def _execute_codex_prompt(cmd: list[str], *, status_label: str) -> tuple[l
         status.stop()
 
 
-async def _fetch_agent_response_from_codex(prepared: PreparedPrompt, codex_bin: str, model: str, full_auto: bool) -> str:
-    cmd = _build_codex_command(codex_bin, model, prepared.prompt, full_auto)
+async def _fetch_agent_response_from_codex(prepared: PreparedPrompt, codex_bin: str, model: str, full_auto: bool, web: bool) -> str:
+    cmd = _build_codex_command(codex_bin, model, prepared.prompt, full_auto, web)
     assistant_parts, stderr_text = await _execute_codex_prompt(cmd, status_label="Consulting Codex...")
     if stderr_text:
         console.print(Panel(f"[red]{stderr_text}[/red]", title="Codex stderr", box=box.SIMPLE))
@@ -115,6 +117,8 @@ def codex_exec(
     ),
     max_retries: int = typer.Option(3, "--max-retries", help="Maximum repair attempts when looping."),
     keep_failed: bool = typer.Option(False, "--keep-failed", help="Keep changes even if the loop fails."),
+    archive: bool = typer.Option(True, "--archive/--no-archive", help="Save a summary of successful fixes to memory."),
+    web: bool = typer.Option(False, "--web/--no-web", help="Enable web search tool for the agent."),
 ) -> None:
     """Delegate a task to the Codex agent."""
     state = ctx.obj
@@ -130,17 +134,20 @@ def codex_exec(
     effective_retries = max(1, max_retries)
 
     if loop_enabled and run_command:
-        fetcher = lambda prepared: _fetch_agent_response_from_codex(prepared, codex_bin, target_model, full_auto)
+        fetcher = lambda prepared: _fetch_agent_response_from_codex(prepared, codex_bin, target_model, full_auto, web)
         success = asyncio.run(
             run_repair_loop(
                 base_prompt=prompt,
                 command=run_command,
                 config=state.config,
+                model=target_model,
                 attach_recent=attach_recent,
                 include_diff=diff,
                 fetch_response=fetcher,
+                auto_archive=archive,
                 max_retries=effective_retries,
                 keep_failed=keep_failed,
+                web_access=web,
             )
         )
         if not success:
@@ -157,12 +164,14 @@ def codex_exec(
         base_prompt=prompt,
         root=root,
         config=state.config,
+        model=target_model,
         run_command=run_command,
         attach_recent=attach_recent,
         include_diff=diff,
         ignore_dirs=state.config.ignore_dirs,
         max_file_context_chars=state.config.max_file_context_chars,
         max_command_output_chars=state.config.max_command_output_chars,
+        web_access=web,
     )
 
     if status_msg:
@@ -178,7 +187,7 @@ def codex_exec(
 
     console.print(Panel("Handing off to [bold magenta]Codex[/bold magenta]...", box=box.SIMPLE))
 
-    cmd = _build_codex_command(codex_bin, target_model, prepared.prompt, full_auto)
+    cmd = _build_codex_command(codex_bin, target_model, prepared.prompt, full_auto, web)
     assistant_parts, stderr_text = asyncio.run(_execute_codex_prompt(cmd, status_label="Connecting to Codex..."))
 
     if stderr_text:

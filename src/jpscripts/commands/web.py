@@ -67,7 +67,7 @@ def web_snap(
     try:
         import trafilatura
     except ImportError:
-        console.print("[red]trafilatura not installed. Run `pip install jpscripts[full]`[/red]")
+        console.print("[red]trafilatura not installed. Run `pip install \"jpscripts[ai]\"`[/red]")
         raise typer.Exit(code=1)
 
     state = ctx.obj

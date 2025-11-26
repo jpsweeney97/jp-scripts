@@ -112,6 +112,7 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             base_prompt="fix loop",
             command=f"{sys.executable} {script}",
             config=config,
+            model=config.default_model,
             attach_recent=False,
             include_diff=False,
             fetch_response=fake_fetch,

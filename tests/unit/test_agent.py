@@ -1,7 +1,9 @@
 from __future__ import annotations
-from unittest.mock import MagicMock, patch
+
+import asyncio
 import io
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import typer
 
@@ -20,6 +22,7 @@ def main_callback(ctx: typer.Context):
     mock_state.config.max_file_context_chars = 50_000
     mock_state.config.max_command_output_chars = 20_000
     mock_state.config.default_model = "test-model"
+    mock_state.config.model_context_limits = {"test-model": 10_000, "default": 50_000}
     ctx.obj = mock_state
 
 agent_app.command(name="fix")(codex_exec)
@@ -75,3 +78,48 @@ def test_codex_exec_attaches_recent_files(runner):
         # Prompt (last arg) should include the recent file snippet/path
         prompt_arg = cmd[-1]
         assert "fake_recent.py" in prompt_arg
+
+
+def test_run_repair_loop_auto_archives(monkeypatch, tmp_path: Path) -> None:
+    from jpscripts.core import agent as agent_core
+    from jpscripts.core.config import AppConfig
+
+    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
+
+    async def fake_run_shell_command(command: str, cwd: Path):
+        return 0, "ok", ""
+
+    calls: list[str] = []
+
+    async def fake_fetch(prepared):
+        calls.append(prepared.prompt)
+        return "Fixed summary."
+
+    saved: list[tuple[str, list[str] | None]] = []
+
+    def fake_save_memory(content: str, tags=None, *, config=None, store_path=None):
+        saved.append((content, tags))
+        return MagicMock()
+
+    monkeypatch.setattr(agent_core, "_run_shell_command", fake_run_shell_command)
+    monkeypatch.setattr(agent_core, "save_memory", fake_save_memory)
+
+    success = asyncio.run(
+        agent_core.run_repair_loop(
+            base_prompt="Fix the thing",
+            command="echo ok",
+            config=config,
+            model=config.default_model,
+            attach_recent=False,
+            include_diff=False,
+            fetch_response=fake_fetch,
+            auto_archive=True,
+            max_retries=1,
+            keep_failed=False,
+        )
+    )
+
+    assert success
+    assert calls  # Summary fetch invoked
+    assert saved
+    assert "auto-fix" in (saved[0][1] or [])

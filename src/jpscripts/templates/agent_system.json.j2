@@ -15,6 +15,9 @@
   "file_context": {{ file_context_section | tojson }},
   "dependencies": {{ dependency_section | tojson }},
   "git_diff": {{ git_diff_section | tojson }},
+  "tools": {
+    "web": {{ web_tool | tojson }}
+  },
   "instruction": {{ instruction | tojson }},
   "response_contract": {
     "schema": {{ response_schema | tojson }},

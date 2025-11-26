@@ -16,7 +16,7 @@ from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.context import gather_context, get_file_skeleton, read_file_context, smart_read_context
-from jpscripts.core.memory import query_memory
+from jpscripts.core.memory import query_memory, save_memory
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.structure import generate_map, get_import_dependencies
 
@@ -83,16 +83,22 @@ async def prepare_agent_prompt(
     *,
     root: Path,
     config: AppConfig,
+    model: str | None = None,
     run_command: str | None,
     attach_recent: bool,
     include_diff: bool = False,
     ignore_dirs: Sequence[str],
     max_file_context_chars: int,
     max_command_output_chars: int,
+    web_access: bool = False,
 ) -> PreparedPrompt:
     """
     Builds a structured, JSON-oriented prompt for Codex.
     """
+    active_model = model or config.default_model
+    model_limit = config.model_context_limits.get(active_model, config.model_context_limits.get("default", max_file_context_chars))
+    context_limit = min(max_file_context_chars, model_limit)
+
     branch, commit, is_dirty = await _collect_git_context(root)
 
     repository_map = await asyncio.to_thread(generate_map, root, 3)
@@ -124,15 +130,15 @@ async def prepare_agent_prompt(
 
         # Prioritize files detected in the stack trace
         detected_paths = list(sorted(detected_files))[:5]
-        file_context_section, attached = await _build_file_context_section(detected_paths, max_file_context_chars)
-        dependency_section = await _build_dependency_section(detected_paths, root, max_file_context_chars)
+        file_context_section, attached = await _build_file_context_section(detected_paths, context_limit)
+        dependency_section = await _build_dependency_section(detected_paths, root, context_limit)
 
     # 3. Recent Context (Ambient)
     elif attach_recent:
         recents = await scan_recent(root, 3, False, set(ignore_dirs))
         recent_paths = [entry.path for entry in recents[:5]]
-        file_context_section, attached = await _build_file_context_section(recent_paths, max_file_context_chars)
-        dependency_section = await _build_dependency_section(recent_paths[:1], root, max_file_context_chars)
+        file_context_section, attached = await _build_file_context_section(recent_paths, context_limit)
+        dependency_section = await _build_dependency_section(recent_paths[:1], root, context_limit)
 
     # 4. Git Diff (Work in Progress)
     git_diff_section = ""
@@ -159,6 +165,7 @@ async def prepare_agent_prompt(
         "instruction": base_prompt.strip(),
         "response_schema": response_schema,
         "relevant_memories": relevant_memories,
+        "web_tool": "Web search and page retrieval is available via fetch_page_content(url) returning markdown." if web_access else "",
     }
 
     prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
@@ -454,6 +461,46 @@ async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
     return []
 
 
+async def _archive_session_summary(
+    fetch_response: ResponseFetcher,
+    *,
+    base_prompt: str,
+    command: str,
+    last_error: str | None,
+    config: AppConfig,
+    model: str | None,
+    web_access: bool = False,
+) -> None:
+    summary_prompt = (
+        "Summarize the error fixed and the solution applied in one sentence for a knowledge base.\n"
+        f"Command: {command}\n"
+        f"Task: {base_prompt}\n"
+        f"Last error before success: {last_error or 'N/A'}"
+    )
+    prepared = PreparedPrompt(prompt=summary_prompt, attached_files=[])
+    try:
+        raw_summary = await fetch_response(prepared)
+    except Exception as exc:
+        logger.debug("Summary fetch failed: %s", exc)
+        return
+
+    if not raw_summary.strip():
+        return
+
+    summary_text = raw_summary.strip()
+    try:
+        parsed = parse_agent_response(summary_text)
+        summary_text = parsed.final_message or parsed.thought_process or summary_text
+    except ValidationError:
+        pass
+
+    try:
+        archive_config = config.model_copy(update={"use_semantic_search": False}) if hasattr(config, "model_copy") else config
+        await asyncio.to_thread(save_memory, summary_text, ["auto-fix", "agent"], config=archive_config)
+    except Exception as exc:
+        logger.debug("Failed to archive repair summary: %s", exc)
+
+
 async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
     if not paths:
         return
@@ -491,11 +538,14 @@ async def run_repair_loop(
     base_prompt: str,
     command: str,
     config: AppConfig,
+    model: str | None,
     attach_recent: bool,
     include_diff: bool,
     fetch_response: ResponseFetcher,
+    auto_archive: bool = True,
     max_retries: int = 3,
     keep_failed: bool = False,
+    web_access: bool = False,
 ) -> bool:
     """
     Execute an autonomous repair loop that retries the provided command.
@@ -510,6 +560,16 @@ async def run_repair_loop(
         exit_code, stdout, stderr = await _run_shell_command(command, root)
         if exit_code == 0:
             console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+            if auto_archive:
+                await _archive_session_summary(
+                    fetch_response,
+                    base_prompt=base_prompt,
+                    command=command,
+                    last_error=history[-1].last_error if history else None,
+                    config=config,
+                    model=model,
+                    web_access=web_access,
+                )
             return True
 
         current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
@@ -520,6 +580,7 @@ async def run_repair_loop(
             iteration_prompt,
             root=root,
             config=config,
+            model=model,
             run_command=None,
             attach_recent=attach_recent,
             include_diff=include_diff,
@@ -570,6 +631,16 @@ async def run_repair_loop(
     exit_code, stdout, stderr = await _run_shell_command(command, root)
     if exit_code == 0:
         console.print("[green]Command succeeded after final verification.[/green]")
+        if auto_archive:
+            await _archive_session_summary(
+                fetch_response,
+                base_prompt=base_prompt,
+                command=command,
+                last_error=None if not history else history[-1].last_error,
+                config=config,
+                model=model,
+                web_access=web_access,
+            )
         return True
 
     console.print(f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}")
