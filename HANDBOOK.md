@@ -157,7 +157,7 @@ Add this to your Claude Desktop config:
   "mcpServers": {
     "jpscripts": {
       "command": "uv",
-      "args": ["run", "jpscripts.mcp_server"]
+      "args": ["run", "jpscripts.mcp.server"]
     }
   }
 }
@@ -375,7 +375,7 @@ Add this to your Claude Desktop config:
   "mcpServers": {
     "jpscripts": {
       "command": "uv",
-      "args": ["run", "jpscripts.mcp_server"]
+      "args": ["run", "jpscripts.mcp.server"]
     }
   }
 }

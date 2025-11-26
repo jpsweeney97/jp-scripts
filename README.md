@@ -197,14 +197,14 @@ You can run the server using `uv` or `python`. It operates over Stdio.
 
 ```bash
 # Via Python directly
-python -m jpscripts.mcp_server
+python -m jpscripts.mcp.server
 
 # Or configure it in your AI client (e.g. Claude Desktop config):
 # {
 #   "mcpServers": {
 #     "jpscripts": {
 #       "command": "uv",
-#       "args": ["run", "jpscripts.mcp_server"]
+#       "args": ["run", "jpscripts.mcp.server"]
 #     }
 #   }
 # }

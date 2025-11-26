@@ -15,7 +15,7 @@ from rich.table import Table
 from typer.main import get_command
 
 from . import __version__
-from .commands import agent, git_extra, git_ops, init, memory, nav, notes, search, system, team, web
+from .commands import agent, git_extra, git_ops, init, map, memory, nav, notes, search, system, team, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 
@@ -241,6 +241,8 @@ app.command("note-search")(notes.note_search)
 app.command("standup")(notes.standup)
 app.command("standup-note")(notes.standup_note)
 app.command("cliphist")(notes.cliphist)
+app.command("map")(map.map_cmd)
+app.command("repo-map")(map.map_cmd)
 app.command("ripper")(search.ripper)
 app.command("todo-scan")(search.todo_scan)
 app.command("loggrep")(search.loggrep)

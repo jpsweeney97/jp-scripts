@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jpscripts"
-version = "0.3.3"
+version = "0.4.0"
 description = "A modern, typed Python CLI for the jp-scripts toolbox."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -36,6 +36,9 @@ ai = [
 
 [project.scripts]
 jp = "jpscripts.main:app"
+
+[project.entry-points."mcp.servers"]
+jpscripts = "jpscripts.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jpscripts"]

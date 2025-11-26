@@ -26,6 +26,7 @@ def codex_exec(
     prompt: str = typer.Argument(..., help="Instruction for Codex."),
     attach_recent: bool = typer.Option(False, "--recent", "-r", help="Attach top 5 recently modified files to context."),
     # NEW FLAG
+    diff: bool = typer.Option(True, "--diff/--no-diff", help="Include git diff (staged and unstaged) in context."),
     run_command: str = typer.Option(None, "--run", "-x", help="Run this shell command first and attach referenced files from output (RAG)."),
     full_auto: bool = typer.Option(False, "--full-auto", "-y", help="Run without asking for confirmation (dangerous)."),
     model: str = typer.Option(None, "--model", "-m", help="Model to use. Defaults to config."),
@@ -55,6 +56,7 @@ def codex_exec(
         root=root,
         run_command=run_command,
         attach_recent=attach_recent,
+        include_diff=diff,
         ignore_dirs=state.config.ignore_dirs,
         max_file_context_chars=state.config.max_file_context_chars,
         max_command_output_chars=state.config.max_command_output_chars,

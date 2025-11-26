@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -20,6 +21,7 @@ async def prepare_agent_prompt(
     root: Path,
     run_command: str | None,
     attach_recent: bool,
+    include_diff: bool = False,
     ignore_dirs: Sequence[str],
     max_file_context_chars: int,
     max_command_output_chars: int,
@@ -64,7 +66,53 @@ async def prepare_agent_prompt(
                 prompt += f"<file_context path='{entry.path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n"
                 attached.append(entry.path)
 
+    # 4. Git Diff (Work in Progress)
+    if include_diff:
+        diff_text = await _collect_git_diff(root, 10_000)
+        if diff_text:
+            prompt += (
+                "<git_diff>\n"
+                "<![CDATA[\n"
+                f"{diff_text}\n"
+                "]]>\n"
+                "</git_diff>\n\n"
+            )
+
     # 4. The User Instruction
     prompt += f"\n<instruction>\n{base_prompt.strip()}\n</instruction>"
 
     return PreparedPrompt(prompt=prompt, attached_files=attached)
+
+
+async def _collect_git_diff(root: Path, max_chars: int) -> str | None:
+    if not root.exists() or not (root / ".git").exists():
+        return None
+
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            "git diff HEAD",
+            cwd=root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return None
+
+    try:
+        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
+    except asyncio.TimeoutError:
+        proc.kill()
+        await proc.communicate()
+        return None
+
+    if proc.returncode != 0:
+        return None
+
+    diff = stdout.decode(errors="replace")
+    if not diff.strip():
+        return None
+
+    if len(diff) > max_chars:
+        return f"{diff[:max_chars]}... [truncated]"
+
+    return diff

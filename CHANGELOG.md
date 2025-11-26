@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - The Trinity Update
+
+### Added
+- **Architecture Map**: New `jp map` command (and `repo-map` alias) generates high-density AST summaries of the codebase for context-efficient planning.
+- **Diff-Aware Agents**: `jp fix` now automatically attaches `git diff` context so agents can see uncommitted changes.
+
+### Changed
+- **Modular MCP**: Refactored monolithic `mcp_server.py` into a modular `jpscripts.mcp` package with dynamic tool registration.
+- **Documentation**: Updated `AGENTS.md` to mandate `jp map` usage for architectural exploration.
+
 ## [0.3.0] - 2025-11-25
 
 ### Security Hardening

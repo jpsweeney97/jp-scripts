@@ -5,7 +5,7 @@
 
 ## 1. The Prime Directives (Invariants)
 
-1.  **Context is Expensive**: NEVER guess file paths. ALWAYS run `list_directory` or `list_recent_files` before reading.
+1.  **Context is Expensive**: NEVER guess file paths. ALWAYS run `list_directory` or `jp map` before reading. `jp map` is preferred for high-level exploration.
 2.  **Safety First**:
     - NEVER execute `rm`, `dd`, or dangerous system alterations without explicit user confirmation.
     - ALWAYS check `get_git_status` before applying patches to ensure the working tree is clean.
@@ -27,6 +27,7 @@ Before generating code or executing commands, you must output a plan in this for
 
 - **Debugging**: If a test fails, DO NOT read the code immediately. Run the test with `pytest -vv` and capture the output first.
 - **Refactoring**: Use `search_codebase` (ripgrep) to find all call sites before changing a function signature.
+- **Architecture**: Before planning complex refactors or exploring a new directory, run `jp map` (or `jp map --depth 3`) to visualize the class/function hierarchy. This is much cheaper than reading files.
 - **Knowledge**: If you encounter an unknown architectural decision, run `recall "<query>"` to check the semantic memory.
 - **Documentation**: If you make a significant architectural change, you MUST run `remember "<decision>"` to update the memory store.
 
