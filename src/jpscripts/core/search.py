@@ -4,6 +4,7 @@ import asyncio
 import json
 import shutil
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,22 +55,31 @@ def run_ripgrep(
         ) as proc:
             chunks: list[str] = []
             bytes_read = 0
-            assert proc.stdout is not None
-            for chunk in iter(lambda: proc.stdout.read(4096), ""):
-                if chunk == "":
-                    break
-                chunks.append(chunk)
-                bytes_read += len(chunk)
-                if max_chars is not None and bytes_read >= max_chars:
-                    proc.terminate()
-                    return "".join(chunks)[:max_chars] + "\n... [truncated]"
+            assert proc.stdout is not None and proc.stderr is not None
 
-            stdout = "".join(chunks)
-            stderr = proc.stderr.read() if proc.stderr else ""
-            proc.wait()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                stderr_future = executor.submit(proc.stderr.read)
+
+                truncated = False
+                for chunk in iter(lambda: proc.stdout.read(4096), ""):
+                    if chunk == "":
+                        break
+                    chunks.append(chunk)
+                    bytes_read += len(chunk)
+                    if max_chars is not None and bytes_read >= max_chars:
+                        truncated = True
+                        proc.terminate()
+                        break
+
+                stdout = "".join(chunks)
+                stderr = stderr_future.result()
+                proc.wait()
 
             if proc.returncode == 2:
                 raise RuntimeError(f"ripgrep error: {stderr.strip()}")
+
+            if truncated and max_chars is not None:
+                return stdout[:max_chars] + "\n... [truncated]"
 
             return stdout.strip()
     except FileNotFoundError:

@@ -53,25 +53,70 @@ def _count_commits(repo: Repo, ref_range: str) -> int:
 
 
 def describe_status(repo: Repo) -> BranchStatus:
-    branch = "(detached)"
+    path = Path(repo.working_tree_dir or ".")
     try:
-        if repo.head.is_detached:
-            branch = repo.git.rev_parse("--short", "HEAD")
-        else:
-            branch = repo.active_branch.name
-    except GitCommandError:
-        pass
+        status_output = repo.git.status("--porcelain=v2", "--branch", "-z")
+    except GitCommandError as exc:
+        return BranchStatus(
+            path=path,
+            branch="(unknown)",
+            upstream=None,
+            ahead=0,
+            behind=0,
+            staged=0,
+            unstaged=0,
+            untracked=0,
+            dirty=repo.is_dirty(untracked_files=True),
+            error=str(exc),
+        )
 
-    upstream = get_upstream(repo)
-    ahead = _count_commits(repo, f"{upstream}..HEAD") if upstream else 0
-    behind = _count_commits(repo, f"HEAD..{upstream}") if upstream else 0
+    branch = "(unknown)"
+    upstream: str | None = None
+    ahead = 0
+    behind = 0
+    staged = 0
+    unstaged = 0
+    untracked = 0
 
-    staged = len(repo.index.diff("HEAD"))
-    unstaged = len(repo.index.diff(None))
-    untracked = len(repo.untracked_files)
+    entries = [line for line in status_output.split("\0") if line]
+    for entry in entries:
+        line = entry.strip()
+        if not line:
+            continue
+
+        if line.startswith("#"):
+            parts = line.split()
+            if len(parts) >= 3 and parts[1] == "branch.head":
+                branch = parts[2]
+            elif len(parts) >= 3 and parts[1] == "branch.upstream":
+                upstream = parts[2]
+            elif len(parts) >= 4 and parts[1] == "branch.ab":
+                try:
+                    ahead = int(parts[2].lstrip("+"))
+                    behind = int(parts[3].lstrip("-"))
+                except ValueError:
+                    ahead = behind = 0
+            continue
+
+        kind = line[0]
+        if kind in {"1", "2", "u"}:
+            parts = line.split()
+            if len(parts) < 2:
+                continue
+            xy = parts[1]
+            if len(xy) >= 1 and xy[0] != ".":
+                staged += 1
+            if len(xy) >= 2 and xy[1] != ".":
+                unstaged += 1
+        elif kind == "?":
+            untracked += 1
+        elif kind == "!":
+            continue
+
+    dirty = bool(staged or unstaged or untracked)
 
     return BranchStatus(
-        path=Path(repo.working_tree_dir or "."),
+        path=path,
         branch=branch,
         upstream=upstream,
         ahead=ahead,
@@ -79,7 +124,7 @@ def describe_status(repo: Repo) -> BranchStatus:
         staged=staged,
         unstaged=unstaged,
         untracked=untracked,
-        dirty=repo.is_dirty(untracked_files=True),
+        dirty=dirty,
         error=None,
     )
 

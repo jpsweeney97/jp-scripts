@@ -5,10 +5,33 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from git.exc import InvalidGitRepositoryError, NoSuchPathError
+
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
+from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
 from jpscripts.core.nav import scan_recent
+
+logger = get_logger(__name__)
+
+AGENT_PROMPT_TEMPLATE = (
+    "<system_context>\n"
+    "  <workspace_root>{workspace_root}</workspace_root>\n"
+    "  <mode>God-Mode CLI</mode>\n"
+    "  <git_context>\n"
+    "    <branch>{branch}</branch>\n"
+    "    <head>{head}</head>\n"
+    "    <dirty>{dirty}</dirty>\n"
+    "  </git_context>\n"
+    "</system_context>\n"
+    "{diagnostic_section}"
+    "{file_context_section}"
+    "{git_diff_section}"
+    "<instruction>\n"
+    "{instruction}\n"
+    "</instruction>"
+)
 
 
 @dataclass
@@ -33,53 +56,40 @@ async def prepare_agent_prompt(
     """
     branch, commit, is_dirty = await _collect_git_context(root)
 
-    # 1. System Pulse
-    prompt = (
-        f"<system_context>\n"
-        f"  <workspace_root>{root}</workspace_root>\n"
-        f"  <mode>God-Mode CLI</mode>\n"
-        f"  <git_context>\n"
-        f"    <branch>{branch}</branch>\n"
-        f"    <head>{commit}</head>\n"
-        f"    <dirty>{is_dirty}</dirty>\n"
-        f"  </git_context>\n"
-        f"</system_context>\n\n"
-    )
-
     attached: list[Path] = []
+
+    diagnostic_section = ""
+    file_context_section = ""
 
     # 2. Command Output (Diagnostic)
     if run_command:
         output, detected_files = await gather_context(run_command, root)
         trimmed = output[-max_command_output_chars:]
-        prompt += (
-            f"<diagnostic_command>\n"
+        diagnostic_section = (
+            "<diagnostic_command>\n"
             f"  <cmd>{run_command}</cmd>\n"
-            f"  <output>\n{trimmed}\n  </output>\n"
-            f"</diagnostic_command>\n\n"
+            "  <output>\n"
+            f"{trimmed}\n"
+            "  </output>\n"
+            "</diagnostic_command>\n\n"
         )
 
         # Prioritize files detected in the stack trace
-        for path in sorted(detected_files)[:5]:
-            snippet = read_file_context(path, max_file_context_chars)
-            if snippet:
-                prompt += f"<file_context path='{path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n"
-                attached.append(path)
+        detected_paths = list(sorted(detected_files))[:5]
+        file_context_section, attached = _build_file_context_section(detected_paths, max_file_context_chars)
 
     # 3. Recent Context (Ambient)
     elif attach_recent:
         recents = await scan_recent(root, 3, False, set(ignore_dirs))
-        for entry in recents[:5]:
-            snippet = read_file_context(entry.path, max_file_context_chars)
-            if snippet:
-                prompt += f"<file_context path='{entry.path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n"
-                attached.append(entry.path)
+        recent_paths = [entry.path for entry in recents[:5]]
+        file_context_section, attached = _build_file_context_section(recent_paths, max_file_context_chars)
 
     # 4. Git Diff (Work in Progress)
+    git_diff_section = ""
     if include_diff:
         diff_text = await _collect_git_diff(root, 10_000)
         if diff_text:
-            prompt += (
+            git_diff_section = (
                 "<git_diff>\n"
                 "<![CDATA[\n"
                 f"{diff_text}\n"
@@ -87,10 +97,18 @@ async def prepare_agent_prompt(
                 "</git_diff>\n\n"
             )
         else:
-            prompt += "<git_diff>NO CHANGES</git_diff>\n\n"
+            git_diff_section = "<git_diff>NO CHANGES</git_diff>\n\n"
 
-    # 4. The User Instruction
-    prompt += f"\n<instruction>\n{base_prompt.strip()}\n</instruction>"
+    prompt = AGENT_PROMPT_TEMPLATE.format(
+        workspace_root=root,
+        branch=branch,
+        head=commit,
+        dirty=is_dirty,
+        diagnostic_section=diagnostic_section,
+        file_context_section=file_context_section,
+        git_diff_section=git_diff_section,
+        instruction=base_prompt.strip(),
+    )
 
     return PreparedPrompt(prompt=prompt, attached_files=attached)
 
@@ -101,8 +119,11 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
 
     try:
         repo = await asyncio.to_thread(git_core.open_repo, root)
-    except Exception:
-        return "(unknown)", "(unknown)", False
+    except (InvalidGitRepositoryError, NoSuchPathError):
+        return "(no repo)", "(no repo)", False
+    except Exception as exc:
+        logger.error("Failed to open git repo at %s: %s", root, exc)
+        return "(error)", "(error)", False
 
     branch = "(unknown)"
     commit = "(unknown)"
@@ -113,19 +134,32 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
         branch = status.branch
         is_dirty = status.dirty
         _ = git_ops.format_status(status)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.error("Failed to describe git status for %s: %s", root, exc)
+        return "(error)", "(error)", False
 
     try:
         commit = await asyncio.to_thread(repo.git.rev_parse, "--short", "HEAD")
         commit = str(commit).strip()
-    except Exception:
-        try:
-            commit = repo.head.commit.hexsha[:7]
-        except Exception:
-            commit = "(unknown)"
+    except Exception as exc:
+        logger.error("Failed to resolve git head for %s: %s", root, exc)
+        commit = "(error)"
 
     return branch, commit, is_dirty
+
+
+def _build_file_context_section(paths: Sequence[Path], max_file_context_chars: int) -> tuple[str, list[Path]]:
+    sections: list[str] = []
+    attached: list[Path] = []
+    for path in paths:
+        snippet = read_file_context(path, max_file_context_chars)
+        if not snippet:
+            continue
+        sections.append(f"<file_context path='{path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n")
+        attached.append(path)
+    if not sections:
+        return "", attached
+    return "".join(sections) + "\n", attached
 
 
 async def _collect_git_diff(root: Path, max_chars: int) -> str | None:
