@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typer.testing import CliRunner
 from typer.main import get_command
 
 from jpscripts import __version__
+import jpscripts.commands.handbook as handbook_cmd
 import jpscripts.main as jp_main
 from jpscripts.main import app
 
@@ -50,3 +52,28 @@ def test_init_command(isolate_config: Path):
     assert isolate_config.exists()
     content = isolate_config.read_text()
     assert 'editor = "code -w"' in content
+
+def test_handbook_semantic_query(monkeypatch):
+    """Ensure handbook semantic search runs without crashing and caches the index."""
+    cache_root = Path.cwd() / ".tmp_handbook_cache"
+    meta_path = cache_root / "meta.json"
+    entries_path = cache_root / "entries.jsonl"
+    store_path = cache_root / "lance"
+
+    def _fake_cache_paths():
+        base_root = Path.cwd()
+        cache_dir = handbook_cmd.validate_path(cache_root, base_root)
+        return (
+            cache_dir,
+            handbook_cmd.validate_path(meta_path, base_root),
+            handbook_cmd.validate_path(entries_path, base_root),
+            handbook_cmd.validate_path(store_path, base_root),
+        )
+
+    monkeypatch.setattr(handbook_cmd, "_cache_paths", _fake_cache_paths)
+    try:
+        result = runner.invoke(app, ["handbook", "mission"])
+        assert result.exit_code == 0
+        assert entries_path.exists()
+    finally:
+        shutil.rmtree(cache_root, ignore_errors=True)

@@ -5,7 +5,7 @@ import os
 import shutil
 from pathlib import Path
 
-from jpscripts.core.context import read_file_context
+from jpscripts.core.context import smart_read_context
 from jpscripts.core.security import is_git_workspace, validate_path
 from jpscripts.mcp import get_config, logger, tool, tool_error_handler
 
@@ -36,8 +36,8 @@ async def read_file(path: str) -> str:
 
     max_chars = getattr(cfg, "max_file_context_chars", 50000)
     total_size = target.stat().st_size
-    content = await asyncio.to_thread(read_file_context, target, max_chars)
-    if content is None:
+    content = await asyncio.to_thread(smart_read_context, target, max_chars)
+    if content == "" and total_size > 0 and max_chars > 0:
         return f"Error: Could not read file {target} (unsupported encoding or IO error)."
     if total_size > max_chars:
         content += (

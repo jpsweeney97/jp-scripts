@@ -52,6 +52,7 @@ class AppConfig(BaseSettings):
     )
     max_file_context_chars: int = Field(default=50000, description="Maximum characters to read when attaching file context.")
     max_command_output_chars: int = Field(default=20000, description="Maximum characters from captured command output for prompts.")
+    git_status_timeout: float = Field(default=5.0, description="Timeout for gathering git context.")
     ignore_dirs: list[str] = Field(
         default_factory=lambda: [
             ".git",

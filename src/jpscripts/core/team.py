@@ -185,18 +185,34 @@ def _parse_event_line(raw: str) -> str:
     return f"{event_type}: {raw}"
 
 
-async def _collect_repo_context(repo_root: Path) -> tuple[str, list[Path]]:
-    """
-    Run git status with a timeout to prevent hanging the swarm startup.
-    """
+async def _collect_fallback_context(repo_root: Path, timeout: float) -> tuple[str, list[Path]]:
+    fallback_timeout = max(timeout / 2, 1.0)
     try:
-        # FIX: Added 5-second timeout to prevent deadlock
-        log, files = await asyncio.wait_for(gather_context("git status --short", repo_root), timeout=5.0)
+        log, files = await asyncio.wait_for(gather_context("ls -a", repo_root), timeout=fallback_timeout)
+        trimmed_log = log[-2000:] if len(log) > 2000 else log
+        return f"Fallback directory listing:\n{trimmed_log}", sorted(files)
+    except asyncio.TimeoutError:
+        logger.warning("Fallback context collection timed out after %.2f seconds.", fallback_timeout)
+    except Exception as exc:
+        logger.debug("Fallback context collection failed: %s", exc)
+    return "", []
+
+
+async def _collect_repo_context(repo_root: Path, config: AppConfig) -> tuple[str, list[Path]]:
+    """
+    Run git status with a configurable timeout to prevent hanging swarm startup.
+    """
+    timeout = max(config.git_status_timeout, 0.1)
+    try:
+        log, files = await asyncio.wait_for(gather_context("git status --short", repo_root), timeout=timeout)
         trimmed_log = log[-4000:] if len(log) > 4000 else log
         return trimmed_log, sorted(files)
     except asyncio.TimeoutError:
-        logger.warning("Context collection timed out.")
-        return "Context collection timed out (git status took too long).", []
+        logger.warning("Git status timed out after %.2f seconds; attempting fallback.", timeout)
+        fallback_log, fallback_files = await _collect_fallback_context(repo_root, timeout)
+        if fallback_log:
+            return fallback_log, fallback_files
+        return "Git status timed out; Architect context will be limited.", []
     except Exception as exc:
         logger.debug("Context collection failed: %s", exc)
         return f"Context error: {exc}", []
@@ -414,7 +430,7 @@ class SwarmController:
         return self._default_next_role(current)
 
     async def _initialize(self) -> None:
-        context_log, context_files = await _collect_repo_context(self.root)
+        context_log, context_files = await _collect_repo_context(self.root, self.config)
         self.context_log = context_log
         self.context_files = context_files
         self.swarm_state = SwarmState(
