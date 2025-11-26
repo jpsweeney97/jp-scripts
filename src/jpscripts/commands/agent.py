@@ -147,7 +147,7 @@ def codex_exec(
     archive: bool = typer.Option(True, "--archive/--no-archive", help="Save a summary of successful fixes to memory."),
     web: bool = typer.Option(False, "--web/--no-web", help="Enable web search tool for the agent."),
 ) -> None:
-    """Delegate a task to the Codex agent."""
+    """Delegate a task to the Codex agent (jp fix primary; jp agent is legacy)."""
     state = ctx.obj
     root = state.config.workspace_root or state.config.notes_dir
     target_model = model or state.config.default_model

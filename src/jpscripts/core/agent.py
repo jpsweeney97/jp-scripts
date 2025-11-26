@@ -118,6 +118,7 @@ async def prepare_agent_prompt(
     file_context_section = ""
     dependency_section = ""
     relevant_memories: list[str] = []
+    boosted_tags: list[str] = []
 
     # 2. Command Output (Diagnostic)
     if run_command:
@@ -147,6 +148,19 @@ async def prepare_agent_prompt(
         recent_paths = [entry.path for entry in recents[:5]]
         file_context_section, attached = await _build_file_context_section(recent_paths, context_limit)
         dependency_section = await _build_dependency_section(recent_paths[:1], root, context_limit)
+
+    if not relevant_memories:
+        base_query = base_prompt.strip()
+        lowered_prompt = base_query.lower()
+        for tag in ("architecture", "security"):
+            if tag in lowered_prompt:
+                boosted_tags.append(tag)
+        boosted_query = f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
+        if boosted_query:
+            try:
+                relevant_memories = await asyncio.to_thread(query_memory, boosted_query, 3, config)
+            except Exception as exc:
+                logger.debug("Memory query from base prompt failed: %s", exc)
 
     # 4. Git Diff (Work in Progress)
     git_diff_section = ""

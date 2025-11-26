@@ -32,53 +32,64 @@ def _format_cmdline(proc: psutil.Process) -> str:
     except (psutil.ZombieProcess, psutil.AccessDenied, psutil.NoSuchProcess):
         return proc.name()
 
-def find_processes(name_filter: str | None = None, port_filter: int | None = None) -> list[ProcessInfo]:
-    matches: list[ProcessInfo] = []
-    for proc in psutil.process_iter(["pid", "name", "username"]):
-        try:
-            if port_filter is not None:
-                has_port = False
-                for conn in proc.connections(kind="inet"):
-                    if conn.laddr.port == port_filter or (conn.raddr and conn.raddr.port == port_filter):
-                        has_port = True
-                        break
-                if not has_port:
+async def find_processes(name_filter: str | None = None, port_filter: int | None = None) -> list[ProcessInfo]:
+    def _collect() -> list[ProcessInfo]:
+        matches: list[ProcessInfo] = []
+        for proc in psutil.process_iter(["pid", "name", "username"]):
+            try:
+                if port_filter is not None:
+                    has_port = False
+                    for conn in proc.connections(kind="inet"):
+                        if conn.laddr.port == port_filter or (conn.raddr and conn.raddr.port == port_filter):
+                            has_port = True
+                            break
+                    if not has_port:
+                        continue
+
+                cmd = _format_cmdline(proc)
+                if name_filter and name_filter.lower() not in cmd.lower():
                     continue
 
-            cmd = _format_cmdline(proc)
-            if name_filter and name_filter.lower() not in cmd.lower():
+                matches.append(
+                    ProcessInfo(
+                        pid=proc.pid,
+                        username=proc.username(),
+                        name=proc.name(),
+                        cmdline=cmd,
+                    )
+                )
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 continue
 
-            matches.append(
-                ProcessInfo(
-                    pid=proc.pid,
-                    username=proc.username(),
-                    name=proc.name(),
-                    cmdline=cmd
-                )
-            )
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-            continue
+        return sorted(matches, key=lambda p: p.pid)
 
-    return sorted(matches, key=lambda p: p.pid)
+    return await asyncio.to_thread(_collect)
 
-def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> str:
+
+async def kill_process_async(pid: int, force: bool = False, config: AppConfig | None = None) -> str:
     dry_run = config.dry_run if config is not None else False
     if dry_run:
         logger.info("Did not kill PID %s (dry-run)", pid)
         return "dry-run"
 
-    try:
-        p = psutil.Process(pid)
-        if force:
-            p.kill()
-            return "killed"
-        p.terminate()
-        return "terminated"
-    except psutil.NoSuchProcess:
-        return "not found"
-    except psutil.AccessDenied:
-        return "permission denied"
+    def _terminate() -> str:
+        try:
+            p = psutil.Process(pid)
+            if force:
+                p.kill()
+                return "killed"
+            p.terminate()
+            return "terminated"
+        except psutil.NoSuchProcess:
+            return "not found"
+        except psutil.AccessDenied:
+            return "permission denied"
+
+    return await asyncio.to_thread(_terminate)
+
+
+def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> str:
+    return asyncio.run(kill_process_async(pid, force, config))
 
 
 def get_audio_devices() -> list[str]:

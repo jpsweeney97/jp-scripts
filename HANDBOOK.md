@@ -56,7 +56,7 @@ Stop `cd`-ing into directories. Stop running `ls`.
 This is the core "God-Mode" workflow. When a test fails or a bug appears, do not copy-paste logs into a web browser.
 
 **The `jp fix` Strategy:**
-The `jp fix` (alias for `jp agent`) command supports **Just-In-Time (JIT) RAG**. It runs a command, captures the stdout/stderr, finds file paths in the stack trace, reads those files, and constructs a prompt for Codex.
+The `jp fix` command (preferred; `jp agent` is a legacy alias) supports **Just-In-Time (JIT) RAG**. It runs a command, captures the stdout/stderr, finds file paths in the stack trace, reads those files, and constructs a prompt for Codex.
 
 - **Scenario**: Unit tests are failing.
 
@@ -142,6 +142,19 @@ jp team swarm "Refactor the search module to use async ripgrep calls."
 3.  **QA**: Reviews the Engineer's output against the Architect's plan and invariants.
 
 **Pro Tip:** Swarms run in **Safe Mode** by default. To allow them to execute destructive commands without confirmation, ensure your `~/.codex/config.toml` allows it, though `jp team` is designed to be a "Human-in-the-Loop" planner.
+
+---
+
+## Architecture Mapping
+
+Large refactors benefit from a structural overview. Generate an AST-driven map and feed it straight into the agent loop:
+
+```bash
+# Create a repo map and pipe it into jp fix as context
+jp map --depth 3 --format text | jp fix --run "cat > /tmp/repo-map.txt" "Use the repo map above to plan a safe refactor."
+```
+
+`jp fix` is the primary entrypoint for agents; `jp agent` remains as a legacy alias for older scripts.
 
 ---
 
@@ -274,7 +287,7 @@ Stop `cd`-ing into directories. Stop running `ls`.
 This is the core "God-Mode" workflow. When a test fails or a bug appears, do not copy-paste logs into a web browser.
 
 **The `jp fix` Strategy:**
-The `jp fix` (alias for `jp agent`) command supports **Just-In-Time (JIT) RAG**. It runs a command, captures the stdout/stderr, finds file paths in the stack trace, reads those files, and constructs a prompt for Codex.
+The `jp fix` command (preferred; `jp agent` is a legacy alias) supports **Just-In-Time (JIT) RAG**. It runs a command, captures the stdout/stderr, finds file paths in the stack trace, reads those files, and constructs a prompt for Codex.
 
 - **Scenario**: Unit tests are failing.
 

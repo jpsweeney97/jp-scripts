@@ -55,7 +55,7 @@ def process_kill(
 ) -> None:
     """Interactively select and kill a process."""
     # LOGIC: Delegate to core
-    matches = system_core.find_processes(name_filter=name, port_filter=port)
+    matches = asyncio.run(system_core.find_processes(name_filter=name, port_filter=port))
 
     use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt="kill> ")
@@ -63,7 +63,7 @@ def process_kill(
     if pid:
         # ACTION: Delegate to core
         state = ctx.obj
-        result = system_core.kill_process(pid, force, config=state.config)
+        result = asyncio.run(system_core.kill_process_async(pid, force, config=state.config))
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 
@@ -76,7 +76,7 @@ def port_kill(
 ) -> None:
     """Find processes bound to a port and kill one."""
     # LOGIC: Delegate to core
-    matches = system_core.find_processes(port_filter=port)
+    matches = asyncio.run(system_core.find_processes(port_filter=port))
 
     use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt=f"port-kill ({port})> ")
@@ -84,7 +84,7 @@ def port_kill(
     if pid:
         # ACTION: Delegate to core
         state = ctx.obj
-        result = system_core.kill_process(pid, force, config=state.config)
+        result = asyncio.run(system_core.kill_process_async(pid, force, config=state.config))
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 

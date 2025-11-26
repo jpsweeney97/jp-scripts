@@ -10,6 +10,10 @@
 - Context ingestion keeps JSON valid via structural truncation and YAML-aware dispatch in `smart_read_context`.
 - Swarm orchestration uses a `SwarmController` state machine with agent-nominated `next_step`, bounded turns, and structured handoffs.
 - Memory scoring now prefers recent entries via time-decayed keyword overlap.
+- Process discovery/killing now runs through async, non-blocking psutil wrappers across commands and MCP tools.
+- Agents fetch semantic memory even without command output, boosting architecture/security tags from prompts.
+- Context gathering warns when commands reference paths outside the workspace; search fallbacks render match panels when fzf is missing.
+- Handbook now prefers `jp fix` over legacy aliases and documents piping `jp map` into `jp fix` for refactors.
 
 ## [0.4.9] - Unreleased
 

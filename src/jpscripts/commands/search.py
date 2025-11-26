@@ -7,6 +7,7 @@ from pathlib import Path
 
 import typer
 from rich import box
+from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.commands.ui import fzf_stream
@@ -34,7 +35,9 @@ def ripper(
     else:
         try:
             result = search_core.run_ripgrep(pattern, path, context=context)
-            console.print(result or "[yellow]No matches.[/yellow]")
+            panel_content = result or "[yellow]No matches.[/yellow]"
+            console.print(Panel(panel_content, title="Matches", expand=False))
+            console.print("[yellow]Install fzf for interactive filtering.[/yellow]")
         except RuntimeError as e:
             console.print(f"[red]{e}[/red]")
             raise typer.Exit(code=1)
@@ -93,7 +96,9 @@ def loggrep(
     else:
         try:
             result = search_core.run_ripgrep(pattern, path, line_number=True, follow=follow, pcre2=True)
-            console.print(result or "[yellow]No matches.[/yellow]")
+            panel_content = result or "[yellow]No matches.[/yellow]"
+            console.print(Panel(panel_content, title="Matches", expand=False))
+            console.print("[yellow]Install fzf for interactive filtering.[/yellow]")
         except RuntimeError as e:
             console.print(f"[red]{e}[/red]")
             raise typer.Exit(code=1)

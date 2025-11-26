@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 import yaml  # type: ignore[import-untyped]
+from rich.console import Console
 
 # Regex to catch file paths, often with line numbers (e.g., "src/main.py:42")
 # Matches: (start of line or space) (relative path) (:line_number optional)
@@ -50,8 +51,37 @@ def resolve_files_from_output(output: str, root: Path) -> set[Path]:
     return found
 
 
+def _warn_out_of_workspace_paths(command: str, root: Path) -> None:
+    try:
+        workspace_root = root.resolve()
+    except OSError:
+        workspace_root = root
+
+    candidates = set(re.findall(r"/[^\s\"']+", command))
+    outside: set[str] = set()
+    for raw in candidates:
+        normalized = raw.strip(",;")
+        try:
+            candidate_path = Path(normalized).resolve()
+        except OSError:
+            continue
+        if not candidate_path.is_absolute():
+            continue
+        try:
+            candidate_path.relative_to(workspace_root)
+        except ValueError:
+            outside.add(str(candidate_path))
+
+    if outside:
+        Console(stderr=True).print(
+            "[yellow]Warning:[/yellow] command references paths outside workspace: "
+            f"{', '.join(sorted(outside))}"
+        )
+
+
 async def gather_context(command: str, root: Path) -> tuple[str, set[Path]]:
     """Run a command, capture output, and find relevant files."""
+    _warn_out_of_workspace_paths(command, root)
     output = await run_and_capture(command, root)
     files = resolve_files_from_output(output, root)
     return output, files
