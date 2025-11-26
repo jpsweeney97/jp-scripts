@@ -5,8 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
-from git.exc import InvalidGitRepositoryError, NoSuchPathError
-
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
 from jpscripts.core.console import get_logger
@@ -124,9 +122,10 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
         return "(no repo)", "(no repo)", False
 
     try:
-        repo = await asyncio.to_thread(git_core.open_repo, root)
-    except (InvalidGitRepositoryError, NoSuchPathError):
-        return "(no repo)", "(no repo)", False
+        repo = await git_core.AsyncRepo.open(root)
+    except git_core.GitOperationError as exc:
+        logger.error("Failed to open git repo at %s: %s", root, exc)
+        return "(error)", "(error)", False
     except Exception as exc:
         logger.error("Failed to open git repo at %s: %s", root, exc)
         return "(error)", "(error)", False
@@ -136,7 +135,7 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
     is_dirty = False
 
     try:
-        status = await asyncio.to_thread(git_core.describe_status, repo)
+        status = await repo.status()
         branch = status.branch
         is_dirty = status.dirty
         _ = git_ops.format_status(status)
@@ -145,8 +144,7 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
         return "(error)", "(error)", False
 
     try:
-        commit = await asyncio.to_thread(repo.git.rev_parse, "--short", "HEAD")
-        commit = str(commit).strip()
+        commit = await repo.head(short=True)
     except Exception as exc:
         logger.error("Failed to resolve git head for %s: %s", root, exc)
         commit = "(error)"

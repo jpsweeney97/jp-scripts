@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.4] - Unreleased
+
+### Added
+- Integration safeguard for Codex handoff with a mocked subprocess and XML prompt validation (`tests/integration/test_agent_real.py`).
+
+### Changed
+- Git plumbing now uses true asyncio subprocess calls and porcelain v2 parsing for status, fetch, and commit workflows (no GitPython threads).
+- Python context reads fall back to warn-tagged head/tail slices when AST parsing fails, preserving context through syntax errors.
+- Memory storage migrated to LanceDB with a pydantic schema and vector search, while retaining keyword fallback when AI extras are absent.
+
 ## [0.4.0] - The Trinity Update
 
 ### Added

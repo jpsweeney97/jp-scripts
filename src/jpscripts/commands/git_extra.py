@@ -8,6 +8,7 @@ import webbrowser
 from pathlib import Path
 
 import typer
+from git import Repo
 from pydantic import BaseModel
 from rich import box
 from rich.table import Table
@@ -36,9 +37,9 @@ def _git_extra_callback(ctx: typer.Context) -> None:
     """Entry point for git extra commands."""
 
 
-def _ensure_repo(path: Path) -> git_core.Repo:
+def _ensure_repo(path: Path) -> Repo:
     try:
-        return git_core.open_repo(path)
+        return Repo(path, search_parent_directories=True)
     except Exception as exc:
         console.print(f"[red]Failed to open repo at {path}: {exc}[/red]")
         raise typer.Exit(code=1)
@@ -174,7 +175,7 @@ def _get_prs(limit: int) -> list[PullRequest]:
     return [PullRequest(**item) for item in data]
 
 
-def _repo_web_url(repo: git_core.Repo) -> str | None:
+def _repo_web_url(repo: Repo) -> str | None:
     try:
         origin = repo.remotes.origin.url
     except Exception:

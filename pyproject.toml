@@ -31,6 +31,7 @@ dev = [
 ]
 ai = [
   "sentence-transformers>=3.0.0",
+  "lancedb>=0.9.0",
   "numpy>=1.26.0",
 ]
 
@@ -42,3 +43,8 @@ jpscripts = "jpscripts.mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jpscripts"]
+
+[tool.pytest.ini_options]
+markers = [
+  "slow: mark tests that take longer or hit external boundaries",
+]

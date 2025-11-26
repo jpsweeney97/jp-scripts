@@ -2,11 +2,10 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
+import subprocess
 from typing import Iterator, Sequence
-
-from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
-from git.objects import Commit
 
 
 @dataclass
@@ -23,164 +22,72 @@ class BranchStatus:
     error: str | None = None
 
 
+@dataclass
+class GitCommit:
+    hexsha: str
+    summary: str
+    author_name: str
+    author_email: str
+    committed_date: int
+
+    @property
+    def committed_datetime(self) -> datetime:
+        return datetime.fromtimestamp(self.committed_date)
+
+
 class GitOperationError(RuntimeError):
     """Raised when git operations fail."""
 
 
-class AsyncRepo:
-    """Async wrapper around GitPython Repo using background threads for I/O."""
+async def _run_git(cwd: Path, *args: str) -> str:
+    """Run git with asyncio and return stdout as text, raising on failure."""
+    if not cwd.exists():
+        raise GitOperationError(f"Repository path does not exist: {cwd}")
 
-    def __init__(self, repo: Repo) -> None:
-        self._repo = repo
-
-    @property
-    def path(self) -> Path:
-        return Path(self._repo.working_tree_dir or ".")
-
-    @classmethod
-    async def open(cls, path: Path | str = ".") -> AsyncRepo:
-        try:
-            repo = await asyncio.to_thread(open_repo, path)
-            return cls(repo)
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to open git repo at {path}") from exc
-
-    async def fetch(self) -> None:
-        """Fetch updates from all remotes."""
-        try:
-            await asyncio.to_thread(self._fetch_all_remotes)
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to fetch for {self.path}") from exc
-
-    def _fetch_all_remotes(self) -> None:
-        for remote in self._repo.remotes:
-            remote.fetch()
-
-    async def commit(self, message: str) -> str:
-        try:
-            commit_obj: Commit = await asyncio.to_thread(self._repo.index.commit, message)
-            return commit_obj.hexsha
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to commit in {self.path}: {exc}") from exc
-
-    async def reset(self, mode: str, ref: str) -> None:
-        try:
-            await asyncio.to_thread(self._repo.git.reset, mode, ref)
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to reset {self.path}: {exc}") from exc
-
-    async def add(self, *, all: bool = False, paths: Sequence[Path] | None = None) -> None:
-        try:
-            if all:
-                await asyncio.to_thread(self._repo.git.add, all=True)
-            elif paths:
-                await asyncio.to_thread(self._repo.index.add, [str(path) for path in paths])
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to add changes in {self.path}: {exc}") from exc
-
-    async def status(self) -> BranchStatus:
-        try:
-            return await asyncio.to_thread(describe_status, self._repo)
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to read status for {self.path}: {exc}") from exc
-
-    async def get_commits(self, ref_range: str, limit: int) -> list[Commit]:
-        try:
-            return await asyncio.to_thread(self._iter_commits, ref_range, limit)
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to read commits in {self.path}: {exc}") from exc
-
-    async def diff_stat(self, ref_range: str) -> str:
-        try:
-            return await asyncio.to_thread(self._repo.git.diff, "--stat", ref_range)
-        except GitCommandError as exc:
-            raise GitOperationError(f"Failed to diff {self.path}: {exc}") from exc
-
-    def _iter_commits(self, ref_range: str, limit: int) -> list[Commit]:
-        commits = list(self._repo.iter_commits(ref_range))
-        return commits[:limit]
-
-
-def open_repo(path: Path | str = ".") -> Repo:
-    """Open a git repository, searching parent directories by default."""
-    return Repo(path, search_parent_directories=True)
-
-
-def is_repo(path: Path | str = ".") -> bool:
     try:
-        open_repo(path)
-        return True
-    except (InvalidGitRepositoryError, NoSuchPathError):
-        return False
-
-
-def get_upstream(repo: Repo) -> str | None:
-    try:
-        if repo.head.is_detached:
-            return None
-        tracking = repo.active_branch.tracking_branch()
-        return str(tracking) if tracking else None
-    except (TypeError, GitCommandError):
-        return None
-
-
-def _count_commits(repo: Repo, ref_range: str) -> int:
-    try:
-        output = repo.git.rev_list("--count", ref_range)
-        return int(output.strip())
-    except GitCommandError:
-        return 0
-
-
-def describe_status(repo: Repo) -> BranchStatus:
-    path = Path(repo.working_tree_dir or ".")
-    try:
-        status_output = repo.git.status("--porcelain=v2", "--branch", "-z")
-    except GitCommandError as exc:
-        return BranchStatus(
-            path=path,
-            branch="(unknown)",
-            upstream=None,
-            ahead=0,
-            behind=0,
-            staged=0,
-            unstaged=0,
-            untracked=0,
-            dirty=repo.is_dirty(untracked_files=True),
-            error=str(exc),
+        process = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=cwd,
         )
+    except FileNotFoundError as exc:
+        raise GitOperationError("git executable not found on PATH") from exc
+    except Exception as exc:
+        raise GitOperationError(f"Failed to start git: {exc}") from exc
 
+    stdout, stderr = await process.communicate()
+    if process.returncode != 0:
+        message = stderr.decode("utf-8", errors="replace").strip()
+        stdout_text = stdout.decode("utf-8", errors="replace").strip()
+        detail = message or stdout_text or f"git {' '.join(args)} failed"
+        raise GitOperationError(detail)
+
+    return stdout.decode("utf-8", errors="replace")
+
+
+def _parse_status_output(raw: str, repo_path: Path) -> BranchStatus:
     branch = "(unknown)"
     upstream: str | None = None
-    ahead = 0
-    behind = 0
-    staged = 0
-    unstaged = 0
-    untracked = 0
+    ahead = behind = staged = unstaged = untracked = 0
 
-    entries = [line for line in status_output.split("\0") if line]
+    entries = [item for item in raw.split("\0") if item]
     for entry in entries:
-        line = entry.strip()
-        if not line:
-            continue
-
-        if line.startswith("#"):
-            parts = line.split()
+        if entry.startswith("#"):
+            parts = entry.split()
             if len(parts) >= 3 and parts[1] == "branch.head":
                 branch = parts[2]
             elif len(parts) >= 3 and parts[1] == "branch.upstream":
                 upstream = parts[2]
             elif len(parts) >= 4 and parts[1] == "branch.ab":
-                try:
-                    ahead = int(parts[2].lstrip("+"))
-                    behind = int(parts[3].lstrip("-"))
-                except ValueError:
-                    ahead = behind = 0
+                ahead = _safe_int(parts[2].lstrip("+"))
+                behind = _safe_int(parts[3].lstrip("-"))
             continue
 
-        kind = line[0]
+        kind = entry[0]
         if kind in {"1", "2", "u"}:
-            parts = line.split()
+            parts = entry.split()
             if len(parts) < 2:
                 continue
             xy = parts[1]
@@ -190,13 +97,10 @@ def describe_status(repo: Repo) -> BranchStatus:
                 unstaged += 1
         elif kind == "?":
             untracked += 1
-        elif kind == "!":
-            continue
 
     dirty = bool(staged or unstaged or untracked)
-
     return BranchStatus(
-        path=path,
+        path=repo_path,
         branch=branch,
         upstream=upstream,
         ahead=ahead,
@@ -207,6 +111,119 @@ def describe_status(repo: Repo) -> BranchStatus:
         dirty=dirty,
         error=None,
     )
+
+
+def _parse_commits(raw: str) -> list[GitCommit]:
+    commits: list[GitCommit] = []
+    records = [rec for rec in raw.split("\x1e") if rec.strip()]
+    for record in records:
+        fields = record.strip().split("\x00")
+        if len(fields) < 5:
+            continue
+        sha, author_name, author_email, ts, summary = fields[:5]
+        commits.append(
+            GitCommit(
+                hexsha=sha,
+                summary=summary,
+                author_name=author_name,
+                author_email=author_email,
+                committed_date=_safe_int(ts),
+            )
+        )
+    return commits
+
+
+def _safe_int(value: str) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _resolve_worktree(path: Path) -> Path:
+    raw = await _run_git(path, "rev-parse", "--show-toplevel")
+    resolved = Path(raw.strip()).resolve()
+    return resolved
+
+
+class AsyncRepo:
+    """Async git wrapper built on subprocess plumbing."""
+
+    def __init__(self, root: Path) -> None:
+        self._root = root
+
+    @property
+    def path(self) -> Path:
+        return self._root
+
+    @classmethod
+    async def open(cls, path: Path | str = ".") -> AsyncRepo:
+        root = Path(path).expanduser()
+        resolved_root = await _resolve_worktree(root)
+        return cls(resolved_root)
+
+    async def status(self) -> BranchStatus:
+        output = await _run_git(self._root, "status", "--porcelain=v2", "--branch", "-z")
+        return _parse_status_output(output, self._root)
+
+    async def add(self, *, all: bool = False, paths: Sequence[Path] | None = None) -> None:
+        args: list[str] = ["add"]
+        if all:
+            args.append("--all")
+        elif paths:
+            args.extend(str(path) for path in paths)
+        else:
+            return
+        await _run_git(self._root, *args)
+
+    async def commit(self, message: str) -> str:
+        await _run_git(self._root, "commit", "-m", message)
+        sha = await _run_git(self._root, "rev-parse", "HEAD")
+        return sha.strip()
+
+    async def reset(self, mode: str, ref: str) -> None:
+        await _run_git(self._root, "reset", mode, ref)
+
+    async def fetch(self) -> None:
+        await _run_git(self._root, "fetch", "--all", "--prune")
+
+    async def get_commits(self, ref_range: str, limit: int) -> list[GitCommit]:
+        format_str = "%H%x00%an%x00%ae%x00%at%x00%s%x1e"
+        output = await _run_git(
+            self._root,
+            "log",
+            f"--max-count={limit}",
+            "--date=unix",
+            f"--format={format_str}",
+            ref_range,
+        )
+        return _parse_commits(output)
+
+    async def diff_stat(self, ref_range: str) -> str:
+        output = await _run_git(self._root, "diff", "--stat", ref_range)
+        return output
+
+    async def head(self, short: bool = True) -> str:
+        args = ["rev-parse", "--short", "HEAD"] if short else ["rev-parse", "HEAD"]
+        output = await _run_git(self._root, *args)
+        return output.strip()
+
+
+def is_repo(path: Path | str = ".") -> bool:
+    target = Path(path).expanduser()
+    if not target.exists():
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(target), "rev-parse", "--is-inside-work-tree"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "true"
 
 
 def iter_git_repos(root: Path, max_depth: int = 2) -> Iterator[Path]:
@@ -223,13 +240,3 @@ def iter_git_repos(root: Path, max_depth: int = 2) -> Iterator[Path]:
             continue
         seen.add(repo_root)
         yield repo_root
-
-
-def open_many(paths: Sequence[Path]) -> list[Repo]:
-    repos: list[Repo] = []
-    for path in paths:
-        try:
-            repos.append(open_repo(path))
-        except InvalidGitRepositoryError:
-            continue
-    return repos

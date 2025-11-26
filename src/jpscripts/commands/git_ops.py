@@ -23,8 +23,8 @@ class _StatusContext:
 
 async def _describe_repo(path: Path) -> git_core.BranchStatus:
     try:
-        repo = await asyncio.to_thread(git_core.open_repo, path)
-        return await asyncio.to_thread(git_core.describe_status, repo)
+        repo = await git_core.AsyncRepo.open(path)
+        return await repo.status()
     except Exception as exc:  # Git errors are reported per-repo
         return git_core.BranchStatus(
             path=path,
@@ -125,7 +125,7 @@ def whatpush(
     """Show what will be pushed to the upstream branch."""
     repo_path = repo_path.expanduser()
 
-    async def _collect() -> tuple[git_core.BranchStatus, list[git_core.Commit], str]:
+    async def _collect() -> tuple[git_core.BranchStatus, list[git_core.GitCommit], str]:
         repo = await git_core.AsyncRepo.open(repo_path)
         status = await repo.status()
         upstream = status.upstream
@@ -173,16 +173,14 @@ def whatpush(
         commits_table.add_row(
             commit.hexsha[:8],
             commit.summary,
-            commit.author.name,
-            datetime.fromtimestamp(commit.committed_date).strftime("%Y-%m-%d %H:%M"),
+            commit.author_name,
+            commit.committed_datetime.strftime("%Y-%m-%d %H:%M"),
         )
 
     console.print(commits_table)
 
     if diffstat.strip():
         console.print(Panel(diffstat, title="Diffstat", box=box.SIMPLE))
-
-# Add to src/jpscripts/commands/git_ops.py
 
 async def _fetch_repo(path: Path) -> str:
     """Run git fetch on all remotes and return a status string."""

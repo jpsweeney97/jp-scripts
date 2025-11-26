@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from git import Repo
-from git.objects import Commit
 
 from . import git as git_core
 

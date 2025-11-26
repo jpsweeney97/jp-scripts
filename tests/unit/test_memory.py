@@ -1,14 +1,8 @@
 from __future__ import annotations
 
-import sqlite3
+import json
 from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - optional dependency
-    np = None  # type: ignore
 
 from jpscripts.core import memory as memory_core
 
@@ -21,63 +15,77 @@ def _dummy_config(store: Path, use_semantic: bool = False) -> SimpleNamespace:
     )
 
 
-def test_save_memory_writes_sqlite(tmp_path: Path) -> None:
-    store = tmp_path / "mem.sqlite"
-    config = _dummy_config(store)
-    entry = memory_core.save_memory("Learned X", tags=["tag1"], config=config, store_path=store)
+def test_save_memory_writes_fallback(tmp_path: Path) -> None:
+    store = tmp_path / "mem.lance"
+    fallback = store.with_suffix(".jsonl")
+    entry = memory_core.save_memory("Learned X", tags=["tag1"], config=_dummy_config(store), store_path=store)
 
-    assert store.exists()
-    conn = sqlite3.connect(store)
-    row = conn.execute("SELECT content, timestamp, embedding FROM memory").fetchone()
-    assert row is not None
-    raw_content, ts, embedding = row
-    content_text, tags = memory_core._deserialize_content(raw_content)
-
-    assert content_text == "Learned X"
-    assert tags == ["tag1"]
-    assert isinstance(ts, str)
+    assert fallback.exists()
+    content = fallback.read_text(encoding="utf-8").strip().splitlines()
+    assert content
+    record = json.loads(content[-1])
+    assert record["content"] == "Learned X"
+    assert record["tags"] == ["tag1"]
     assert entry.content == "Learned X"
-    assert embedding is None or isinstance(embedding, (bytes, bytearray))
 
 
 def test_score_keyword_overlap() -> None:
-    entry = memory_core.MemoryEntry(ts="1", content="Alpha beta gamma", tags=["beta"], tokens=["alpha", "beta", "gamma"])
+    entry = memory_core.MemoryEntry(
+        id="1",
+        ts="1",
+        content="Alpha beta gamma",
+        tags=["beta"],
+        tokens=["alpha", "beta", "gamma"],
+    )
     score = memory_core._score(["beta", "delta"], entry)
     assert score > 0
 
 
-@pytest.mark.skipif(np is None, reason="numpy not available")
-def test_semantic_query_uses_embeddings_when_available(monkeypatch, tmp_path: Path) -> None:
-    store = tmp_path / "mem.sqlite"
-    config = _dummy_config(store, use_semantic=True)
+def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> None:
+    store = tmp_path / "mem.lance"
+    fallback = store.with_suffix(".jsonl")
+    base_entry = memory_core.MemoryEntry(
+        id="base",
+        ts="now",
+        content="placeholder",
+        tags=[],
+        tokens=["placeholder"],
+    )
+    memory_core._write_entries(fallback, [base_entry])
 
-    class FakeVectorStore:
-        def __init__(self, *_args, **_kwargs):
-            self.used = False
-            self._vec = np.asarray([1.0, 0.0], dtype=np.float32)
+    class FakeEmbeddingClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            self.called = False
+
+        @property
+        def dimension(self) -> int | None:
+            return 2
 
         def available(self) -> bool:
             return True
 
         def embed(self, texts):
-            self.used = True
-            return np.stack([self._vec for _ in texts])
+            self.called = True
+            return [[0.1, 0.2] for _ in texts]
 
-        @staticmethod
-        def to_bytes(vector: np.ndarray) -> bytes:
-            return np.asarray(vector, dtype=np.float32).tobytes()
+    class FakeStore:
+        def __init__(self, _path, embedding_dim: int) -> None:
+            self.embedding_dim = embedding_dim
 
-        @staticmethod
-        def from_bytes(blob: bytes) -> np.ndarray:
-            return np.frombuffer(blob, dtype=np.float32)
+        def search(self, _vector, _limit: int):
+            return [
+                memory_core.MemoryEntry(
+                    id="hit",
+                    ts="later",
+                    content="vector match",
+                    tags=["hit"],
+                    tokens=["vector", "match"],
+                )
+            ]
 
-        @staticmethod
-        def cosine_batch(matrix: np.ndarray, query_vec: np.ndarray):
-            return np.array([0.9 for _ in range(matrix.shape[0])], dtype=np.float32)
+    monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
+    monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
 
-    monkeypatch.setattr(memory_core, "VectorStore", FakeVectorStore)
-
-    memory_core.save_memory("Graph embeddings are cool", tags=[], config=config, store_path=store)
-
-    results = memory_core.query_memory("graph", config=config, store_path=store)
+    results = memory_core.query_memory("vector", config=_dummy_config(store, use_semantic=True), store_path=store)
     assert results
+    assert "vector match" in results[0]

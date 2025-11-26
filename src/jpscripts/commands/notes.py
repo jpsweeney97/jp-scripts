@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pyperclip
+from git import Repo
 import typer
 from rich import box
 from rich.table import Table
@@ -78,7 +79,7 @@ def note_search(
         console.print("[yellow]No matches found.[/yellow]")
 
 
-def _repo_commits_since(repo: git_core.Repo, since: dt.datetime, author: str | None) -> list:
+def _repo_commits_since(repo: Repo, since: dt.datetime, author: str | None) -> list:
     args = {}
     if author:
         args["author"] = author
@@ -120,7 +121,7 @@ def standup(
     total = 0
     for repo_path in repos:
         try:
-            repo = git_core.open_repo(repo_path)
+            repo = Repo(repo_path)
             commits = _repo_commits_since(repo, since, user_email)
             if not commits:
                 continue

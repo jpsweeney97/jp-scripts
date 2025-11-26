@@ -16,6 +16,7 @@ FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE |
 
 HARD_FILE_CONTEXT_LIMIT = 100_000
 STRUCTURED_EXTENSIONS = {".json", ".yml", ".yaml"}
+SYNTAX_WARNING = "# [WARN] Syntax error detected. AST features disabled.\n"
 
 
 async def run_and_capture(command: str, cwd: Path) -> str:
@@ -78,12 +79,12 @@ def smart_read_context(path: Path, max_chars: int) -> str:
     text = _read_text_for_context(path)
     if text is None:
         return ""
-    if len(text) <= limit:
-        return text
 
     suffix = path.suffix.lower()
     if suffix == ".py":
         return _truncate_python_source(text, limit)
+    if len(text) <= limit:
+        return text
     if suffix in STRUCTURED_EXTENSIONS:
         loader = json.loads if suffix == ".json" else yaml.safe_load
         return _truncate_structured_text(text, limit, loader)
@@ -147,6 +148,63 @@ def _truncate_to_parseable(text: str, limit: int, offsets: list[int]) -> str:
 
     return ""
 
+def _fallback_read(text: str, limit: int, error: SyntaxError | None) -> str:
+    warning = SYNTAX_WARNING if error else ""
+    if limit <= 0:
+        return warning[:limit] if warning else ""
+
+    if warning and limit <= len(warning):
+        return warning[:limit]
+
+    budget = limit - len(warning)
+    lines = text.splitlines()
+    if not lines:
+        return warning.strip()
+
+    head_budget = int(budget * 0.6)
+    tail_budget = budget - head_budget
+
+    head_lines: list[str] = []
+    head_used = 0
+    for line in lines:
+        next_len = len(line) + 1
+        if head_used + next_len > head_budget:
+            break
+        head_lines.append(line)
+        head_used += next_len
+
+    tail_lines: list[str] = []
+    tail_used = 0
+    for line in reversed(lines[len(head_lines) :]):
+        next_len = len(line) + 1
+        if tail_used + next_len > tail_budget:
+            break
+        tail_lines.append(line)
+        tail_used += next_len
+    tail_lines.reverse()
+
+    middle: list[str] = []
+    if error and getattr(error, "lineno", None):
+        idx = max(int(error.lineno) - 1, 0)
+        if idx >= len(head_lines) and idx < len(lines) - len(tail_lines):
+            start = max(idx - 3, len(head_lines))
+            end = min(idx + 4, len(lines) - len(tail_lines))
+            middle = ["# ... error context ...", *lines[start:end]]
+
+    parts: list[str] = []
+    parts.extend(head_lines)
+    if middle:
+        parts.extend(middle)
+    if tail_lines:
+        parts.append("# ... trailing context ...")
+        parts.extend(tail_lines)
+
+    body = "\n".join(parts) or text[:budget]
+    snippet = f"{warning}{body}"
+    if len(snippet) > limit:
+        return snippet[:limit]
+    return snippet
+
 
 def _truncate_python_source(text: str, limit: int) -> str:
     offsets = _line_offsets(text)
@@ -154,8 +212,11 @@ def _truncate_python_source(text: str, limit: int) -> str:
 
     try:
         tree = ast.parse(text)
-    except SyntaxError:
-        return _truncate_to_parseable(text, limit_offset, offsets)
+    except SyntaxError as exc:
+        return _fallback_read(text, limit_offset, exc)
+
+    if len(text) <= limit:
+        return text
 
     candidates: list[int] = []
 
@@ -172,7 +233,11 @@ def _truncate_python_source(text: str, limit: int) -> str:
         if _is_parseable(snippet):
             return snippet
 
-    return _truncate_to_parseable(text, limit_offset, offsets)
+    truncated = _truncate_to_parseable(text, limit_offset, offsets)
+    if truncated:
+        return truncated
+
+    return _fallback_read(text, limit_offset, None)
 
 
 def _validate_structured_prefix(candidate: str, loader: Callable[[str], object]) -> str | None:
