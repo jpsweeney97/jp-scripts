@@ -14,6 +14,7 @@ from rich.table import Table
 
 from jpscripts.core.console import console
 from jpscripts.core import git as git_core
+from jpscripts.core.decorators import handle_exceptions
 
 
 @dataclass
@@ -113,6 +114,7 @@ def status_all(
     asyncio.run(_collect_statuses(repo_paths, base_root))
 
 
+@handle_exceptions
 def whatpush(
     ctx: typer.Context,
     repo_path: Path = typer.Option(
@@ -138,14 +140,7 @@ def whatpush(
         diffstat = await repo.diff_stat(f"{upstream}..HEAD") if commits else ""
         return status, commits, diffstat
 
-    try:
-        status, commits, diffstat = asyncio.run(_collect())
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
-    except Exception as exc:
-        console.print(f"[red]Failed to open git repo at {repo_path}: {exc}[/red]")
-        raise typer.Exit(code=1)
+    status, commits, diffstat = asyncio.run(_collect())
 
     upstream = status.upstream or "none"
 

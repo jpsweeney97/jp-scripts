@@ -1,27 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 import subprocess
 from pathlib import Path
-import asyncio
+
 import typer
 from rich import box
 from rich.table import Table
-from rich.panel import Panel
 
+from jpscripts.commands.ui import fzf_stream
 from jpscripts.core import search as search_core
 from jpscripts.core.console import console
-
-
-def _run_interactive(cmd: list[str], prompt: str) -> None:
-    """Run rg piped into fzf."""
-    if not shutil.which("fzf"):
-        proc = subprocess.run(cmd, capture_output=True, text=True)
-        console.print(proc.stdout or "[yellow]No matches.[/yellow]")
-        return
-
-    proc_rg = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
-    subprocess.run(["fzf", "--ansi", "--prompt", prompt], stdin=proc_rg.stdout)
 
 
 def ripper(
@@ -35,7 +25,12 @@ def ripper(
 
     if use_fzf:
         cmd = search_core.get_ripgrep_cmd(pattern, path, context=context)
-        _run_interactive(cmd, prompt="ripper> ")
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
+            if proc_rg.stdout is None:
+                console.print("[red]Failed to start ripgrep.[/red]")
+                raise typer.Exit(code=1)
+            fzf_stream(proc_rg.stdout, prompt="ripper> ", ansi=True)
+            proc_rg.wait()
     else:
         try:
             result = search_core.run_ripgrep(pattern, path, context=context)
@@ -89,7 +84,12 @@ def loggrep(
 
     if use_fzf:
         cmd = search_core.get_ripgrep_cmd(pattern, path, line_number=True, follow=follow, pcre2=True)
-        _run_interactive(cmd, prompt="loggrep> ")
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
+            if proc_rg.stdout is None:
+                console.print("[red]Failed to start ripgrep.[/red]")
+                raise typer.Exit(code=1)
+            fzf_stream(proc_rg.stdout, prompt="loggrep> ", ansi=True)
+            proc_rg.wait()
     else:
         try:
             result = search_core.run_ripgrep(pattern, path, line_number=True, follow=follow, pcre2=True)

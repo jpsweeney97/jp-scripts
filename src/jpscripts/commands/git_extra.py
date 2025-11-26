@@ -16,6 +16,7 @@ from jpscripts.core import git as git_core
 from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core import security
 from jpscripts.core.console import console
+from jpscripts.core.decorators import handle_exceptions
 from jpscripts.commands.ui import fzf_select
 
 app = typer.Typer()
@@ -38,13 +39,11 @@ def _git_extra_callback(ctx: typer.Context) -> None:
 
 
 def _ensure_repo(path: Path) -> git_core.AsyncRepo:
-    try:
-        return asyncio.run(git_core.AsyncRepo.open(path))
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]Failed to open repo at {path}: {exc}[/red]")
-        raise typer.Exit(code=1)
+    repo_path = path.expanduser()
+    return asyncio.run(git_core.AsyncRepo.open(repo_path))
 
 
+@handle_exceptions
 def gundo_last(
     ctx: typer.Context,
     repo_path: Path = typer.Option(Path("."), "--repo", "-r", help="Repository path."),
@@ -53,18 +52,15 @@ def gundo_last(
     """Safely undo the last commit. Works on local branches too."""
     repo_path = repo_path.expanduser()
 
-    try:
-        repo = asyncio.run(git_core.AsyncRepo.open(repo_path))
-        message = asyncio.run(git_ops_core.undo_last_commit(repo, hard=hard))
-    except git_ops_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    repo = asyncio.run(git_core.AsyncRepo.open(repo_path))
+    message = asyncio.run(git_ops_core.undo_last_commit(repo, hard=hard))
 
     console.print(f"[green]{message}[/green]")
 
 
 app.command("gundo-last")(gundo_last)
 
+@handle_exceptions
 def gstage(
     ctx: typer.Context,
     repo_path: Path = typer.Option(Path("."), "--repo", "-r", help="Repository path."),
@@ -72,11 +68,7 @@ def gstage(
 ) -> None:
     """Interactively stage files."""
     repo = _ensure_repo(repo_path.expanduser())
-    try:
-        status_entries = asyncio.run(repo.status_short())
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    status_entries = asyncio.run(repo.status_short())
 
     if not status_entries:
         console.print("[green]Working tree clean.[/green]")
@@ -103,17 +95,9 @@ def gstage(
 
     target_str = selection.split("\t", 1)[-1] if "\t" in selection else selection
     target_path_str = target_str.split(" -> ", 1)[-1]
-    try:
-        target_path = security.validate_path(repo.path / target_path_str, repo.path)
-    except PermissionError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    target_path = security.validate_path(repo.path / target_path_str, repo.path)
 
-    try:
-        asyncio.run(repo.add(paths=[target_path]))
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    asyncio.run(repo.add(paths=[target_path]))
     console.print(f"[green]Staged[/green] {target_path_str}")
 
 
@@ -198,6 +182,7 @@ def _repo_web_url(remote_url: str) -> str | None:
     return None
 
 
+@handle_exceptions
 def gbrowse(
     ctx: typer.Context,
     repo_path: Path = typer.Option(Path("."), "--repo", "-r", help="Repository path."),
@@ -205,11 +190,7 @@ def gbrowse(
 ) -> None:
     """Open the current repo/branch/commit on GitHub."""
     repo = _ensure_repo(repo_path.expanduser())
-    try:
-        remote_url = asyncio.run(repo.get_remote_url())
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    remote_url = asyncio.run(repo.get_remote_url())
 
     base_url = _repo_web_url(remote_url)
     if not base_url:
@@ -219,31 +200,20 @@ def gbrowse(
     if target == "repo":
         url = base_url
     elif target == "commit":
-        try:
-            commit_sha = asyncio.run(repo.head(short=False))
-        except git_core.GitOperationError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(code=1)
+        commit_sha = asyncio.run(repo.head(short=False))
         url = f"{base_url}/commit/{commit_sha}"
     else:
-        try:
-            status = asyncio.run(repo.status())
-            branch = status.branch
-        except git_core.GitOperationError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(code=1)
+        status = asyncio.run(repo.status())
+        branch = status.branch
         if branch in {"(detached)", "(unknown)"}:
-            try:
-                branch = asyncio.run(repo.head())
-            except git_core.GitOperationError as exc:
-                console.print(f"[red]{exc}[/red]")
-                raise typer.Exit(code=1)
+            branch = asyncio.run(repo.head())
         url = f"{base_url}/tree/{branch}"
 
     webbrowser.open(url)
     console.print(f"[green]Opened[/green] {url}")
 
 
+@handle_exceptions
 def git_branchcheck(
     ctx: typer.Context,
     repo_path: Path = typer.Option(Path("."), "--repo", "-r", help="Repository path."),
@@ -255,11 +225,7 @@ def git_branchcheck(
         repo = await git_core.AsyncRepo.open(repo_path)
         return await git_ops_core.branch_statuses(repo)
 
-    try:
-        summaries = asyncio.run(_collect())
-    except git_ops_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    summaries = asyncio.run(_collect())
     table = Table(title="Branches", box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Branch", style="cyan", no_wrap=True)
     table.add_column("Upstream", style="white", no_wrap=True)

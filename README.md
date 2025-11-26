@@ -57,16 +57,16 @@ max_command_output_chars = 20000
 
 ### Git Operations
 
-| Command              | Description                                                    | Key Flags                         |
-| :------------------- | :------------------------------------------------------------- | :-------------------------------- |
-| `jp status-all`      | Dashboard of all repos (ahead/behind/dirty).                   | `--root`, `--max-depth`           |
-| `jp whatpush`        | Show outgoing commits and diffstat for the current repo.       | `--max-commits`                   |
-| `jp gstage`          | Interactively stage files using `fzf`.                         | `--no-fzf`                        |
-| `jp gundo-last`      | Safely undo the last commit (refuses if behind upstream).      | `--hard`                          |
-| `jp gpr`             | View, checkout, or copy GitHub PR URLs.                        | `--action [view\|checkout\|copy]` |
-| `jp gbrowse`         | Open the current repo/branch/commit in GitHub.                 | `--target [repo\|commit\|branch]` |
-| `jp stashview`       | Browse, apply, pop, or drop git stashes interactively.         | `--action [apply\|pop\|drop]`     |
-| `jp git-branchcheck` | List all local branches with upstream tracking status.         |                                   |
+| Command              | Description                                               | Key Flags                         |
+| :------------------- | :-------------------------------------------------------- | :-------------------------------- |
+| `jp status-all`      | Dashboard of all repos (ahead/behind/dirty).              | `--root`, `--max-depth`           |
+| `jp whatpush`        | Show outgoing commits and diffstat for the current repo.  | `--max-commits`                   |
+| `jp gstage`          | Interactively stage files using `fzf`.                    | `--no-fzf`                        |
+| `jp gundo-last`      | Safely undo the last commit (refuses if behind upstream). | `--hard`                          |
+| `jp gpr`             | View, checkout, or copy GitHub PR URLs.                   | `--action [view\|checkout\|copy]` |
+| `jp gbrowse`         | Open the current repo/branch/commit in GitHub.            | `--target [repo\|commit\|branch]` |
+| `jp stashview`       | Browse, apply, pop, or drop git stashes interactively.    | `--action [apply\|pop\|drop]`     |
+| `jp git-branchcheck` | List all local branches with upstream tracking status.    |                                   |
 
 ### Navigation & Search
 

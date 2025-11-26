@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from jpscripts.core import git as git_core
 from jpscripts.core.context import read_file_context
 from jpscripts.core.security import is_git_workspace, validate_path
 from jpscripts.mcp import get_config, logger, tool, tool_error_handler
@@ -329,26 +330,28 @@ def _apply_parsed_patch(target: Path, parsed: ParsedPatch, write_changes: bool) 
     target.write_text("".join(patched_lines), encoding="utf-8")
 
 
-async def _apply_patch_with_git(diff_text: str, root: Path) -> bool:
+async def _apply_patch_with_git(diff_text: str, root: Path, *, check_only: bool) -> None:
     try:
         proc = await asyncio.create_subprocess_exec(
             "git",
             "apply",
             "--whitespace=nowarn",
+            *(["--check"] if check_only else []),
             cwd=str(root),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError:
-        return False
+        raise git_core.GitOperationError("git executable not found on PATH")
 
     stdout, stderr = await proc.communicate(diff_text.encode("utf-8"))
     if proc.returncode == 0:
-        return True
+        return
 
-    logger.error("git apply failed: %s", stderr.decode(errors="replace") or stdout.decode(errors="replace"))
-    return False
+    error_text = stderr.decode(errors="replace") or stdout.decode(errors="replace") or "git apply failed"
+    logger.error("git apply failed: %s", error_text)
+    raise git_core.GitOperationError(error_text)
 
 
 @tool()
@@ -371,29 +374,15 @@ async def apply_patch(path: str, diff: str) -> str:
     if target.is_dir():
         raise ToolExecutionError(f"Cannot apply a patch to directory {target}.")
 
-    try:
-        parsed = _parse_patch(diff, target, root)
-    except ToolExecutionError:
-        raise
-
-    write_changes = not cfg.dry_run
-    try:
-        await asyncio.to_thread(_apply_parsed_patch, target, parsed, write_changes)
+    if is_git_workspace(root):
+        await _apply_patch_with_git(diff, root, check_only=cfg.dry_run)
         if cfg.dry_run:
             return f"Dry-run: patch validated for {target} (no changes written)."
         return "Patch applied successfully."
-    except ToolExecutionError as exc:
-        error_reason = str(exc)
-    except Exception as exc:
-        error_reason = f"Failed to apply patch: {exc}"
-    else:
-        error_reason = ""
 
-    if not is_git_workspace(root):
-        raise ToolExecutionError(error_reason or "Patch apply failed and git apply unavailable.")
-
-    git_applied = await _apply_patch_with_git(diff, root)
-    if git_applied:
-        return "Patch applied successfully."
-
-    raise ToolExecutionError(error_reason or "Patch apply failed via pure Python and git apply.")
+    parsed = _parse_patch(diff, target, root)
+    write_changes = not cfg.dry_run
+    await asyncio.to_thread(_apply_parsed_patch, target, parsed, write_changes)
+    if cfg.dry_run:
+        return f"Dry-run: patch validated for {target} (no changes written)."
+    return "Patch applied successfully."
