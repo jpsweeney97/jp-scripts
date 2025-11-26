@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Awaitable, Callable, Sequence
+
+from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
@@ -16,38 +19,7 @@ from jpscripts.core.structure import generate_map, get_import_dependencies
 
 logger = get_logger(__name__)
 
-AGENT_PROMPT_TEMPLATE = (
-    "<system_context>\n"
-    "  <workspace_root>{workspace_root}</workspace_root>\n"
-    "  <mode>God-Mode CLI</mode>\n"
-    "  <git_context>\n"
-    "    <branch>{branch}</branch>\n"
-    "    <head>{head}</head>\n"
-    "    <dirty>{dirty}</dirty>\n"
-    "  </git_context>\n"
-    "  <repository_map>\n"
-    "  <![CDATA[\n"
-    "{repository_map}\n"
-    "  ]]>\n"
-    "  </repository_map>\n"
-    "  <constitution>\n"
-    "  <![CDATA[\n"
-    "{constitution}\n"
-    "  ]]>\n"
-    "  </constitution>\n"
-    "</system_context>\n"
-    "{diagnostic_section}"
-    "{file_context_section}"
-    "{dependency_section}"
-    "{git_diff_section}"
-    "<instruction>\n"
-    "{instruction}\n"
-    "</instruction>\n"
-    "<output_format>\n"
-    "You must respond with a <thinking> block analyzing the request, exploring the file context, and planning the fix.\n"
-    "Then, provide the response (e.g., the git patch or answer) outside the thinking block.\n"
-    "</output_format>"
-)
+AGENT_TEMPLATE_NAME = "agent_system.xml.j2"
 
 
 @dataclass
@@ -64,6 +36,27 @@ class AttemptContext:
 
 
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
+
+
+def _resolve_template_root() -> Path:
+    package_root = Path(__file__).resolve().parent.parent
+    return security.validate_path(package_root / "templates", package_root)
+
+
+@lru_cache(maxsize=1)
+def _get_template_environment(template_root: Path) -> Environment:
+    env = Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
+    env.filters["cdata"] = _safe_cdata
+    return env
+
+
+def _render_prompt_from_template(context: dict[str, object], template_root: Path) -> str:
+    try:
+        template = _get_template_environment(template_root).get_template(AGENT_TEMPLATE_NAME)
+    except TemplateNotFound as exc:
+        logger.error("Agent template %s missing in %s", AGENT_TEMPLATE_NAME, template_root)
+        raise FileNotFoundError(f"Template {AGENT_TEMPLATE_NAME} not found in {template_root}") from exc
+    return template.render(**context)
 
 
 async def prepare_agent_prompt(
@@ -83,9 +76,7 @@ async def prepare_agent_prompt(
     branch, commit, is_dirty = await _collect_git_context(root)
 
     repository_map = await asyncio.to_thread(generate_map, root, 3)
-    safe_repo_map = _safe_cdata(repository_map)
     constitution_text = await _load_constitution(root)
-    safe_constitution = _safe_cdata(constitution_text)
 
     attached: list[Path] = []
 
@@ -134,19 +125,22 @@ async def prepare_agent_prompt(
         else:
             git_diff_section = "<git_diff>NO CHANGES</git_diff>\n\n"
 
-    prompt = AGENT_PROMPT_TEMPLATE.format(
-        workspace_root=root,
-        branch=branch,
-        head=commit,
-        dirty=is_dirty,
-        repository_map=safe_repo_map,
-        constitution=safe_constitution,
-        diagnostic_section=diagnostic_section,
-        file_context_section=file_context_section,
-        dependency_section=dependency_section,
-        git_diff_section=git_diff_section,
-        instruction=base_prompt.strip(),
-    )
+    template_root = _resolve_template_root()
+    context = {
+        "workspace_root": str(root),
+        "branch": branch,
+        "head": commit,
+        "dirty": is_dirty,
+        "repository_map": repository_map,
+        "constitution": constitution_text,
+        "diagnostic_section": diagnostic_section,
+        "file_context_section": file_context_section,
+        "dependency_section": dependency_section,
+        "git_diff_section": git_diff_section,
+        "instruction": base_prompt.strip(),
+    }
+
+    prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
 
     return PreparedPrompt(prompt=prompt, attached_files=attached)
 

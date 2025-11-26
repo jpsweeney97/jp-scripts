@@ -22,13 +22,8 @@ def test_get_import_dependencies(tmp_path: Path) -> None:
 
 def test_kill_process_dry_run(tmp_path: Path) -> None:
     config = AppConfig(workspace_root=tmp_path, dry_run=True)
-    system.set_config(config)
-
-    try:
-        with patch("psutil.Process") as mock_process:
-            result = system.kill_process(1234, force=True)
-    finally:
-        system.set_config(None)
+    with patch("psutil.Process") as mock_process:
+        result = system.kill_process(1234, force=True, config=config)
 
     mock_process.assert_not_called()
     assert "dry-run" in result

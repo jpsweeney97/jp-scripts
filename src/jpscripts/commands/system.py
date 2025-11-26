@@ -47,6 +47,7 @@ def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, promp
 
 
 def process_kill(
+    ctx: typer.Context,
     name: str = typer.Option("", "--name", "-n", help="Filter processes containing this substring."),
     port: int | None = typer.Option(None, "--port", "-p", help="Filter processes listening on a port."),
     force: bool = typer.Option(False, "--force", "-f", help="Force kill (SIGKILL)."),
@@ -61,12 +62,14 @@ def process_kill(
 
     if pid:
         # ACTION: Delegate to core
-        result = system_core.kill_process(pid, force)
+        state = ctx.obj
+        result = system_core.kill_process(pid, force, config=state.config)
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 
 
 def port_kill(
+    ctx: typer.Context,
     port: int = typer.Argument(..., help="Port to search for."),
     force: bool = typer.Option(False, "--force", "-f", help="Force kill (SIGKILL)."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
@@ -80,7 +83,8 @@ def port_kill(
 
     if pid:
         # ACTION: Delegate to core
-        result = system_core.kill_process(pid, force)
+        state = ctx.obj
+        result = system_core.kill_process(pid, force, config=state.config)
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 

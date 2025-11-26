@@ -14,7 +14,6 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 
 logger = get_logger(__name__)
-_CONFIG: AppConfig | None = None
 
 @dataclass
 class ProcessInfo:
@@ -63,9 +62,9 @@ def find_processes(name_filter: str | None = None, port_filter: int | None = Non
 
     return sorted(matches, key=lambda p: p.pid)
 
-def kill_process(pid: int, force: bool = False) -> str:
-    config = _CONFIG
-    if config is not None and config.dry_run:
+def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> str:
+    dry_run = config.dry_run if config is not None else False
+    if dry_run:
         logger.info("Did not kill PID %s (dry-run)", pid)
         return "dry-run"
 
@@ -81,10 +80,6 @@ def kill_process(pid: int, force: bool = False) -> str:
     except psutil.AccessDenied:
         return "permission denied"
 
-
-def set_config(config: AppConfig | None) -> None:
-    global _CONFIG
-    _CONFIG = config
 
 def get_audio_devices() -> list[str]:
     # ... (Keep existing implementation) ...

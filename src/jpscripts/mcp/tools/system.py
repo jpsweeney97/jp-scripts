@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 
 from jpscripts.core import system as system_core
+from jpscripts.mcp import get_config
 from jpscripts.mcp import tool
 
 
@@ -25,7 +26,8 @@ async def list_processes(name_filter: str | None = None, port_filter: int | None
 async def kill_process(pid: int, force: bool = False) -> str:
     """Kill a process by PID."""
     try:
-        result = await asyncio.to_thread(system_core.kill_process, pid, force)
+        cfg = get_config()
+        result = await asyncio.to_thread(system_core.kill_process, pid, force, cfg)
         return f"Process {pid}: {result}"
     except Exception as e:
         return f"Error killing process {pid}: {str(e)}"

@@ -1,0 +1,27 @@
+<system_context>
+  <workspace_root>{{ workspace_root }}</workspace_root>
+  <mode>God-Mode CLI</mode>
+  <git_context>
+    <branch>{{ branch }}</branch>
+    <head>{{ head }}</head>
+    <dirty>{{ dirty }}</dirty>
+  </git_context>
+  <repository_map>
+  <![CDATA[
+{{ repository_map | cdata }}
+  ]]>
+  </repository_map>
+  <constitution>
+  <![CDATA[
+{{ constitution | cdata }}
+  ]]>
+  </constitution>
+</system_context>
+{{ diagnostic_section }}{{ file_context_section }}{{ dependency_section }}{{ git_diff_section }}
+<instruction>
+{{ instruction }}
+</instruction>
+<output_format>
+You must respond with a <thinking> block analyzing the request, exploring the file context, and planning the fix.
+Then, provide the response (e.g., the git patch or answer) outside the thinking block.
+</output_format>

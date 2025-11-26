@@ -9,6 +9,8 @@
 - `make lint` entry for strict `mypy` gating ahead of tests.
 - `jp fix` supports `--loop`/`--max-retries` self-healing runs with automated patch application and optional revert on failure.
 - MCP git tool `get_workspace_status` reports branch state across all workspace repositories for external agents.
+- Agent system prompts now render through Jinja2 (`src/jpscripts/templates/agent_system.xml.j2`) with a reusable cdata filter.
+- MCP filesystem tool `apply_patch` applies unified diffs with workspace validation, pure-Python hunks, and `git apply` fallback.
 
 ### Changed
 
@@ -18,6 +20,12 @@
 - Memory storage now uses a VectorStore adapter with LanceDB + NoOp implementations, simplifying optional dependency handling while retaining keyword fallbacks.
 - Agent prompts now auto-inline AGENTS.md as a constitution and require explicit <thinking> blocks in responses.
 - `jp standup` now uses AsyncRepo-powered async git queries (no GitPython dependency) while honoring author and date filters.
+- System commands now inject `AppConfig` instances directly (no global config), and process/port kill flows thread config through Typer contexts and MCP tools.
+- Documentation split: README focuses on install/config/CLI reference with handbook link, and root ignores clean up stray Python scripts.
+
+### Removed
+
+- Deleted stray `fake_*.py` root scripts and ignore new root-level Python files by default.
 
 ## [0.4.0] - The Trinity Update
 

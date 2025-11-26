@@ -43,6 +43,16 @@ def validate_path(path: str | Path, root: Path) -> Path:
     return candidate
 
 
+def is_git_workspace(root: Path) -> bool:
+    """Return True if the path is a validated workspace and a git repository."""
+    try:
+        validated = validate_workspace_root(root)
+    except WorkspaceValidationError:
+        return False
+
+    return _is_git_repo(validated)
+
+
 def _is_git_repo(path: Path) -> bool:
     try:
         return git_core.is_repo(path)

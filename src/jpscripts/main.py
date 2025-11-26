@@ -19,7 +19,6 @@ from . import __version__
 from .commands import agent, git_extra, git_ops, init, map, memory, nav, notes, search, system, team, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
-from .core import system as system_core
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
 
@@ -75,7 +74,6 @@ def main(
 
     logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
     ctx.obj = AppState(config=loaded_config, config_meta=meta, logger=logger)
-    system_core.set_config(loaded_config)
 
     if meta.error:
         # Display "Safe Mode" Warning

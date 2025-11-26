@@ -5,109 +5,61 @@
 
 **The modern, typed, "God-Mode" CLI for macOS power users.**
 
-`jpscripts` is a complete rewrite of legacy Bash tooling into a unified Python application powered by **Typer**, **Rich**, and **GitPython**. It provides high-leverage utilities for git repository management, deep system navigation, productivity logging, and AI-context generation.
-
-> **User Guide**
-> Beyond the command reference, check out the [**JPScripts Handbook**](https://github.com/jpsweeney97/jp-scripts/blob/main/HANDBOOK.md) for daily workflows, AI-augmented strategies, and power-user keyboard shortcuts.
-
-## Architecture
-
-```mermaid
-graph TD
-    User[User Terminal] -->|jp command| Main[main.py]
-    Main --> Config[core/config.py]
-    Main -->|Dispatch| Cmds[Commands Module]
-
-    subgraph Core Logic
-        Git[core/git.py]
-        Console[core/console.py]
-        UI[core/ui.py]
-    end
-
-    subgraph External Binaries
-        Zoxide[zoxide]
-        Fzf[fzf]
-        Rg[ripgrep]
-        Gh[gh]
-    end
-
-    Cmds --> Git
-    Cmds --> Console
-    Cmds --> UI
-
-    Cmds -.->|subprocess| Zoxide
-    Cmds -.->|subprocess| Fzf
-    Cmds -.->|subprocess| Rg
-    Cmds -.->|subprocess| Gh
-```
-
-graph TD
-subgraph "The Loop"
-Input[User Request] --> Agent[Codex / JP Agent]
-Agent --> |Perception| Tools[MCP / CLI Tools]
-
-        subgraph "Context Engine"
-            Tools --> |Scan| FS[File System]
-            Tools --> |Recall| Mem[Vector DB (Memory)]
-            Tools --> |Search| Search[Ripgrep / FZF]
-        end
-
-        FS --> Agent
-        Mem --> Agent
-        Search --> Agent
-
-        Agent --> |Action| Edit[Write Code / Git Ops]
-        Agent --> |Learning| Store[Save Memory / Daily Note]
-    end
-
-    Edit --> Output[Refined Codebase]
-
-## Prerequisites
-
-`jpscripts` orchestrates powerful system binaries. You must have these installed:
-
-```bash
-# Core dependencies (Required)
-brew install fzf ripgrep git
-
-# Git Extensions (Required for 'jp gpr', 'jp gbrowse')
-brew install gh
-
-# Navigation (Required for 'jp proj')
-brew install zoxide
-
-# Optional: Audio control
-brew install switchaudio-osx
-```
+For detailed workflows and God-Mode configurations, see the [Handbook](https://www.google.com/search?q=HANDBOOK.md).
 
 ## Installation
 
-Recommended installation via `pipx` for isolation:
+### Prerequisites
+
+- `brew install fzf ripgrep git`
+- `brew install gh` (for PR helpers)
+- `brew install zoxide` (for navigation)
+- Optional: `brew install switchaudio-osx` (for audio control)
+
+### Install with pipx
 
 ```bash
-pipx install git+[https://github.com/jpsweeney97/jp-scripts.git](https://github.com/jpsweeney97/jp-scripts.git)
+pipx install git+https://github.com/jpsweeney97/jp-scripts.git
 ```
 
-_Development setup:_
+### Development setup
 
 ```bash
-git clone [https://github.com/jpsweeney97/jp-scripts.git](https://github.com/jpsweeney97/jp-scripts.git)
+git clone https://github.com/jpsweeney97/jp-scripts.git
 cd jp-scripts
 pip install -e ".[dev]"
-
 # Install with AI memory support
 pip install -e ".[ai]"
 ```
 
-## Command Reference
+## Config Reference
+
+`jpscripts` loads configuration in this order: CLI flags → environment variables → config file (`~/.jpconfig` or `JPSCRIPTS_CONFIG`) → defaults. Run `jp init` to generate a starter file.
+
+Example TOML:
+
+```toml
+editor = "code -w"                 # default editor
+notes_dir = "~/Notes/quick-notes"  # daily notes location
+workspace_root = "~/Projects"      # base for jp recent / proj
+ignore_dirs = [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"]
+snapshots_dir = "~/snapshots"
+log_level = "INFO"
+default_model = "gpt-5.1-codex"
+memory_store = "~/.jp_memory.jsonl"
+memory_model = "all-MiniLM-L6-v2"
+use_semantic_search = true
+max_file_context_chars = 50000
+max_command_output_chars = 20000
+```
+
+## CLI Reference
 
 ### Git Operations
 
-_Manage your repositories without leaving the terminal._
-
 | Command              | Description                                                    | Key Flags                         |
 | :------------------- | :------------------------------------------------------------- | :-------------------------------- |
-| `jp status-all`      | **Daily Driver.** Dashboard of all repos (ahead/behind/dirty). | `--root`, `--max-depth`           |
+| `jp status-all`      | Dashboard of all repos (ahead/behind/dirty).                   | `--root`, `--max-depth`           |
 | `jp whatpush`        | Show outgoing commits and diffstat for the current repo.       | `--max-commits`                   |
 | `jp gstage`          | Interactively stage files using `fzf`.                         | `--no-fzf`                        |
 | `jp gundo-last`      | Safely undo the last commit (refuses if behind upstream).      | `--hard`                          |
@@ -117,8 +69,6 @@ _Manage your repositories without leaving the terminal._
 | `jp git-branchcheck` | List all local branches with upstream tracking status.         |                                   |
 
 ### Navigation & Search
-
-_Move fast, find things faster._
 
 | Command            | Description                                          | Key Flags                        |
 | :----------------- | :--------------------------------------------------- | :------------------------------- |
@@ -131,8 +81,6 @@ _Move fast, find things faster._
 
 ### System Utilities
 
-_Control your machine._
-
 | Command           | Description                                                  | Key Flags         |
 | :---------------- | :----------------------------------------------------------- | :---------------- |
 | `jp process-kill` | Kill processes by name or port.                              | `--force`         |
@@ -144,8 +92,6 @@ _Control your machine._
 
 ### Notes & Productivity
 
-_Capture thoughts and context._
-
 | Command           | Description                                                  | Key Flags                    |
 | :---------------- | :----------------------------------------------------------- | :--------------------------- |
 | `jp note`         | Append to today's daily note (or open it).                   | `--message`                  |
@@ -153,20 +99,16 @@ _Capture thoughts and context._
 | `jp standup`      | Aggregate commits across all repos for the last N days.      | `--days`                     |
 | `jp standup-note` | Run `standup` and append to today's note.                    | `--days`                     |
 | `jp cliphist`     | Manage clipboard history backed by SQLite (no corruption).   | `--action [add\|pick\|show]` |
-| `jp web-snap`     | **Context Fetcher.** Scrape a URL to YAML for LLM context.   |                              |
+| `jp web-snap`     | Scrape a URL to YAML for LLM context.                        |                              |
 | `jp repo-map`     | Pack repo files into XML for LLM paste (respects .gitignore) | `--max-lines`                |
 
 ### Agents
-
-_Direct multi-role Codex helpers._
 
 | Command         | Description                                                 | Key Flags |
 | :-------------- | :---------------------------------------------------------- | :-------- |
 | `jp team swarm` | Launch architect/engineer/QA agents in parallel for a task. |           |
 
 ### Memory
-
-_Persistent ADRs and lessons learned._
 
 | Command            | Description                         | Key Flags        |
 | :----------------- | :---------------------------------- | :--------------- |
@@ -180,93 +122,3 @@ _Persistent ADRs and lessons learned._
 | `jp init`    | Interactive setup wizard for `~/.jpconfig`.         |
 | `jp config`  | View active configuration and source (file vs env). |
 | `jp version` | Show version.                                       |
-
-## Model Context Protocol (MCP)
-
-`jpscripts` exposes a "God-Mode" MCP server that allows AI agents (like Claude or Codex) to directly control your tools.
-
-**Tools (truncated safely for file/search outputs):**
-
-- **OS & Perception:** `read_file`, `list_directory`, `list_processes`
-- **Search & Navigation:** `search_codebase`, `list_recent_files`, `list_projects`
-- **Git Operations:** `get_git_status`, `git_commit`
-- **Knowledge & Memory:** `remember`, `recall`, `append_daily_note`, `fetch_url_content`
-
-**Running the Server:**
-You can run the server using `uv` or `python`. It operates over Stdio.
-
-```bash
-# Via Python directly
-python -m jpscripts.mcp.server
-
-# Or configure it in your AI client (e.g. Claude Desktop config):
-# {
-#   "mcpServers": {
-#     "jpscripts": {
-#       "command": "uv",
-#       "args": ["run", "jpscripts.mcp.server"]
-#     }
-#   }
-# }
-```
-
-## Configuration
-
-`jpscripts` loads configuration in the following precedence order:
-
-1.  **CLI Flags** (e.g., `--root`)
-2.  **Environment Variables** (e.g., `JP_NOTES_DIR`)
-3.  **Config File** (`~/.jpconfig` or `JPSCRIPTS_CONFIG`)
-4.  **Defaults**
-
-### TOML Configuration (`~/.jpconfig`)
-
-Run `jp init` to generate this file interactively.
-
-```toml
-# The command to open files (e.g., from 'jp note')
-editor = "code -w"
-
-# Where 'jp note' and 'jp standup-note' save files
-notes_dir = "~/Notes/quick-notes"
-
-# Root for 'jp recent' scans
-workspace_root = "~/Projects"
-
-# Directory names to ignore when scanning (default: [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"])
-ignore_dirs = [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"]
-
-# Where 'jp web-snap' saves YAML snapshots
-snapshots_dir = "~/snapshots"
-
-# Global log level (DEBUG, INFO, WARNING, ERROR)
-log_level = "INFO"
-
-# Default LLM model for Codex integrations
-default_model = "gpt-5.1-codex"
-
-# Memory store location and semantic search settings
-memory_store = "~/.jp_memory.jsonl"
-memory_model = "all-MiniLM-L6-v2" # embedding model
-use_semantic_search = true        # enable semantic recall
-
-# Context limits (characters)
-max_file_context_chars = 50000       # file reads for agents/UI
-max_command_output_chars = 20000     # captured command output for prompts
-```
-
-## Codex & Agent Integration
-
-This repository includes an `AGENTS.md` file specifically designed to steer OpenAI's Codex.
-
-- **Project Structure**: Defines where commands live (`src/jpscripts/commands`) vs core logic.
-- **Testing**: Instructs agents to use `pytest tests/test_smoke.py` for verification.
-- **Conventions**: Enforces Typer/Rich usage for all new commands.
-
-**To create a new command with Codex:**
-
-> "Read AGENTS.md. Create a new command `jp network-scan` in `src/jpscripts/commands/system.py` that uses `lsof` to find listening ports. Follow the existing patterns for `process-kill`."
-
-## License
-
-MIT
