@@ -64,12 +64,16 @@ def main(
     ctx: typer.Context,
     config: Path | None = typer.Option(None, "--config", "-c", help="Path to a jp config file (TOML or JSON)."),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Enable dry-run mode (no side effects)."),
 ) -> None:
     # We no longer try/except here because load_config is safe
     loaded_config, meta = load_config(config_path=config)
+    if dry_run:
+        loaded_config = loaded_config.model_copy(update={"dry_run": True})
 
     logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
     ctx.obj = AppState(config=loaded_config, config_meta=meta, logger=logger)
+    system.set_config(loaded_config)
 
     if meta.error:
         # Display "Safe Mode" Warning

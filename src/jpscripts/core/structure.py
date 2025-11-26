@@ -4,6 +4,7 @@ import ast
 import os
 import re
 from pathlib import Path
+from typing import Iterable
 
 from pathspec import PathSpec
 
@@ -150,3 +151,77 @@ def _summarize_js_ts(path: Path) -> list[str]:
 def _normalize_params(raw: str) -> str:
     params = [p.strip() for p in raw.split(",") if p.strip()]
     return ", ".join(params)
+
+
+def _resolve_module_to_path(module: str, root: Path) -> Path | None:
+    candidate = (root / (module.replace(".", "/"))).with_suffix(".py")
+    if candidate.exists():
+        return candidate.resolve()
+    package_init = root / module.replace(".", "/") / "__init__.py"
+    if package_init.exists():
+        return package_init.resolve()
+    return None
+
+
+def _iter_imported_modules(tree: ast.AST, current: Path, root: Path) -> Iterable[str]:
+    try:
+        rel = current.resolve().relative_to(root.resolve())
+    except ValueError:
+        return []
+    parts = list(rel.with_suffix("").parts)
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    base_module = ".".join(parts)
+    base_pkg_parts = parts[:-1] if parts else []
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name:
+                    yield alias.name
+        elif isinstance(node, ast.ImportFrom):
+            module_name = node.module or ""
+            prefix = ""
+            if node.level and base_pkg_parts:
+                cutoff = max(0, len(base_pkg_parts) - (node.level - 1))
+                prefix_parts = base_pkg_parts[:cutoff]
+                prefix = ".".join(prefix_parts).rstrip(".")
+                if prefix:
+                    module_name = f"{prefix}.{module_name}" if module_name else prefix
+            if module_name:
+                yield module_name
+            for alias in node.names:
+                target = alias.name
+                if not target:
+                    continue
+                if module_name:
+                    yield f"{module_name}.{target}"
+                elif prefix:
+                    yield f"{prefix}.{target}"
+
+
+def get_import_dependencies(path: Path, root: Path) -> set[Path]:
+    """
+    Return resolved dependency file paths for imports within `path` under `root`.
+    Only returns paths that exist.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+    except OSError:
+        return set()
+
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+
+    dependencies: set[Path] = set()
+    for module in _iter_imported_modules(tree, path, root):
+        resolved = _resolve_module_to_path(module, root)
+        if resolved and resolved.exists():
+            try:
+                resolved.relative_to(root.resolve())
+            except ValueError:
+                continue
+            dependencies.add(resolved)
+    return dependencies

@@ -10,7 +10,7 @@ from jpscripts.core import git_ops
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, smart_read_context
 from jpscripts.core.nav import scan_recent
-from jpscripts.core.structure import generate_map
+from jpscripts.core.structure import generate_map, get_import_dependencies
 
 logger = get_logger(__name__)
 
@@ -31,6 +31,7 @@ AGENT_PROMPT_TEMPLATE = (
     "</system_context>\n"
     "{diagnostic_section}"
     "{file_context_section}"
+    "{dependency_section}"
     "{git_diff_section}"
     "<instruction>\n"
     "{instruction}\n"
@@ -67,6 +68,7 @@ async def prepare_agent_prompt(
 
     diagnostic_section = ""
     file_context_section = ""
+    dependency_section = ""
 
     # 2. Command Output (Diagnostic)
     if run_command:
@@ -84,12 +86,14 @@ async def prepare_agent_prompt(
         # Prioritize files detected in the stack trace
         detected_paths = list(sorted(detected_files))[:5]
         file_context_section, attached = await _build_file_context_section(detected_paths, max_file_context_chars)
+        dependency_section = await _build_dependency_section(detected_paths, root, max_file_context_chars)
 
     # 3. Recent Context (Ambient)
     elif attach_recent:
         recents = await scan_recent(root, 3, False, set(ignore_dirs))
         recent_paths = [entry.path for entry in recents[:5]]
         file_context_section, attached = await _build_file_context_section(recent_paths, max_file_context_chars)
+        dependency_section = await _build_dependency_section(recent_paths[:1], root, max_file_context_chars)
 
     # 4. Git Diff (Work in Progress)
     git_diff_section = ""
@@ -115,6 +119,7 @@ async def prepare_agent_prompt(
         repository_map=safe_repo_map,
         diagnostic_section=diagnostic_section,
         file_context_section=file_context_section,
+        dependency_section=dependency_section,
         git_diff_section=git_diff_section,
         instruction=base_prompt.strip(),
     )
@@ -175,6 +180,28 @@ async def _build_file_context_section(paths: Sequence[Path], max_file_context_ch
     if not sections:
         return "", attached
     return "".join(sections) + "\n", attached
+
+
+async def _build_dependency_section(paths: Sequence[Path], root: Path, max_file_context_chars: int) -> str:
+    dependencies: set[Path] = set()
+    for path in paths:
+        deps = await asyncio.to_thread(get_import_dependencies, path, root)
+        dependencies.update(deps)
+
+    if not dependencies:
+        return ""
+
+    sections: list[str] = []
+    for dep in sorted(dependencies):
+        snippet = await asyncio.to_thread(smart_read_context, dep, max_file_context_chars)
+        if not snippet:
+            continue
+        safe_snippet = _safe_cdata(snippet)
+        sections.append(
+            f"<dependency_context path='{dep.name}'>\n<![CDATA[\n{safe_snippet}\n]]>\n</dependency_context>\n"
+        )
+
+    return "".join(sections) + "\n"
 
 
 async def _collect_git_diff(root: Path, max_chars: int) -> str | None:

@@ -64,6 +64,7 @@ class AppConfig(BaseSettings):
     log_level: str = Field(default="INFO", description="Log level for jp output.")
     worktree_root: Path | None = Field(default=None, description="Optional location for Git worktrees.")
     focus_audio_device: str | None = Field(default=None, description="Preferred audio device for focus helpers.")
+    dry_run: bool = Field(default=False, description="If true, performs dry-run operations without side effects.")
 
     @classmethod
     def settings_customise_sources(

@@ -86,6 +86,10 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
     if cfg is None:
         return "Config not loaded."
 
+    if cfg.dry_run:
+        target = Path(path).expanduser()
+        return f"Simulated write to {target} (dry-run active). Content length: {len(content)}"
+
     root = cfg.workspace_root.expanduser()
     target = validate_path(Path(path).expanduser(), root)
 

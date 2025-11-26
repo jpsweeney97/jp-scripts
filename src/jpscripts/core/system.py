@@ -9,8 +9,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import psutil
+from jpscripts.core.config import AppConfig
+from jpscripts.core.console import get_logger
 
-# ... (Keep ProcessInfo, _format_cmdline, find_processes, kill_process as they are) ...
+logger = get_logger(__name__)
+_CONFIG: AppConfig | None = None
 
 @dataclass
 class ProcessInfo:
@@ -60,6 +63,11 @@ def find_processes(name_filter: str | None = None, port_filter: int | None = Non
     return sorted(matches, key=lambda p: p.pid)
 
 def kill_process(pid: int, force: bool = False) -> str:
+    config = _CONFIG
+    if config is not None and config.dry_run:
+        logger.info("Did not kill PID %s (dry-run)", pid)
+        return "dry-run"
+
     try:
         p = psutil.Process(pid)
         if force:
@@ -71,6 +79,11 @@ def kill_process(pid: int, force: bool = False) -> str:
         return "not found"
     except psutil.AccessDenied:
         return "permission denied"
+
+
+def set_config(config: AppConfig | None) -> None:
+    global _CONFIG
+    _CONFIG = config
 
 def get_audio_devices() -> list[str]:
     # ... (Keep existing implementation) ...
