@@ -22,8 +22,21 @@ def _ensure_codex() -> str:
     return binary
 
 
-def _build_codex_command(codex_bin: str, model: str, prompt: str, full_auto: bool, web: bool) -> list[str]:
-    cmd = [codex_bin, "exec", "--json", "--model", model, "-c", "reasoning.effort=high"]
+def _build_codex_command(
+    codex_bin: str,
+    model: str,
+    prompt: str,
+    full_auto: bool,
+    web: bool,
+    *,
+    temperature: float | None = None,
+    reasoning_effort: str | None = "high",
+) -> list[str]:
+    cmd = [codex_bin, "exec", "--json", "--model", model]
+    if reasoning_effort:
+        cmd.extend(["-c", f"reasoning.effort={reasoning_effort}"])
+    if temperature is not None:
+        cmd.extend(["-c", f"temperature={temperature}"])
     if web:
         cmd.append("--search")
     if full_auto:
@@ -94,8 +107,22 @@ async def _execute_codex_prompt(cmd: list[str], *, status_label: str) -> tuple[l
         status.stop()
 
 
-async def _fetch_agent_response_from_codex(prepared: PreparedPrompt, codex_bin: str, model: str, full_auto: bool, web: bool) -> str:
-    cmd = _build_codex_command(codex_bin, model, prepared.prompt, full_auto, web)
+async def _fetch_agent_response_from_codex(
+    prepared: PreparedPrompt,
+    codex_bin: str,
+    model: str,
+    full_auto: bool,
+    web: bool,
+) -> str:
+    cmd = _build_codex_command(
+        codex_bin,
+        model,
+        prepared.prompt,
+        full_auto,
+        web,
+        temperature=prepared.temperature,
+        reasoning_effort=prepared.reasoning_effort or "high",
+    )
     assistant_parts, stderr_text = await _execute_codex_prompt(cmd, status_label="Consulting Codex...")
     if stderr_text:
         console.print(Panel(f"[red]{stderr_text}[/red]", title="Codex stderr", box=box.SIMPLE))
@@ -187,7 +214,15 @@ def codex_exec(
 
     console.print(Panel("Handing off to [bold magenta]Codex[/bold magenta]...", box=box.SIMPLE))
 
-    cmd = _build_codex_command(codex_bin, target_model, prepared.prompt, full_auto, web)
+    cmd = _build_codex_command(
+        codex_bin,
+        target_model,
+        prepared.prompt,
+        full_auto,
+        web,
+        temperature=prepared.temperature,
+        reasoning_effort=prepared.reasoning_effort or "high",
+    )
     assistant_parts, stderr_text = asyncio.run(_execute_codex_prompt(cmd, status_label="Connecting to Codex..."))
 
     if stderr_text:

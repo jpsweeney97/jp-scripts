@@ -23,12 +23,18 @@ from jpscripts.core.structure import generate_map, get_import_dependencies
 logger = get_logger(__name__)
 
 AGENT_TEMPLATE_NAME = "agent_system.json.j2"
+STRATEGY_OVERRIDE_TEXT = (
+    "You are stuck in a loop. Stop editing code. Analyze the error trace and the file content again. "
+    "List three possible root causes before proposing a new patch."
+)
 
 
 @dataclass
 class PreparedPrompt:
     prompt: str
     attached_files: list[Path]
+    temperature: float | None = None
+    reasoning_effort: str | None = None
 
 
 class AgentResponse(BaseModel):
@@ -91,6 +97,8 @@ async def prepare_agent_prompt(
     max_file_context_chars: int,
     max_command_output_chars: int,
     web_access: bool = False,
+    temperature: float | None = None,
+    reasoning_effort: str | None = None,
 ) -> PreparedPrompt:
     """
     Builds a structured, JSON-oriented prompt for Codex.
@@ -114,10 +122,10 @@ async def prepare_agent_prompt(
     # 2. Command Output (Diagnostic)
     if run_command:
         output, detected_files = await gather_context(run_command, root)
-        trimmed = output[-max_command_output_chars:]
+        trimmed = output if len(output) <= max_command_output_chars else _summarize_stack_trace(output, max_command_output_chars)
         diagnostic_section = (
             f"Command: {run_command}\n"
-            f"Output (last {max_command_output_chars} chars):\n"
+            f"Output (summary up to {max_command_output_chars} chars):\n"
             f"{trimmed}\n"
         )
         diag_lines = diagnostic_section.splitlines()
@@ -170,7 +178,7 @@ async def prepare_agent_prompt(
 
     prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
 
-    return PreparedPrompt(prompt=prompt, attached_files=attached)
+    return PreparedPrompt(prompt=prompt, attached_files=attached, temperature=temperature, reasoning_effort=reasoning_effort)
 
 
 def _safe_cdata(content: str) -> str:
@@ -325,9 +333,41 @@ def _summarize_output(stdout: str, stderr: str, limit: int) -> str:
     combined = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
     if not combined:
         return "Command failed without output."
-    if len(combined) > limit:
-        return combined[-limit:] + "... [truncated]"
-    return combined
+    if len(combined) <= limit:
+        return combined
+    return _summarize_stack_trace(combined, limit)
+
+
+def _summarize_stack_trace(text: str, limit: int) -> str:
+    if limit <= 0:
+        return ""
+    lines = text.splitlines()
+    if len(text) <= limit:
+        return text
+    if len(lines) < 4:
+        return text[:limit] + "... [truncated]"
+
+    head_keep = max(3, min(12, len(lines) // 3))
+    tail_keep = max(6, min(20, len(lines) // 2))
+    head_lines = lines[:head_keep]
+    tail_lines = lines[-tail_keep:]
+    middle_lines = lines[head_keep:-tail_keep] if tail_keep < len(lines) - head_keep else []
+
+    middle_summary = ""
+    if middle_lines:
+        mid_idx = len(middle_lines) // 2
+        window = middle_lines[max(0, mid_idx - 3) : min(len(middle_lines), mid_idx + 4)]
+        middle_summary = "\n[... middle truncated ...]\n" + "\n".join(window) + "\n[... resumes ...]\n"
+
+    assembled = "\n".join(head_lines) + middle_summary + "\n".join(tail_lines)
+    if len(assembled) > limit:
+        head_budget = max(limit // 3, 1)
+        tail_budget = max(limit - head_budget - 40, 1)
+        trimmed_head = "\n".join(lines)[:head_budget]
+        trimmed_tail = "\n".join(lines)[-tail_budget:]
+        return f"{trimmed_head}\n[... truncated for length ...]\n{trimmed_tail}"
+
+    return assembled
 
 
 def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str:
@@ -348,18 +388,31 @@ def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str
     return "\n".join(lines)
 
 
+def _detect_repeated_failure(history: Sequence[AttemptContext], current_error: str) -> bool:
+    normalized_current = current_error.strip()
+    if not normalized_current:
+        return False
+    occurrences = sum(1 for attempt in history if attempt.last_error.strip() == normalized_current)
+    return occurrences + 1 >= 2
+
+
 def _build_repair_instruction(
     base_prompt: str,
     current_error: str,
     history: Sequence[AttemptContext],
     root: Path,
+    *,
+    strategy_override: str | None = None,
+    reasoning_hint: str | None = None,
 ) -> str:
     history_block = _build_history_summary(history, root)
+    override_block = f"\n\nStrategy Override:\n{strategy_override}" if strategy_override else ""
+    reasoning_block = f"\n\nHigh reasoning effort requested: {reasoning_hint}" if reasoning_hint else ""
     return (
         f"{base_prompt.strip()}\n\n"
         "Autonomous repair loop in progress. Use the failure details to craft a minimal fix.\n"
         f"Current error:\n{current_error.strip()}\n\n"
-        f"Previous attempts:\n{history_block}\n\n"
+        f"Previous attempts:\n{history_block}{override_block}{reasoning_block}\n\n"
         "Respond with a single JSON object that matches the AgentResponse schema. "
         "Place the unified diff in `file_patch`. Do not return Markdown or prose."
     )
@@ -575,7 +628,21 @@ async def run_repair_loop(
         current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
         console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
 
-        iteration_prompt = _build_repair_instruction(base_prompt, current_error, history, root)
+        loop_detected = _detect_repeated_failure(history, current_error)
+        strategy_override = STRATEGY_OVERRIDE_TEXT if loop_detected else None
+        reasoning_hint = "Increase temperature or reasoning effort to escape repetition." if loop_detected else None
+        temperature_override = 0.7 if loop_detected else None
+        if loop_detected:
+            console.print("[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]")
+
+        iteration_prompt = _build_repair_instruction(
+            base_prompt,
+            current_error,
+            history,
+            root,
+            strategy_override=strategy_override,
+            reasoning_hint=reasoning_hint,
+        )
         prepared = await prepare_agent_prompt(
             iteration_prompt,
             root=root,
@@ -587,6 +654,8 @@ async def run_repair_loop(
             ignore_dirs=config.ignore_dirs,
             max_file_context_chars=config.max_file_context_chars,
             max_command_output_chars=config.max_command_output_chars,
+            temperature=temperature_override,
+            reasoning_effort="high" if loop_detected else None,
         )
 
         if prepared.attached_files:

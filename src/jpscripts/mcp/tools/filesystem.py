@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
-from dataclasses import dataclass
+import shutil
 from pathlib import Path
-from typing import Sequence
 
-from jpscripts.core import git as git_core
 from jpscripts.core.context import read_file_context
 from jpscripts.core.security import is_git_workspace, validate_path
 from jpscripts.mcp import get_config, logger, tool, tool_error_handler
@@ -15,28 +12,6 @@ from jpscripts.mcp import get_config, logger, tool, tool_error_handler
 
 class ToolExecutionError(RuntimeError):
     """Raised when a patch operation cannot be completed."""
-
-
-@dataclass
-class PatchHunk:
-    old_start: int
-    old_length: int
-    new_start: int
-    new_length: int
-    lines: list[str]
-
-
-@dataclass
-class ParsedPatch:
-    hunks: list[PatchHunk]
-    delete_file: bool
-    new_file: bool
-
-
-_HUNK_HEADER_RE = re.compile(
-    r"@@ -(?P<old_start>\d+)(?:,(?P<old_length>\d+))? \+(?P<new_start>\d+)(?:,(?P<new_length>\d+))? @@"
-)
-_DEV_NULL_TARGETS = {"/dev/null", "dev/null"}
 
 
 @tool()
@@ -175,183 +150,116 @@ def _normalize_patch_path(raw_path: str) -> str:
     return path_str
 
 
-def _parse_patch(diff_text: str, target: Path, root: Path) -> ParsedPatch:
-    if not diff_text.strip():
-        raise ToolExecutionError("Patch text is empty.")
+def _extract_patch_targets(diff_text: str) -> set[str]:
+    targets: set[str] = set()
+    for line in diff_text.splitlines():
+        if not line.startswith(("--- ", "+++ ")):
+            continue
+        candidate = line[4:].split("\t", maxsplit=1)[0].strip()
+        if candidate in {"/dev/null", "dev/null"}:
+            continue
+        normalized = _normalize_patch_path(candidate)
+        if normalized:
+            targets.add(normalized)
+    return targets
 
-    lines = diff_text.splitlines(keepends=True)
-    old_path: str | None = None
-    new_path: str | None = None
-    hunks: list[PatchHunk] = []
-    current_header: tuple[int, int, int, int] | None = None
-    current_lines: list[str] = []
+
+def _validate_patch_targets(diff_text: str, target: Path, root: Path) -> None:
+    targets = _extract_patch_targets(diff_text)
+    if not targets:
+        raise ToolExecutionError("Patch missing file headers; include ---/+++ lines.")
+    if len(targets) > 1:
+        raise ToolExecutionError("Patches for multiple files are not supported.")
+
     target_rel = validate_path(target, root).relative_to(root).as_posix()
-    file_section_seen = False
-
-    for line in lines:
-        if line.startswith("--- "):
-            if file_section_seen:
-                raise ToolExecutionError("Patches for multiple files are not supported.")
-            old_path = _normalize_patch_path(line[4:].strip())
-            file_section_seen = True
-            continue
-
-        if line.startswith("+++ "):
-            if new_path is not None:
-                raise ToolExecutionError("Patches for multiple files are not supported.")
-            new_path = _normalize_patch_path(line[4:].strip())
-            continue
-
-        if line.startswith("@@"):
-            if current_header is not None:
-                hunks.append(PatchHunk(*current_header, lines=current_lines))
-                current_lines = []
-
-            match = _HUNK_HEADER_RE.match(line.strip())
-            if not match:
-                raise ToolExecutionError(f"Invalid hunk header: {line.strip()}")
-
-            current_header = (
-                int(match.group("old_start")),
-                int(match.group("old_length") or "1"),
-                int(match.group("new_start")),
-                int(match.group("new_length") or "1"),
-            )
-            continue
-
-        if current_header is None:
-            continue
-
-        if line.startswith("\\ No newline at end of file"):
-            continue
-
-        if not line or line[0] not in (" ", "+", "-"):
-            raise ToolExecutionError(f"Unexpected line in hunk: {line.strip()}")
-
-        current_lines.append(line)
-
-    if current_header is not None:
-        hunks.append(PatchHunk(*current_header, lines=current_lines))
-
-    if not hunks:
-        raise ToolExecutionError("No hunks found in patch.")
-
-    patch_target = new_path if new_path not in _DEV_NULL_TARGETS else old_path
-    if patch_target is None:
-        raise ToolExecutionError("Patch does not specify a target file.")
-
-    normalized_patch_target = _normalize_patch_path(patch_target)
-    if normalized_patch_target != target_rel:
-        raise ToolExecutionError(f"Patch targets {normalized_patch_target} but requested {target_rel}.")
-
-    delete_file = new_path in _DEV_NULL_TARGETS
-    new_file = old_path in _DEV_NULL_TARGETS
-
-    return ParsedPatch(hunks=hunks, delete_file=bool(delete_file), new_file=bool(new_file))
+    patch_target = next(iter(targets))
+    normalized_target = _normalize_patch_path(patch_target)
+    resolved = validate_path(root / normalized_target, root)
+    resolved_rel = resolved.relative_to(root).as_posix()
+    if resolved_rel != target_rel:
+        raise ToolExecutionError(f"Patch targets {resolved_rel} but requested {target_rel}.")
 
 
-def _verify_hunk_lengths(hunk: PatchHunk) -> None:
-    expected_old = sum(1 for line in hunk.lines if line.startswith((" ", "-")))
-    expected_new = sum(1 for line in hunk.lines if line.startswith((" ", "+")))
-    if expected_old != hunk.old_length:
-        raise ToolExecutionError(
-            f"Hunk length mismatch at line {hunk.old_start}: expected {hunk.old_length} context+removals."
-        )
-    if expected_new != hunk.new_length:
-        raise ToolExecutionError(
-            f"Hunk length mismatch at line {hunk.new_start}: expected {hunk.new_length} context+additions."
-        )
+def _detect_strip_level(diff_text: str) -> int:
+    for line in diff_text.splitlines():
+        if line.startswith(("--- ", "+++ ")):
+            path = line[4:].strip()
+            if path.startswith(("a/", "b/")):
+                return 1
+            break
+    return 0
 
 
-def _apply_single_hunk(lines: list[str], hunk: PatchHunk, start_index: int) -> tuple[list[str], int]:
-    if start_index > len(lines):
-        raise ToolExecutionError(f"Hunk starting at line {hunk.old_start} cannot be applied (file too short).")
-
-    output: list[str] = list(lines[:start_index])
-    cursor = start_index
-
-    for line in hunk.lines:
-        prefix = line[0]
-        content = line[1:]
-
-        if prefix == " ":
-            if cursor >= len(lines) or lines[cursor] != content:
-                failing_line = hunk.old_start + max(0, cursor - start_index)
-                raise ToolExecutionError(f"Hunk failed at line {failing_line}: context mismatch.")
-            output.append(lines[cursor])
-            cursor += 1
-        elif prefix == "-":
-            if cursor >= len(lines) or lines[cursor] != content:
-                failing_line = hunk.old_start + max(0, cursor - start_index)
-                raise ToolExecutionError(f"Hunk failed at line {failing_line}: expected removal to match.")
-            cursor += 1
-        elif prefix == "+":
-            output.append(content)
-        else:
-            raise ToolExecutionError(f"Invalid patch line prefix '{prefix}' near line {hunk.old_start}.")
-
-    output.extend(lines[cursor:])
-    delta = len(output) - len(lines)
-    return output, delta
+def _extract_conflict_lines(stderr_text: str, stdout_text: str = "") -> str:
+    combined = [*(stderr_text.splitlines() if stderr_text else []), *(stdout_text.splitlines() if stdout_text else [])]
+    keywords = ("hunk", "failed", "reject", "error", "conflict", "No such file", "file not found")
+    interesting: list[str] = []
+    for line in combined:
+        lower_line = line.lower()
+        if any(key.lower() in lower_line for key in keywords):
+            interesting.append(line.strip())
+    if interesting:
+        return "\n".join(interesting)
+    trimmed = stderr_text.strip() if stderr_text else stdout_text.strip()
+    return trimmed
 
 
-def _apply_hunks(lines: list[str], hunks: Sequence[PatchHunk]) -> list[str]:
-    updated = lines
-    offset = 0
-
-    for hunk in hunks:
-        _verify_hunk_lengths(hunk)
-        start_index = max(0, hunk.old_start - 1 + offset)
-        updated, delta = _apply_single_hunk(updated, hunk, start_index)
-        offset += delta
-
-    return updated
-
-
-def _apply_parsed_patch(target: Path, parsed: ParsedPatch, write_changes: bool) -> None:
-    if parsed.delete_file and not target.exists():
-        raise ToolExecutionError(f"Cannot delete missing file {target}.")
-    if not parsed.new_file and not target.exists():
-        raise ToolExecutionError(f"Target file {target} does not exist for modification.")
-
-    original_text = target.read_text(encoding="utf-8") if target.exists() else ""
-    original_lines = original_text.splitlines(keepends=True)
-    patched_lines = _apply_hunks(original_lines, parsed.hunks)
-
-    if not write_changes:
-        return
-
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    if parsed.delete_file:
-        target.unlink(missing_ok=True)
-        return
-
-    target.write_text("".join(patched_lines), encoding="utf-8")
+def _format_patch_error(stderr: bytes, stdout: bytes) -> str:
+    stderr_text = stderr.decode(errors="replace")
+    stdout_text = stdout.decode(errors="replace")
+    details = _extract_conflict_lines(stderr_text, stdout_text)
+    return details or "Patch failed with unknown error."
 
 
 async def _apply_patch_with_git(diff_text: str, root: Path, *, check_only: bool) -> None:
+    args = ["git", "apply", "--verbose", "--reject"]
+    if check_only:
+        args.append("--check")
     try:
         proc = await asyncio.create_subprocess_exec(
-            "git",
-            "apply",
-            "--whitespace=nowarn",
-            *(["--check"] if check_only else []),
+            *args,
             cwd=str(root),
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError:
-        raise git_core.GitOperationError("git executable not found on PATH")
+        raise ToolExecutionError("git executable not found on PATH.")
 
     stdout, stderr = await proc.communicate(diff_text.encode("utf-8"))
-    if proc.returncode == 0:
-        return
+    if proc.returncode != 0:
+        failure = _format_patch_error(stderr, stdout)
+        logger.error("git apply failed: %s", failure)
+        raise ToolExecutionError(f"git apply failed: {failure}")
 
-    error_text = stderr.decode(errors="replace") or stdout.decode(errors="replace") or "git apply failed"
-    logger.error("git apply failed: %s", error_text)
-    raise git_core.GitOperationError(error_text)
+
+async def _apply_patch_with_system_patch(diff_text: str, root: Path, *, check_only: bool) -> None:
+    patch_binary = shutil.which("patch")
+    if patch_binary is None:
+        raise ToolExecutionError("`patch` binary not found on PATH. Install patch to apply diffs outside git workspaces.")
+
+    strip_level = _detect_strip_level(diff_text)
+    args = [
+        patch_binary,
+        f"-p{strip_level}",
+        "--verbose",
+        "--directory",
+        str(root),
+    ]
+    if check_only:
+        args.append("--dry-run")
+
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate(diff_text.encode("utf-8"))
+    if proc.returncode != 0:
+        failure = _format_patch_error(stderr, stdout)
+        logger.error("patch failed: %s", failure)
+        raise ToolExecutionError(f"patch failed: {failure}")
 
 
 @tool()
@@ -374,15 +282,19 @@ async def apply_patch(path: str, diff: str) -> str:
     if target.is_dir():
         raise ToolExecutionError(f"Cannot apply a patch to directory {target}.")
 
-    if is_git_workspace(root):
-        await _apply_patch_with_git(diff, root, check_only=cfg.dry_run)
-        if cfg.dry_run:
-            return f"Dry-run: patch validated for {target} (no changes written)."
-        return "Patch applied successfully."
+    if not diff.strip():
+        raise ToolExecutionError("Patch text is empty.")
 
-    parsed = _parse_patch(diff, target, root)
-    write_changes = not cfg.dry_run
-    await asyncio.to_thread(_apply_parsed_patch, target, parsed, write_changes)
-    if cfg.dry_run:
+    _validate_patch_targets(diff, target, root)
+    check_only = cfg.dry_run
+
+    if is_git_workspace(root):
+        await _apply_patch_with_git(diff, root, check_only=check_only)
+        if check_only:
+            return f"Dry-run: patch validated for {target} (no changes written)."
+        return "Patch applied successfully via git."
+
+    await _apply_patch_with_system_patch(diff, root, check_only=check_only)
+    if check_only:
         return f"Dry-run: patch validated for {target} (no changes written)."
-    return "Patch applied successfully."
+    return "Patch applied successfully via patch."

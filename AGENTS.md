@@ -50,6 +50,13 @@ Follow these invariants strictly.
 
 - All Agent interactions must use Structured JSON Outputs enforced by Pydantic schemas. No Regex parsing of natural language responses.
 
+## Negative Constraints
+
+- Never modify or delete an existing test case to make a build pass unless the test itself is proven incorrect. Fix the code, not the test.
+- Do not import packages that are not listed in `pyproject.toml`. If a new dependency is needed, explicitly ask the user to install it first.
+- All Python code changes must be compliant with `ruff` defaults. Do not introduce unused imports.
+- When using `git_commit`, keep the message under 50 chars for the subject line. Use the body for details.
+
 ## 6. The Self-Correction Protocol
 
 When acting in an autonomous loop (`jp fix --loop`):

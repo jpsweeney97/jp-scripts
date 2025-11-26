@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from importlib import import_module
 from pathlib import Path
-from typing import Protocol, Sequence, TYPE_CHECKING
+from typing import Any, Coroutine, Protocol, Sequence, TYPE_CHECKING, TypeVar, cast
+from urllib import error as urllib_error
+from urllib import parse as urllib_parse
+from urllib import request as urllib_request
 from uuid import uuid4
 
 from jpscripts.core.config import AppConfig
@@ -23,11 +28,8 @@ else:  # pragma: no cover - runtime fallbacks when optional deps are missing
     class LanceTable:  # type: ignore[misc]
         ...
 
-try:  # pragma: no cover - optional dependency
-    from lancedb.pydantic import LanceModel
-except Exception:  # pragma: no cover - optional dependency
-    LanceModel = LanceModelBase  # type: ignore[assignment]
 logger = get_logger(__name__)
+T = TypeVar("T")
 
 
 STOPWORDS = {
@@ -63,12 +65,86 @@ FALLBACK_SUFFIX = ".jsonl"
 _SEMANTIC_WARNED = False
 
 
-class MemoryRecord(LanceModel):  # type: ignore[misc]
-    id: str
-    timestamp: str
-    content: str
-    tags: list[str]
-    embedding: list[float] | None
+def _run_coroutine(coro: Coroutine[Any, Any, T]) -> T | None:
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    if loop.is_running():  # pragma: no cover - defensive; embed calls run in worker threads
+        logger.debug("Async loop already running; skipping coroutine execution.")
+        return None
+
+    return loop.run_until_complete(coro)
+
+
+def _normalize_server_url(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    cleaned = raw.strip()
+    if not cleaned:
+        return None
+    if "://" not in cleaned:
+        cleaned = f"http://{cleaned}"
+    parsed = urllib_parse.urlparse(cleaned)
+    if not parsed.netloc and parsed.path:
+        parsed = urllib_parse.urlparse(f"http://{parsed.path}")
+    return parsed.geturl() if parsed.netloc else None
+
+
+async def _async_check_port(host: str, port: int, timeout: float = 1.0) -> bool:
+    try:
+        _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
+    except (asyncio.TimeoutError, OSError):
+        return False
+    try:
+        writer.close()
+        await writer.wait_closed()
+    except Exception:  # pragma: no cover - best effort cleanup
+        pass
+    return True
+
+
+def _check_server_online(host: str, port: int) -> bool:
+    result = _run_coroutine(_async_check_port(host, port))
+    return bool(result)
+
+
+def _post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
+    data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
+    req = urllib_request.Request(url, data=data, headers={"Content-Type": "application/json"})
+    try:
+        with urllib_request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()
+    except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError, OSError, ValueError) as exc:
+        logger.debug("Embedding HTTP request failed: %s", exc)
+        return None
+
+    try:
+        parsed = json.loads(raw.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        logger.debug("Embedding HTTP response parse failed: %s", exc)
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+async def _async_post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
+    return await asyncio.to_thread(_post_json, url, payload, timeout)
+
+
+def _extract_embeddings(payload: dict[str, Any]) -> list[list[float]] | None:
+    candidates: list[list[float]] = []
+    if "data" in payload and isinstance(payload["data"], list):
+        for item in payload["data"]:
+            if isinstance(item, dict) and isinstance(item.get("embedding"), list):
+                candidates.append([float(val) for val in item["embedding"]])
+    if not candidates and "embeddings" in payload and isinstance(payload["embeddings"], list):
+        for vector in payload["embeddings"]:
+            if isinstance(vector, list):
+                candidates.append([float(val) for val in vector])
+    if not candidates and "embedding" in payload and isinstance(payload["embedding"], list):
+        candidates.append([float(val) for val in payload["embedding"]])
+    return candidates or None
 
 
 @dataclass
@@ -89,6 +165,18 @@ class VectorStore(Protocol):
         ...
 
     def available(self) -> bool:
+        ...
+
+
+class EmbeddingClientProtocol(Protocol):
+    @property
+    def dimension(self) -> int | None:
+        ...
+
+    def available(self) -> bool:
+        ...
+
+    def embed(self, texts: list[str]) -> list[list[float]] | None:
         ...
 
 
@@ -118,12 +206,158 @@ def _compose_embedding_text(entry: MemoryEntry) -> str:
     return f"{entry.content} {tags}".strip()
 
 
+def _embedding_settings(config: AppConfig | None) -> tuple[bool, str, str | None]:
+    use_semantic = True
+    model_name = "all-MiniLM-L6-v2"
+    server_url: str | None = None
+    if config:
+        use_semantic = bool(getattr(config, "use_semantic_search", True))
+        model_name = getattr(config, "memory_model", model_name)
+        server_url = getattr(config, "embedding_server_url", None)
+    return use_semantic, model_name, server_url
+
+
 def _warn_semantic_unavailable() -> None:
     global _SEMANTIC_WARNED
     if _SEMANTIC_WARNED:
         return
     logger.warning("Semantic memory search unavailable. Install with `pip install jpscripts[ai]`.")
     _SEMANTIC_WARNED = True
+
+
+class _GlobalEmbeddingClient(EmbeddingClientProtocol):
+    _instance: _GlobalEmbeddingClient | None = None
+
+    def __init__(self, model_name: str, enabled: bool, server_url: str | None) -> None:
+        self.model_name = model_name
+        self.enabled = enabled
+        self._server_url = _normalize_server_url(server_url)
+        self._model: SentenceTransformer | None = None
+        self._dimension: int | None = None
+        self._remote_available: bool | None = None
+
+    @classmethod
+    def get_instance(cls, model_name: str, enabled: bool, server_url: str | None) -> _GlobalEmbeddingClient:
+        normalized_url = _normalize_server_url(server_url)
+        if cls._instance and cls._instance._matches(model_name, normalized_url):
+            cls._instance.enabled = enabled
+            return cls._instance
+        cls._instance = cls(model_name, enabled, normalized_url)
+        return cls._instance
+
+    def _matches(self, model_name: str, server_url: str | None) -> bool:
+        return self.model_name == model_name and self._server_url == server_url
+
+    @property
+    def dimension(self) -> int | None:
+        return self._dimension
+
+    def _server_host_port(self) -> tuple[str, int] | None:
+        if not self._server_url:
+            return None
+        parsed = urllib_parse.urlparse(self._server_url)
+        host = parsed.hostname
+        port = parsed.port
+        if host is None:
+            return None
+        if port is None:
+            if parsed.scheme == "https":
+                port = 443
+            elif parsed.scheme == "http":
+                port = 80
+            else:
+                return None
+        return host, port
+
+    def _check_remote_available(self) -> bool:
+        if self._remote_available is not None:
+            return self._remote_available
+        host_port = self._server_host_port()
+        if host_port is None:
+            self._remote_available = False
+            return False
+        host, port = host_port
+        self._remote_available = _check_server_online(host, port)
+        return self._remote_available
+
+    def available(self) -> bool:
+        if not self.enabled:
+            return False
+        if self._check_remote_available():
+            return True
+        return self._model is not None
+
+    def _embed_remote(self, texts: list[str]) -> list[list[float]] | None:
+        if not self._server_url or not self._check_remote_available():
+            return None
+        payload = {"input": texts, "model": self.model_name}
+        response = _run_coroutine(_async_post_json(self._server_url, payload))
+        if response is None:
+            self._remote_available = False
+            return None
+        vectors = _extract_embeddings(response)
+        if vectors is None:
+            logger.debug("Embedding server returned no embeddings from %s", self._server_url)
+            self._remote_available = False
+            return None
+        if vectors and self._dimension is None and vectors[0]:
+            self._dimension = len(vectors[0])
+        self._remote_available = True
+        return vectors
+
+    def _get_model(self) -> SentenceTransformer | None:
+        if self._model is not None:
+            return self._model
+        model, dimension = _load_sentence_transformer(self.model_name)
+        self._model = model
+        self._dimension = dimension
+        return self._model
+
+    def embed(self, texts: list[str]) -> list[list[float]] | None:
+        if not self.enabled:
+            return None
+        if not texts:
+            return []
+
+        remote_vectors = self._embed_remote(texts)
+        if remote_vectors is not None:
+            return remote_vectors
+
+        model = self._get_model()
+        if model is None:
+            return None
+        vectors = model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
+        return [vector.tolist() for vector in vectors]
+
+
+def EmbeddingClient(model_name: str, *, enabled: bool, server_url: str | None = None) -> EmbeddingClientProtocol:
+    return _GlobalEmbeddingClient.get_instance(model_name, enabled, server_url)
+
+
+def _load_sentence_transformer(model_name: str) -> tuple[SentenceTransformer | None, int | None]:
+    try:
+        from sentence_transformers import SentenceTransformer as STModel  # type: ignore[import-not-found]
+    except ImportError:
+        _warn_semantic_unavailable()
+        return None, None
+
+    cache_root = Path.home() / ".cache" / "jpscripts" / "sentence-transformers"
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    try:
+        model = STModel(model_name, cache_folder=str(cache_root))
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Failed to load embedding model %s: %s", model_name, exc)
+        _warn_semantic_unavailable()
+        return None, None
+
+    dimension: int | None = None
+    if hasattr(model, "get_sentence_embedding_dimension"):
+        dim_val = model.get_sentence_embedding_dimension()
+        if dim_val is not None:
+            dimension = int(dim_val)
+
+    return model, dimension
 
 
 def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntry]:
@@ -200,52 +434,26 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
 
 
-class EmbeddingClient:
-    def __init__(self, model_name: str, enabled: bool) -> None:
-        self.model_name = model_name
-        self.enabled = enabled
-        self._model: SentenceTransformer | None = None
-        self._dimension: int | None = None
+def _load_lancedb_dependencies() -> tuple[Any, type[LanceModelBase]] | None:
+    try:
+        lancedb = import_module("lancedb")
+        pydantic_module = import_module("lancedb.pydantic")
+        lance_model = cast(type[LanceModelBase], getattr(pydantic_module, "LanceModel"))
+    except Exception as exc:
+        logger.debug("LanceDB unavailable: %s", exc)
+        return None
+    return lancedb, lance_model
 
-    @property
-    def dimension(self) -> int | None:
-        return self._dimension
 
-    def available(self) -> bool:
-        if not self.enabled:
-            return False
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError:
-            _warn_semantic_unavailable()
-            return False
+def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBase]:
+    class MemoryRecord(base):  # type: ignore[misc, valid-type]
+        id: str
+        timestamp: str
+        content: str
+        tags: list[str]
+        embedding: list[float] | None
 
-        if self._model is not None:
-            return True
-
-        cache_root = Path.home() / ".cache" / "jpscripts" / "sentence-transformers"
-        cache_root.mkdir(parents=True, exist_ok=True)
-
-        try:
-            self._model = SentenceTransformer(self.model_name, cache_folder=str(cache_root))
-            if hasattr(self._model, "get_sentence_embedding_dimension"):
-                dimension = self._model.get_sentence_embedding_dimension()
-                if dimension is not None:
-                    self._dimension = int(dimension)
-        except Exception as exc:  # pragma: no cover - defensive
-            logger.debug("Failed to load embedding model %s: %s", self.model_name, exc)
-            _warn_semantic_unavailable()
-            self._model = None
-            self._dimension = None
-            return False
-
-        return True
-
-    def embed(self, texts: list[str]) -> list[list[float]] | None:
-        if not self.available() or self._model is None:
-            return None
-        vectors = self._model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
-        return [vector.tolist() for vector in vectors]
+    return MemoryRecord
 
 
 class LanceDBStore:
@@ -253,16 +461,16 @@ class LanceDBStore:
         if embedding_dim <= 0:
             raise ValueError("embedding_dim must be positive")
 
-        try:
-            import lancedb  # type: ignore[import-not-found]
-        except ImportError as exc:
-            raise ImportError("lancedb is not installed") from exc
+        lance_imports = _load_lancedb_dependencies()
+        if lance_imports is None:
+            raise ImportError("lancedb is not installed")
+        lancedb_module, lance_model_base = lance_imports
 
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
-        self._lancedb = lancedb
+        self._lancedb = lancedb_module
         self._embedding_dim = embedding_dim
-        self._model_cls: type[MemoryRecord] = MemoryRecord
+        self._model_cls: type[LanceModelBase] = _build_memory_record_model(lance_model_base)
         self._table: LanceTable = self._ensure_table()
         self._available = True
 
@@ -371,13 +579,8 @@ def save_memory(
         tokens=_tokenize(token_source),
     )
 
-    use_semantic = True
-    model_name = "all-MiniLM-L6-v2"
-    if config:
-        use_semantic = bool(getattr(config, "use_semantic_search", True))
-        model_name = getattr(config, "memory_model", model_name)
-
-    embedding_client = EmbeddingClient(model_name, enabled=use_semantic)
+    use_semantic, model_name, server_url = _embedding_settings(config)
+    embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
     vectors = embedding_client.embed([_compose_embedding_text(entry)])
     if vectors:
         entry.embedding = vectors[0]
@@ -409,27 +612,21 @@ def query_memory(
     if not entries:
         return []
 
-    use_semantic = True
-    model_name = "all-MiniLM-L6-v2"
-    if config:
-        use_semantic = bool(getattr(config, "use_semantic_search", True))
-        model_name = getattr(config, "memory_model", model_name)
-
-    embedding_client = EmbeddingClient(model_name, enabled=use_semantic)
-    if embedding_client.available():
-        query_vecs = embedding_client.embed([query])
-        if query_vecs:
-            vector = query_vecs[0]
-            if len(vector) == 0:
-                return []
-            store = get_vector_store(resolved_store, embedding_dim=len(vector))
-            if store.available():
-                try:
-                    vector_results = store.search(vector, limit)
-                    if vector_results:
-                        return [_format_entry(entry) for entry in vector_results]
-                except Exception as exc:
-                    logger.debug("Vector search failed, falling back to keywords: %s", exc)
+    use_semantic, model_name, server_url = _embedding_settings(config)
+    embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
+    query_vecs = embedding_client.embed([query])
+    if query_vecs:
+        vector = query_vecs[0]
+        if len(vector) == 0:
+            return []
+        store = get_vector_store(resolved_store, embedding_dim=len(vector))
+        if store.available():
+            try:
+                vector_results = store.search(vector, limit)
+                if vector_results:
+                    return [_format_entry(entry) for entry in vector_results]
+            except Exception as exc:
+                logger.debug("Vector search failed, falling back to keywords: %s", exc)
 
     tokens = _tokenize(query)
     scored_kw = [(entry, _score(tokens, entry)) for entry in entries]
@@ -455,29 +652,23 @@ def reindex_memory(
     if not entries:
         return target_store
 
-    use_semantic = True
-    model_name = "all-MiniLM-L6-v2"
-    if config:
-        use_semantic = bool(getattr(config, "use_semantic_search", True))
-        model_name = getattr(config, "memory_model", model_name)
-
-    embedding_client = EmbeddingClient(model_name, enabled=use_semantic)
-    if embedding_client.available():
-        for entry in entries:
-            if entry.embedding is None:
-                vectors = embedding_client.embed([_compose_embedding_text(entry)])
-                if vectors:
-                    entry.embedding = vectors[0]
-        populated = [entry for entry in entries if entry.embedding and len(entry.embedding) > 0]
-        if populated:
-            embedding_dim = len(populated[0].embedding or [])
-            if embedding_dim > 0:
-                store = get_vector_store(target_store, embedding_dim=embedding_dim)
-                if store.available():
-                    try:
-                        store.insert(populated)
-                    except Exception as exc:
-                        logger.debug("Failed to populate LanceDB during reindex: %s", exc)
+    use_semantic, model_name, server_url = _embedding_settings(config)
+    embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
+    for entry in entries:
+        if entry.embedding is None:
+            vectors = embedding_client.embed([_compose_embedding_text(entry)])
+            if vectors:
+                entry.embedding = vectors[0]
+    populated = [entry for entry in entries if entry.embedding and len(entry.embedding) > 0]
+    if populated:
+        embedding_dim = len(populated[0].embedding or [])
+        if embedding_dim > 0:
+            store = get_vector_store(target_store, embedding_dim=embedding_dim)
+            if store.available():
+                try:
+                    store.insert(populated)
+                except Exception as exc:
+                    logger.debug("Failed to populate LanceDB during reindex: %s", exc)
 
     _write_entries(fallback_target, entries)
     return target_store
