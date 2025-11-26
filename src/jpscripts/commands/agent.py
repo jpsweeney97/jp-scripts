@@ -156,6 +156,7 @@ def codex_exec(
     prepare_kwargs = dict(
         base_prompt=prompt,
         root=root,
+        config=state.config,
         run_command=run_command,
         attach_recent=attach_recent,
         include_diff=diff,

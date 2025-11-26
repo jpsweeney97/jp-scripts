@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -14,7 +15,8 @@ from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.context import gather_context, read_file_context, smart_read_context
+from jpscripts.core.context import gather_context, get_file_skeleton, read_file_context, smart_read_context
+from jpscripts.core.memory import query_memory
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.structure import generate_map, get_import_dependencies
 
@@ -63,6 +65,7 @@ def _resolve_template_root() -> Path:
 def _get_template_environment(template_root: Path) -> Environment:
     env = Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
     env.filters["cdata"] = _safe_cdata
+    env.filters["tojson"] = json.dumps
     return env
 
 
@@ -79,6 +82,7 @@ async def prepare_agent_prompt(
     base_prompt: str,
     *,
     root: Path,
+    config: AppConfig,
     run_command: str | None,
     attach_recent: bool,
     include_diff: bool = False,
@@ -99,6 +103,7 @@ async def prepare_agent_prompt(
     diagnostic_section = ""
     file_context_section = ""
     dependency_section = ""
+    relevant_memories: list[str] = []
 
     # 2. Command Output (Diagnostic)
     if run_command:
@@ -109,6 +114,13 @@ async def prepare_agent_prompt(
             f"Output (last {max_command_output_chars} chars):\n"
             f"{trimmed}\n"
         )
+        diag_lines = diagnostic_section.splitlines()
+        query = "\n".join(diag_lines[-3:]).strip()
+        if query:
+            try:
+                relevant_memories = await asyncio.to_thread(query_memory, query, 3, config)
+            except Exception as exc:
+                logger.debug("Memory query failed: %s", exc)
 
         # Prioritize files detected in the stack trace
         detected_paths = list(sorted(detected_files))[:5]
@@ -146,6 +158,7 @@ async def prepare_agent_prompt(
         "git_diff_section": git_diff_section,
         "instruction": base_prompt.strip(),
         "response_schema": response_schema,
+        "relevant_memories": relevant_memories,
     }
 
     prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
@@ -221,11 +234,27 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
 async def _build_file_context_section(paths: Sequence[Path], max_file_context_chars: int) -> tuple[str, list[Path]]:
     sections: list[str] = []
     attached: list[Path] = []
+
+    def _count_lines(target: Path) -> int:
+        try:
+            with target.open("r", encoding="utf-8") as fh:
+                return sum(1 for _ in fh)
+        except (OSError, UnicodeDecodeError):
+            return 0
+
     for path in paths:
-        snippet = await asyncio.to_thread(smart_read_context, path, max_file_context_chars)
+        line_count = await asyncio.to_thread(_count_lines, path)
+        use_skeleton = path.suffix.lower() == ".py" and line_count > 200
+
+        if use_skeleton:
+            snippet = await asyncio.to_thread(get_file_skeleton, path)
+        else:
+            snippet = await asyncio.to_thread(smart_read_context, path, max_file_context_chars)
+
         if not snippet:
             continue
-        sections.append(f"Path: {path}\n---\n{snippet}\n")
+        label = " (Skeleton - Request full content if needed)" if use_skeleton else ""
+        sections.append(f"Path: {path}{label}\n---\n{snippet}\n")
         attached.append(path)
     if not sections:
         return "", attached
@@ -490,6 +519,7 @@ async def run_repair_loop(
         prepared = await prepare_agent_prompt(
             iteration_prompt,
             root=root,
+            config=config,
             run_command=None,
             attach_recent=attach_recent,
             include_diff=include_diff,

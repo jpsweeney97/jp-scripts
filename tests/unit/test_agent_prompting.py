@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from jpscripts.core.config import AppConfig
 from jpscripts.core.agent import prepare_agent_prompt
 
 
@@ -23,9 +24,11 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
         "jpscripts.core.agent.smart_read_context",
         return_value="file snippet",
     ):
+        config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
         prepared = await prepare_agent_prompt(
             "Do the thing",
             root=tmp_path,
+            config=config,
             run_command="echo hi",
             attach_recent=False,
             include_diff=False,
@@ -54,9 +57,11 @@ async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path:
         "jpscripts.core.agent._collect_git_diff",
         AsyncMock(return_value=None),
     ):
+        config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
         prepared = await prepare_agent_prompt(
             "Check dirty state",
             root=tmp_path,
+            config=config,
             run_command=None,
             attach_recent=False,
             include_diff=True,
@@ -78,9 +83,11 @@ async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -
         "jpscripts.core.agent._collect_git_context",
         AsyncMock(return_value=("main", "deadbee", False)),
     ):
+        config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
         prepared = await prepare_agent_prompt(
             "Honor the rules",
             root=tmp_path,
+            config=config,
             run_command=None,
             attach_recent=False,
             include_diff=False,

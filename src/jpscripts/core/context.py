@@ -82,13 +82,114 @@ def smart_read_context(path: Path, max_chars: int) -> str:
 
     suffix = path.suffix.lower()
     if suffix == ".py":
-        return _truncate_python_source(text, limit)
+        skeleton = get_file_skeleton(path)
+        return skeleton[:limit]
     if len(text) <= limit:
         return text
     if suffix in STRUCTURED_EXTENSIONS:
         loader = json.loads if suffix == ".json" else yaml.safe_load
         return _truncate_structured_text(text, limit, loader)
     return text[:limit]
+
+
+def get_file_skeleton(path: Path) -> str:
+    """Return a high-level AST skeleton of a Python file.
+
+    The skeleton preserves imports, module-level assignments, class definitions,
+    function signatures, and docstrings. Function and method bodies are replaced
+    with ``pass`` (or ellipsis) when they span 5 or more lines; shorter bodies are
+    preserved. Falls back to a line-based truncation on syntax errors.
+    """
+    try:
+        source = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+    def _node_length(node: ast.AST) -> int:
+        start = getattr(node, "lineno", 0)
+        end = getattr(node, "end_lineno", start)
+        return max(end - start + 1, 0)
+
+    def _doc_expr(raw: str | None) -> ast.Expr | None:
+        if raw is None:
+            return None
+        return ast.Expr(value=ast.Constant(value=raw))
+
+    def _skeletonize_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
+        if _node_length(node) < 5:
+            return node
+        doc_expr = _doc_expr(ast.get_docstring(node, clean=False))
+        body: list[ast.stmt] = []
+        if doc_expr:
+            body.append(doc_expr)
+        body.append(ast.Pass())
+        new_node = type(node)(
+            name=node.name,
+            args=node.args,
+            body=body,
+            decorator_list=node.decorator_list,
+            returns=node.returns,
+            type_comment=getattr(node, "type_comment", None),
+        )
+        return ast.copy_location(new_node, node)
+
+    def _skeletonize_class(node: ast.ClassDef) -> ast.ClassDef:
+        doc_expr = _doc_expr(ast.get_docstring(node, clean=False))
+        new_body: list[ast.stmt] = []
+        if doc_expr:
+            new_body.append(doc_expr)
+        for child in node.body:
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                new_body.append(_skeletonize_function(child))
+            elif isinstance(child, ast.ClassDef):
+                new_body.append(_skeletonize_class(child))
+            elif isinstance(child, (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign)):
+                new_body.append(child)
+        if not new_body:
+            new_body.append(ast.Pass())
+        new_node = ast.ClassDef(
+            name=node.name,
+            bases=node.bases,
+            keywords=node.keywords,
+            body=new_body,
+            decorator_list=node.decorator_list,
+        )
+        return ast.copy_location(new_node, node)
+
+    try:
+        module = ast.parse(source)
+    except SyntaxError as exc:
+        offsets = _line_offsets(source)
+        limit_offset = min(HARD_FILE_CONTEXT_LIMIT, offsets[-1] if offsets else HARD_FILE_CONTEXT_LIMIT)
+        return _fallback_read(source, limit_offset, exc)
+
+    new_body: list[ast.stmt] = []
+    module_doc = ast.get_docstring(module, clean=False)
+    if module_doc:
+        new_body.append(ast.Expr(value=ast.Constant(value=module_doc)))
+
+    for stmt in module.body:
+        if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Assign, ast.AnnAssign)):
+            new_body.append(stmt)
+        elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            new_body.append(_skeletonize_function(stmt))
+        elif isinstance(stmt, ast.ClassDef):
+            new_body.append(_skeletonize_class(stmt))
+
+    if not new_body:
+        return source[:HARD_FILE_CONTEXT_LIMIT]
+
+    lines: list[str] = []
+    for stmt in new_body:
+        try:
+            lines.append(ast.unparse(ast.fix_missing_locations(stmt)))
+        except Exception:
+            continue
+
+    if not lines:
+        return source[:HARD_FILE_CONTEXT_LIMIT]
+
+    return "\n\n".join(lines)[:HARD_FILE_CONTEXT_LIMIT]
 
 
 def _read_text_for_context(path: Path) -> str | None:
