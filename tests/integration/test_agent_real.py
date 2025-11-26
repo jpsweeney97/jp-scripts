@@ -8,6 +8,9 @@ from types import SimpleNamespace
 import pytest
 
 from jpscripts.commands import agent as agent_cmd
+from jpscripts.core.config import AppConfig
+import typer
+from typing import cast
 from jpscripts.core import agent as agent_core
 
 
@@ -40,17 +43,16 @@ def test_agent_xml_structure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setattr(agent_cmd, "_ensure_codex", lambda: "codex")
     monkeypatch.setattr(agent_cmd.subprocess, "Popen", FakePopen)
 
-    state = SimpleNamespace(
-        config=SimpleNamespace(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            default_model="gpt-test",
-            ignore_dirs=[],
-            max_file_context_chars=5000,
-            max_command_output_chars=5000,
-        )
+    config = AppConfig(
+        workspace_root=tmp_path,
+        notes_dir=tmp_path,
+        default_model="gpt-test",
+        ignore_dirs=[],
+        max_file_context_chars=5000,
+        max_command_output_chars=5000,
     )
-    ctx = SimpleNamespace(obj=state)
+    state = SimpleNamespace(config=config)
+    ctx = cast(typer.Context, SimpleNamespace(obj=state))
 
     agent_cmd.codex_exec(
         ctx,

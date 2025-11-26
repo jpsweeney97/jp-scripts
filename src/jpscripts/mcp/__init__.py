@@ -94,7 +94,7 @@ def _format_error(error_code: str, message: str, path: str) -> str:
     return json.dumps(payload)
 
 
-def tool_error_handler(fn: ToolAsyncCallable) -> ToolAsyncCallable:
+def tool_error_handler(fn: ToolAsyncCallable[P]) -> ToolAsyncCallable[P]:
     """Decorate a tool to provide consistent error handling.
 
     Args:

@@ -8,13 +8,13 @@ import webbrowser
 from pathlib import Path
 
 import typer
-from git import Repo
 from pydantic import BaseModel
 from rich import box
 from rich.table import Table
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops as git_ops_core
+from jpscripts.core import security
 from jpscripts.core.console import console
 from jpscripts.commands.ui import fzf_select
 
@@ -37,10 +37,10 @@ def _git_extra_callback(ctx: typer.Context) -> None:
     """Entry point for git extra commands."""
 
 
-def _ensure_repo(path: Path) -> Repo:
+def _ensure_repo(path: Path) -> git_core.AsyncRepo:
     try:
-        return Repo(path, search_parent_directories=True)
-    except Exception as exc:
+        return asyncio.run(git_core.AsyncRepo.open(path))
+    except git_core.GitOperationError as exc:
         console.print(f"[red]Failed to open repo at {path}: {exc}[/red]")
         raise typer.Exit(code=1)
 
@@ -72,16 +72,17 @@ def gstage(
 ) -> None:
     """Interactively stage files."""
     repo = _ensure_repo(repo_path.expanduser())
-    status_lines = repo.git.status("--porcelain").splitlines()
-    if not status_lines:
+    try:
+        status_entries = asyncio.run(repo.status_short())
+    except git_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    if not status_entries:
         console.print("[green]Working tree clean.[/green]")
         return
 
-    entries = []
-    for line in status_lines:
-        status_code, path = line[:2].strip(), line[3:]
-        entries.append((status_code, path))
-
+    entries = status_entries
     use_fzf = shutil.which("fzf") and not no_fzf
     selection: str | None = None
     if use_fzf:
@@ -100,9 +101,20 @@ def gstage(
     if not selection:
         return
 
-    target_path = selection.split("\t", 1)[-1] if "\t" in selection else selection
-    repo.git.add(target_path)
-    console.print(f"[green]Staged[/green] {target_path}")
+    target_str = selection.split("\t", 1)[-1] if "\t" in selection else selection
+    target_path_str = target_str.split(" -> ", 1)[-1]
+    try:
+        target_path = security.validate_path(repo.path / target_path_str, repo.path)
+    except PermissionError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    try:
+        asyncio.run(repo.add(paths=[target_path]))
+    except git_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+    console.print(f"[green]Staged[/green] {target_path_str}")
 
 
 def gpr(
@@ -152,7 +164,7 @@ def gpr(
         # Find the PR object to get the URL directly without another shell call
         target_pr = next((p for p in prs if p.number == number), None)
         if target_pr:
-            import pyperclip
+            import pyperclip  # type: ignore[import-untyped]
             pyperclip.copy(target_pr.url)
             console.print(f"[green]Copied[/green] {target_pr.url}")
     else:
@@ -175,19 +187,14 @@ def _get_prs(limit: int) -> list[PullRequest]:
     return [PullRequest(**item) for item in data]
 
 
-def _repo_web_url(repo: Repo) -> str | None:
-    try:
-        origin = repo.remotes.origin.url
-    except Exception:
-        return None
-
-    if origin.startswith("git@"):
+def _repo_web_url(remote_url: str) -> str | None:
+    if remote_url.startswith("git@"):
         # git@github.com:user/repo.git -> https://github.com/user/repo
-        _, rest = origin.split(":", 1)
+        _, rest = remote_url.split(":", 1)
         rest = rest.replace(".git", "")
         return f"https://github.com/{rest}"
-    if origin.startswith("https://"):
-        return origin.replace(".git", "")
+    if remote_url.startswith("https://"):
+        return remote_url.replace(".git", "")
     return None
 
 
@@ -198,7 +205,13 @@ def gbrowse(
 ) -> None:
     """Open the current repo/branch/commit on GitHub."""
     repo = _ensure_repo(repo_path.expanduser())
-    base_url = _repo_web_url(repo)
+    try:
+        remote_url = asyncio.run(repo.get_remote_url())
+    except git_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    base_url = _repo_web_url(remote_url)
     if not base_url:
         console.print("[red]Could not determine remote URL for browsing.[/red]")
         raise typer.Exit(code=1)
@@ -206,9 +219,25 @@ def gbrowse(
     if target == "repo":
         url = base_url
     elif target == "commit":
-        url = f"{base_url}/commit/{repo.head.commit.hexsha}"
+        try:
+            commit_sha = asyncio.run(repo.head(short=False))
+        except git_core.GitOperationError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1)
+        url = f"{base_url}/commit/{commit_sha}"
     else:
-        branch = repo.active_branch.name if not repo.head.is_detached else repo.git.rev_parse("--short", "HEAD")
+        try:
+            status = asyncio.run(repo.status())
+            branch = status.branch
+        except git_core.GitOperationError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1)
+        if branch in {"(detached)", "(unknown)"}:
+            try:
+                branch = asyncio.run(repo.head())
+            except git_core.GitOperationError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(code=1)
         url = f"{base_url}/tree/{branch}"
 
     webbrowser.open(url)
@@ -255,7 +284,12 @@ def stashview(
 ) -> None:
     """Browse stash entries and apply/pop/drop one."""
     repo = _ensure_repo(repo_path.expanduser())
-    stash_list = repo.git.stash("list").splitlines()
+    try:
+        stash_list = asyncio.run(repo.stash_list())
+    except git_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
     if not stash_list:
         console.print("[yellow]No stash entries.[/yellow]")
         return
@@ -268,13 +302,18 @@ def stashview(
 
     ref = selection_str.split(":", 1)[0]
     if action == "apply":
-        repo.git.stash("apply", ref)
+        op = repo.stash_apply
     elif action == "pop":
-        repo.git.stash("pop", ref)
+        op = repo.stash_pop
     elif action == "drop":
-        repo.git.stash("drop", ref)
+        op = repo.stash_drop
     else:
         console.print("[red]Unknown action. Use apply, pop, or drop.[/red]")
         return
 
+    try:
+        asyncio.run(op(ref))
+    except git_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
     console.print(f"[green]{action}[/green] {ref}")

@@ -5,8 +5,9 @@ import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
+import click
 import typer
 from pydantic import BaseModel, Field
 from rich import box
@@ -18,6 +19,7 @@ from . import __version__
 from .commands import agent, git_extra, git_ops, init, map, memory, nav, notes, search, system, team, web
 from .core.config import AppConfig, ConfigError, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
+from .core import system as system_core
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
 
@@ -73,7 +75,7 @@ def main(
 
     logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
     ctx.obj = AppState(config=loaded_config, config_meta=meta, logger=logger)
-    system.set_config(loaded_config)
+    system_core.set_config(loaded_config)
 
     if meta.error:
         # Display "Safe Mode" Warning
@@ -96,7 +98,10 @@ def command_catalog() -> None:
     table.add_column("Command", style="cyan", no_wrap=True)
     table.add_column("Summary", style="white")
 
-    for name, command in sorted(click_app.commands.items()):
+    commands: Mapping[str, click.Command] = {}
+    if isinstance(click_app, click.Group):
+        commands = click_app.commands
+    for name, command in sorted(commands.items()):
         if name == "help":
             continue
         summary = (command.help or command.short_help or "").strip()

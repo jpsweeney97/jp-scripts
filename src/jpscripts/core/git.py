@@ -167,6 +167,18 @@ class AsyncRepo:
         output = await _run_git(self._root, "status", "--porcelain=v2", "--branch", "-z")
         return _parse_status_output(output, self._root)
 
+    async def status_short(self) -> list[tuple[str, str]]:
+        """Return short status entries as (status_code, path)."""
+        output = await _run_git(self._root, "status", "--porcelain")
+        entries: list[tuple[str, str]] = []
+        for line in output.splitlines():
+            if not line:
+                continue
+            status_code = line[:2].strip()
+            path = line[3:] if len(line) > 3 else ""
+            entries.append((status_code, path))
+        return entries
+
     async def add(self, *, all: bool = False, paths: Sequence[Path] | None = None) -> None:
         args: list[str] = ["add"]
         if all:
@@ -181,6 +193,27 @@ class AsyncRepo:
         await _run_git(self._root, "commit", "-m", message)
         sha = await _run_git(self._root, "rev-parse", "HEAD")
         return sha.strip()
+
+    async def get_remote_url(self, remote: str = "origin") -> str:
+        try:
+            output = await _run_git(self._root, "remote", "get-url", remote)
+        except GitOperationError as exc:
+            raise GitOperationError(f"Failed to get remote '{remote}': {exc}") from exc
+        return output.strip()
+
+    async def stash_list(self) -> list[str]:
+        output = await _run_git(self._root, "stash", "list")
+        lines = [line for line in output.splitlines() if line.strip()]
+        return lines
+
+    async def stash_apply(self, ref: str) -> None:
+        await _run_git(self._root, "stash", "apply", ref)
+
+    async def stash_pop(self, ref: str) -> None:
+        await _run_git(self._root, "stash", "pop", ref)
+
+    async def stash_drop(self, ref: str) -> None:
+        await _run_git(self._root, "stash", "drop", ref)
 
     async def reset(self, mode: str, ref: str) -> None:
         await _run_git(self._root, "reset", mode, ref)

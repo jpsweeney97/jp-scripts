@@ -1,9 +1,12 @@
-.PHONY: install test format clean
+.PHONY: install test format clean lint
 
 install:
 	pip install -e ".[dev,ai]"
 
-test:
+lint:
+	mypy src tests
+
+test: lint
 	pytest
 
 format:

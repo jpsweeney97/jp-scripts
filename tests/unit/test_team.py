@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from pathlib import Path
+from types import SimpleNamespace
 
 from jpscripts.core.team import (
     AgentRole,
@@ -12,6 +12,7 @@ from jpscripts.core.team import (
     _compose_prompt,
     _validate_swarm_output,
 )
+from jpscripts.core.config import AppConfig
 
 
 def test_compose_prompt_includes_schema_for_architect(tmp_path: Path) -> None:
@@ -21,17 +22,13 @@ def test_compose_prompt_includes_schema_for_architect(tmp_path: Path) -> None:
         current_phase="planning",
         artifacts=[],
     )
+    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, log_level="INFO")
     prompt = _compose_prompt(
         AgentRole.ARCHITECT,
         "Ship feature",
         swarm_state,
         context_log="",
-        config=SimpleNamespace(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            log_level="INFO",
-            worktree_root=None,
-        ),
+        config=config,
         safe_mode=False,
         repo_root=tmp_path,
         context_files=[],

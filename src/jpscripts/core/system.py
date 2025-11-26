@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import http.server
 import shutil
 import socketserver
@@ -8,7 +9,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-import psutil
+import psutil  # type: ignore[import-untyped]
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 
@@ -131,13 +132,12 @@ def get_ssh_hosts(config_path: Path | None = None) -> list[str]:
 
 def run_temp_server(directory: Path, port: int) -> None:
     # ... (Keep existing implementation) ...
-    handler = http.server.SimpleHTTPRequestHandler
-    def handler_factory(*args, **kwargs):
-        return handler(*args, directory=str(directory), **kwargs)
-    class _ThreadingServer(socketserver.ThreadingMixIn, http.server.ThreadingHTTPServer):
-        daemon_threads = True
-    with _ThreadingServer(("", port), handler_factory) as httpd:
+    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
+    httpd = http.server.ThreadingHTTPServer(("", port), handler)
+    try:
         httpd.serve_forever()
+    finally:
+        httpd.server_close()
 
 # --- Async Homebrew Wrappers ---
 

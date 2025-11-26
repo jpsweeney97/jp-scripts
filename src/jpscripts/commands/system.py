@@ -56,7 +56,7 @@ def process_kill(
     # LOGIC: Delegate to core
     matches = system_core.find_processes(name_filter=name, port_filter=port)
 
-    use_fzf = shutil.which("fzf") and not no_fzf
+    use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt="kill> ")
 
     if pid:
@@ -75,7 +75,7 @@ def port_kill(
     # LOGIC: Delegate to core
     matches = system_core.find_processes(port_filter=port)
 
-    use_fzf = shutil.which("fzf") and not no_fzf
+    use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt=f"port-kill ({port})> ")
 
     if pid:

@@ -8,7 +8,7 @@ import shutil
 from pathlib import Path
 from typing import Callable
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 # Regex to catch file paths, often with line numbers (e.g., "src/main.py:42")
 # Matches: (start of line or space) (relative path) (:line_number optional)
@@ -184,8 +184,9 @@ def _fallback_read(text: str, limit: int, error: SyntaxError | None) -> str:
     tail_lines.reverse()
 
     middle: list[str] = []
-    if error and getattr(error, "lineno", None):
-        idx = max(int(error.lineno) - 1, 0)
+    lineno = getattr(error, "lineno", None) if error else None
+    if lineno is not None:
+        idx = max(int(lineno) - 1, 0)
         if idx >= len(head_lines) and idx < len(lines) - len(tail_lines):
             start = max(idx - 3, len(head_lines))
             end = min(idx + 4, len(lines) - len(tail_lines))

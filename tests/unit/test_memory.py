@@ -2,17 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 from jpscripts.core import memory as memory_core
+from jpscripts.core.config import AppConfig
 
 
-def _dummy_config(store: Path, use_semantic: bool = False) -> SimpleNamespace:
-    return SimpleNamespace(
-        use_semantic_search=use_semantic,
-        memory_model="fake-model",
-        memory_store=store,
-    )
+def _dummy_config(store: Path, use_semantic: bool = False) -> AppConfig:
+    return AppConfig(memory_store=store, use_semantic_search=use_semantic, memory_model="fake-model")
 
 
 def test_save_memory_writes_fallback(tmp_path: Path) -> None:

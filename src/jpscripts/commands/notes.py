@@ -7,7 +7,7 @@ import sqlite3
 import subprocess
 from pathlib import Path
 
-import pyperclip
+import pyperclip  # type: ignore[import-untyped]
 from git import Repo
 import typer
 from rich import box
@@ -98,13 +98,18 @@ def standup(
     root = root.expanduser()
     since = dt.datetime.now() - dt.timedelta(days=days)
 
-    user_email = None
+    user_email: str | None = None
     try:
         import git
 
         repo = git.Repo(root, search_parent_directories=True)
         with repo.config_reader() as cfg:
-            user_email = cfg.get_value("user", "email", fallback=None)
+            try:
+                value = cfg.get_value("user", "email")
+            except Exception:
+                value = None
+            if isinstance(value, str):
+                user_email = value
     except Exception:
         pass
 

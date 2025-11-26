@@ -56,12 +56,14 @@ def run_ripgrep(
             chunks: list[str] = []
             bytes_read = 0
             assert proc.stdout is not None and proc.stderr is not None
+            stdout_pipe = proc.stdout
+            stderr_pipe = proc.stderr
 
             with ThreadPoolExecutor(max_workers=1) as executor:
-                stderr_future = executor.submit(proc.stderr.read)
+                stderr_future = executor.submit(stderr_pipe.read)
 
                 truncated = False
-                for chunk in iter(lambda: proc.stdout.read(4096), ""):
+                for chunk in iter(lambda: stdout_pipe.read(4096), ""):
                     if chunk == "":
                         break
                     chunks.append(chunk)

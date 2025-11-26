@@ -27,9 +27,9 @@ def codex_exec(
     attach_recent: bool = typer.Option(False, "--recent", "-r", help="Attach top 5 recently modified files to context."),
     # NEW FLAG
     diff: bool = typer.Option(True, "--diff/--no-diff", help="Include git diff (staged and unstaged) in context."),
-    run_command: str = typer.Option(None, "--run", "-x", help="Run this shell command first and attach referenced files from output (RAG)."),
+    run_command: str | None = typer.Option(None, "--run", "-x", help="Run this shell command first and attach referenced files from output (RAG)."),
     full_auto: bool = typer.Option(False, "--full-auto", "-y", help="Run without asking for confirmation (dangerous)."),
-    model: str = typer.Option(None, "--model", "-m", help="Model to use. Defaults to config."),
+    model: str | None = typer.Option(None, "--model", "-m", help="Model to use. Defaults to config."),
 ) -> None:
     """Delegate a task to the Codex agent."""
     state = ctx.obj

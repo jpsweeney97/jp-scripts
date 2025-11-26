@@ -13,8 +13,8 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 
 if TYPE_CHECKING:
-    from lancedb.pydantic import LanceModel as LanceModelBase
-    from lancedb.table import LanceTable
+    from lancedb.pydantic import LanceModel as LanceModelBase  # type: ignore[import-not-found]
+    from lancedb.table import LanceTable  # type: ignore[import-not-found]
     from sentence_transformers import SentenceTransformer
 else:  # pragma: no cover - runtime fallbacks when optional deps are missing
     class LanceModelBase:  # type: ignore[misc]
@@ -218,7 +218,9 @@ class EmbeddingClient:
         try:
             self._model = SentenceTransformer(self.model_name, cache_folder=str(cache_root))
             if hasattr(self._model, "get_sentence_embedding_dimension"):
-                self._dimension = int(self._model.get_sentence_embedding_dimension())
+                dimension = self._model.get_sentence_embedding_dimension()
+                if dimension is not None:
+                    self._dimension = int(dimension)
         except Exception as exc:  # pragma: no cover - defensive
             logger.debug("Failed to load embedding model %s: %s", self.model_name, exc)
             _warn_semantic_unavailable()
@@ -241,7 +243,7 @@ class LanceDBStore:
             raise ValueError("embedding_dim must be positive")
 
         try:
-            import lancedb
+            import lancedb  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ImportError("lancedb is not installed") from exc
 

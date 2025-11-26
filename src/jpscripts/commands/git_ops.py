@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 import typer
 from rich import box
+from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
@@ -145,6 +146,8 @@ def whatpush(
     except Exception as exc:
         console.print(f"[red]Failed to open git repo at {repo_path}: {exc}[/red]")
         raise typer.Exit(code=1)
+
+    upstream = status.upstream or "none"
 
     summary = Table(title="Push summary", box=box.SIMPLE)
     summary.add_column("Field", style="cyan", no_wrap=True)

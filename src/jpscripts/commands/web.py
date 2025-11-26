@@ -10,7 +10,7 @@ from urllib.parse import unquote
 from typing import TYPE_CHECKING
 
 import typer
-import yaml
+import yaml  # type: ignore[import-untyped]
 from rich import box
 from rich.table import Table
 

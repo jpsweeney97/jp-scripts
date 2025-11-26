@@ -4,9 +4,12 @@
 
 ### Added
 - Integration safeguard for Codex handoff with a mocked subprocess and XML prompt validation (`tests/integration/test_agent_real.py`).
+- Async git core helpers for remote URL lookup, stash management, and porcelain-short status parsing to replace GitPython-only surfaces.
+- `make lint` entry for strict `mypy` gating ahead of tests.
 
 ### Changed
 - Git plumbing now uses true asyncio subprocess calls and porcelain v2 parsing for status, fetch, and commit workflows (no GitPython threads).
+- `git-extra` commands (`gstage`, `gbrowse`, `stashview`) now run through `AsyncRepo` with asyncio orchestration, removing direct GitPython dependencies.
 - Python context reads fall back to warn-tagged head/tail slices when AST parsing fails, preserving context through syntax errors.
 - Memory storage migrated to LanceDB with a pydantic schema and vector search, while retaining keyword fallback when AI extras are absent.
 
