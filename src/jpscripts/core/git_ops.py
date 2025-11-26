@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
-from git import Repo
+import re
 
 from . import git as git_core
 
@@ -68,18 +67,45 @@ class BranchSummary:
     error: str | None = None
 
 
-def branch_statuses(repo: Repo) -> list[BranchSummary]:
-    """Return ahead/behind information for all branches in a repo."""
+def _parse_ahead_behind(track: str) -> tuple[int, int]:
+    ahead = 0
+    behind = 0
+    if not track:
+        return ahead, behind
+
+    cleaned = track.strip().strip("[]")
+    ahead_match = re.search(r"ahead\s+(\d+)", cleaned)
+    behind_match = re.search(r"behind\s+(\d+)", cleaned)
+    if ahead_match:
+        ahead = int(ahead_match.group(1))
+    if behind_match:
+        behind = int(behind_match.group(1))
+    return ahead, behind
+
+
+def _parse_ref_line(line: str) -> tuple[str, str | None, int, int]:
+    parts = line.split(" ", 2)
+    name = parts[0].strip()
+    upstream = parts[1].strip() if len(parts) > 1 else ""
+    track = parts[2].strip() if len(parts) > 2 else ""
+    ahead, behind = _parse_ahead_behind(track)
+    return name, upstream or None, ahead, behind
+
+
+async def branch_statuses(repo: git_core.AsyncRepo) -> list[BranchSummary]:
+    """Return ahead/behind information for all branches in a repo using async plumbing."""
+    output = await repo._run_git(
+        "for-each-ref",
+        "--format=%(refname:short) %(upstream:short) %(upstream:track)",
+        "refs/heads",
+    )
     summaries: list[BranchSummary] = []
-    for branch in repo.branches:
+    for line in output.splitlines():
+        if not line.strip():
+            continue
         try:
-            tracking = branch.tracking_branch()
-            upstream = str(tracking) if tracking else None
-            ahead = behind = 0
-            if tracking:
-                ahead = sum(1 for _ in repo.iter_commits(f"{tracking}..{branch.name}"))
-                behind = sum(1 for _ in repo.iter_commits(f"{branch.name}..{tracking}"))
-            summaries.append(BranchSummary(branch.name, upstream, ahead, behind, None))
+            name, upstream, ahead, behind = _parse_ref_line(line)
+            summaries.append(BranchSummary(name, upstream, ahead, behind, None))
         except Exception as exc:
-            summaries.append(BranchSummary(branch.name, None, 0, 0, str(exc)))
+            summaries.append(BranchSummary(line.strip(), None, 0, 0, str(exc)))
     return summaries

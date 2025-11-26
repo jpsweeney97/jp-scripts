@@ -220,8 +220,17 @@ def git_branchcheck(
     repo_path: Path = typer.Option(Path("."), "--repo", "-r", help="Repository path."),
 ) -> None:
     """List branches with upstream and ahead/behind counts."""
-    repo = _ensure_repo(repo_path.expanduser())
-    summaries = git_ops_core.branch_statuses(repo)
+    repo_path = repo_path.expanduser()
+
+    async def _collect() -> list[git_ops_core.BranchSummary]:
+        repo = await git_core.AsyncRepo.open(repo_path)
+        return await git_ops_core.branch_statuses(repo)
+
+    try:
+        summaries = asyncio.run(_collect())
+    except git_ops_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
     table = Table(title="Branches", box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Branch", style="cyan", no_wrap=True)
     table.add_column("Upstream", style="white", no_wrap=True)

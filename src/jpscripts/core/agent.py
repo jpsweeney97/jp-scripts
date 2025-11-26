@@ -10,6 +10,7 @@ from jpscripts.core import git_ops
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, smart_read_context
 from jpscripts.core.nav import scan_recent
+from jpscripts.core.structure import generate_map
 
 logger = get_logger(__name__)
 
@@ -22,6 +23,11 @@ AGENT_PROMPT_TEMPLATE = (
     "    <head>{head}</head>\n"
     "    <dirty>{dirty}</dirty>\n"
     "  </git_context>\n"
+    "  <repository_map>\n"
+    "  <![CDATA[\n"
+    "{repository_map}\n"
+    "  ]]>\n"
+    "  </repository_map>\n"
     "</system_context>\n"
     "{diagnostic_section}"
     "{file_context_section}"
@@ -53,6 +59,9 @@ async def prepare_agent_prompt(
     Builds a structured, XML-delimited prompt for Codex.
     """
     branch, commit, is_dirty = await _collect_git_context(root)
+
+    repository_map = await asyncio.to_thread(generate_map, root, 3)
+    safe_repo_map = _safe_cdata(repository_map)
 
     attached: list[Path] = []
 
@@ -103,6 +112,7 @@ async def prepare_agent_prompt(
         branch=branch,
         head=commit,
         dirty=is_dirty,
+        repository_map=safe_repo_map,
         diagnostic_section=diagnostic_section,
         file_context_section=file_context_section,
         git_diff_section=git_diff_section,

@@ -29,6 +29,8 @@ Follow these invariants strictly.
   - Unit tests go in `tests/unit/`.
   - Integration tests go in `tests/integration/`.
   - **Mandatory**: Every new feature must have a `test_smoke.py` entry ensuring the CLI command runs without crashing.
+- **Validation**:
+  - After each file modification, run tests.
 
 ## 4. File System & Git
 

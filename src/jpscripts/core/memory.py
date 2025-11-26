@@ -6,14 +6,27 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Sequence, TYPE_CHECKING
+from typing import Sequence, TYPE_CHECKING
 from uuid import uuid4
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 
 if TYPE_CHECKING:
+    from lancedb.pydantic import LanceModel as LanceModelBase
+    from lancedb.table import LanceTable
     from sentence_transformers import SentenceTransformer
+else:  # pragma: no cover - runtime fallbacks when optional deps are missing
+    class LanceModelBase:  # type: ignore[misc]
+        pass
+
+    class LanceTable:  # type: ignore[misc]
+        ...
+
+try:  # pragma: no cover - optional dependency
+    from lancedb.pydantic import LanceModel
+except Exception:  # pragma: no cover - optional dependency
+    LanceModel = LanceModelBase  # type: ignore[assignment]
 logger = get_logger(__name__)
 
 
@@ -48,6 +61,14 @@ MAX_ENTRIES = 5000
 DEFAULT_STORE = Path.home() / ".jp_memory.lance"
 FALLBACK_SUFFIX = ".jsonl"
 _SEMANTIC_WARNED = False
+
+
+class MemoryRecord(LanceModel):  # type: ignore[misc]
+    id: str
+    timestamp: str
+    content: str
+    tags: list[str]
+    embedding: list[float] | None
 
 
 @dataclass
@@ -221,39 +242,29 @@ class LanceDBStore:
 
         try:
             import lancedb
-            from lancedb.pydantic import LanceModel, Vector
         except ImportError as exc:
             raise ImportError("lancedb is not installed") from exc
 
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
         self._lancedb = lancedb
-        self._LanceModel = LanceModel
-        self._Vector = Vector
         self._embedding_dim = embedding_dim
-        self._model_cls: Any = self._build_model()
-        self._table: Any = self._ensure_table()
+        self._model_cls: type[MemoryRecord] = MemoryRecord
+        self._table: LanceTable = self._ensure_table()
 
-    def _build_model(self):
-        Vector = self._Vector
-        LanceModel = self._LanceModel
-        dim = max(1, self._embedding_dim)
-
-        class MemoryRecord(LanceModel):
-            id: str
-            timestamp: str
-            content: str
-            tags: list[str]
-            embedding: Vector(dim) | None
-
-        return MemoryRecord
-
-    def _ensure_table(self):
+    def _ensure_table(self) -> LanceTable:
         db = self._lancedb.connect(str(self._db_path))
         model = self._model_cls
         if "memory" not in db.table_names():
             return db.create_table("memory", schema=model, exist_ok=True)
         return db.open_table("memory")
+
+    def _validate_embedding(self, embedding: list[float] | None) -> list[float] | None:
+        if embedding is None:
+            return None
+        if len(embedding) != self._embedding_dim:
+            raise ValueError(f"Expected embedding dim {self._embedding_dim}, got {len(embedding)}")
+        return embedding
 
     def insert(self, entries: Sequence[MemoryEntry]) -> None:
         model = self._model_cls
@@ -263,7 +274,7 @@ class LanceDBStore:
                 timestamp=entry.ts,
                 content=entry.content,
                 tags=entry.tags,
-                embedding=entry.embedding,
+                embedding=self._validate_embedding(entry.embedding),
             )
             for entry in entries
         ]

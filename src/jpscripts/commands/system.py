@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
+import sys
 import threading
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+from jpscripts.core import git as git_core
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
 from jpscripts.commands.ui import fzf_select
@@ -207,3 +209,41 @@ def brew_explorer(
             console.print(Panel(info, title=f"brew info {selection}", box=box.SIMPLE))
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
+
+
+def update() -> None:
+    """Update jpscripts in editable installs, or guide pipx users."""
+    project_root = Path(__file__).resolve().parents[3]
+    src_path = project_root / "src" / "jpscripts"
+
+    if not src_path.exists():
+        console.print("[yellow]Detected pipx or wheel install. Run `pipx upgrade jpscripts`.[/yellow]")
+        return
+
+    async def _run_update() -> None:
+        try:
+            with console.status("Upgrading God-Mode...", spinner="dots"):
+                repo = await git_core.AsyncRepo.open(project_root)
+                await repo._run_git("pull")
+
+                proc = await asyncio.create_subprocess_exec(
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    ".",
+                    cwd=str(project_root),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                stdout, stderr = await proc.communicate()
+                if proc.returncode != 0:
+                    message = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+                    raise RuntimeError(message or "pip install failed")
+        except Exception as exc:
+            console.print(f"[red]Update failed: {exc}[/red]")
+            raise typer.Exit(code=1)
+
+        console.print("[green]Update complete.[/green]")
+
+    asyncio.run(_run_update())

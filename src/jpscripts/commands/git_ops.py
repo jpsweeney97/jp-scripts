@@ -4,10 +4,10 @@ import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+from collections.abc import Callable
 
 import typer
 from rich import box
-from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
@@ -185,13 +185,57 @@ def whatpush(
 async def _fetch_repo(path: Path) -> str:
     """Run git fetch on all remotes and return a status string."""
     try:
-        repo = await git_core.AsyncRepo.open(path)
-        await repo.fetch()
+        has_remote = await asyncio.to_thread(_has_remotes, path)
+        if not has_remote:
+            return "[green]fetched (no remotes)[/]"
+        process = await asyncio.create_subprocess_exec(
+            "git",
+            "-C",
+            str(path),
+            "fetch",
+            "--all",
+            "--prune",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
+        except asyncio.TimeoutError:
+            process.kill()
+            await process.communicate()
+            return "[red]fetched (timeout)[/]"
+
+        if process.returncode != 0:
+            message = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            return f"[red]failed: {message or 'git fetch failed'}[/]"
+
         return "[green]fetched[/]"
-    except git_core.GitOperationError as exc:
-        return f"[red]failed: {exc}[/]"
     except Exception as exc:
         return f"[red]error: {exc}[/]"
+
+
+def _resolve_git_dir(path: Path) -> Path:
+    git_dir = path / ".git"
+    if git_dir.is_file():
+        try:
+            content = git_dir.read_text(encoding="utf-8").strip()
+            if content.startswith("gitdir:"):
+                target = content.partition(":")[2].strip()
+                if target:
+                    return (path / target).resolve()
+        except OSError:
+            return git_dir
+    return git_dir
+
+
+def _has_remotes(path: Path) -> bool:
+    config_path = _resolve_git_dir(path) / "config"
+    try:
+        data = config_path.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    return "[remote " in data
 
 def sync(
     ctx: typer.Context,
@@ -205,22 +249,27 @@ def sync(
 
     repo_paths = list(git_core.iter_git_repos(base_root, max_depth=max_depth))
 
-    # We use a table to show live progress
-    table = Table(title=f"Syncing {len(repo_paths)} Repositories", box=box.SIMPLE)
-    table.add_column("Repo", style="cyan")
-    table.add_column("Status", style="white")
+    async def runner() -> list[tuple[Path, str]]:
+        sem = asyncio.Semaphore(10)
+        results: list[tuple[Path, str]] = []
 
-    async def runner() -> None:
-        with Live(table, console=console, refresh_per_second=4):
-            # Semaphore to prevent opening too many file descriptors
-            sem = asyncio.Semaphore(10)
+        async def bounded_fetch(path: Path) -> None:
+            async with sem:
+                try:
+                    res = await asyncio.wait_for(_fetch_repo(path), timeout=10)
+                except asyncio.TimeoutError:
+                    res = "[red]fetched (timeout)[/]"
+                results.append((path, res))
 
-            async def bounded_fetch(path: Path) -> None:
-                async with sem:
-                    res = await _fetch_repo(path)
-                    table.add_row(path.name, res)
+        tasks = [bounded_fetch(p) for p in repo_paths]
+        await asyncio.gather(*tasks)
+        return results
 
-            tasks = [bounded_fetch(p) for p in repo_paths]
-            await asyncio.gather(*tasks)
+    results = asyncio.run(runner())
 
-    asyncio.run(runner())
+    summary = Table(title=f"Syncing {len(results)} Repositories", box=box.SIMPLE)
+    summary.add_column("Repo", style="cyan")
+    summary.add_column("Status", style="white")
+    for path, status in results:
+        summary.add_row(path.name, status)
+    console.print(summary)

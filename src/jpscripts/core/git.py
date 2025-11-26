@@ -50,6 +50,7 @@ async def _run_git(cwd: Path, *args: str) -> str:
             *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            stdin=asyncio.subprocess.DEVNULL,
             cwd=cwd,
         )
     except FileNotFoundError as exc:
@@ -207,6 +208,10 @@ class AsyncRepo:
         args = ["rev-parse", "--short", "HEAD"] if short else ["rev-parse", "HEAD"]
         output = await _run_git(self._root, *args)
         return output.strip()
+
+    async def _run_git(self, *args: str) -> str:
+        """Internal helper to run git commands for higher-level ops."""
+        return await _run_git(self._root, *args)
 
 
 def is_repo(path: Path | str = ".") -> bool:
