@@ -2,24 +2,24 @@ from __future__ import annotations
 
 import asyncio
 import io
-import re
+import json
 import subprocess
 import sys
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
+from typing import cast
 
 import pytest
+import typer
 
 from jpscripts.commands import agent as agent_cmd
-from jpscripts.core.config import AppConfig
-import typer
-from typing import cast
 from jpscripts.core import agent as agent_core
+from jpscripts.core.config import AppConfig
 
 
 @pytest.mark.slow
-def test_agent_xml_structure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     async def fake_git_context(_root: Path) -> tuple[str, str, bool]:
         return "main", "abcdef0", False
 
@@ -64,15 +64,12 @@ def test_agent_xml_structure(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     )
 
     assert captured_cmd is not None
-    prompt = captured_cmd[-1]
-    assert "<system_context>" in prompt
-    assert "<git_diff>" in prompt
-    assert "<instruction>" in prompt
-    assert "<git_context>" in prompt
-    assert "<![CDATA[" in prompt
-    assert prompt.rfind("<![CDATA[") < prompt.rfind("]]>")
-    cdata_sections = re.findall(r"<!\[CDATA\[.*?\]\]>", prompt, flags=re.S)
-    assert cdata_sections
+    prompt = json.loads(captured_cmd[-1])
+    assert "system_context" in prompt
+    assert prompt["system_context"]["git_context"]["head"] == "abcdef0"
+    assert prompt["git_diff"] == "diff chunk with ]]> marker"
+    assert "instruction" in prompt
+    assert "response_contract" in prompt
 
 
 def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -101,7 +98,14 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     )
 
     async def fake_fetch(_prepared: agent_core.PreparedPrompt) -> str:
-        return patch_text
+        return json.dumps(
+            {
+                "thought_process": "apply patch",
+                "shell_command": None,
+                "file_patch": patch_text,
+                "final_message": None,
+            }
+        )
 
     success = asyncio.run(
         agent_core.run_repair_loop(
@@ -110,7 +114,7 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             config=config,
             attach_recent=False,
             include_diff=False,
-            fetch_patch=fake_fetch,
+            fetch_response=fake_fetch,
             max_retries=2,
             keep_failed=False,
         )

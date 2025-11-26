@@ -21,6 +21,10 @@ Follow these invariants strictly.
   - Raw stack traces are only for `--verbose` mode.
 - **Path Safety**: All file operations must check `security.validate_path(path, root)` to prevent directory traversal.
 
+## Performance Invariants
+
+- File system traversal must utilize `ripgrep` or `fd` via subprocess. Python-native walking is banned for depth > 2.
+
 ## 3. Agent Interaction Strategy
 
 - **Context**: When modifying a file, first check its imports to understand dependencies.
@@ -41,6 +45,10 @@ Follow these invariants strictly.
 
 - Update `CHANGELOG.md` with every feature addition.
 - Docstrings must be Google-style.
+
+## Agent Protocol
+
+- All Agent interactions must use Structured JSON Outputs enforced by Pydantic schemas. No Regex parsing of natural language responses.
 
 ## 6. The Self-Correction Protocol
 

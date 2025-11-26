@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Awaitable, Callable, Sequence
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
+from pydantic import BaseModel, Field, ValidationError
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
@@ -19,13 +20,27 @@ from jpscripts.core.structure import generate_map, get_import_dependencies
 
 logger = get_logger(__name__)
 
-AGENT_TEMPLATE_NAME = "agent_system.xml.j2"
+AGENT_TEMPLATE_NAME = "agent_system.json.j2"
 
 
 @dataclass
 class PreparedPrompt:
     prompt: str
     attached_files: list[Path]
+
+
+class AgentResponse(BaseModel):
+    """Structured response contract for agent outputs."""
+
+    thought_process: str = Field(..., description="Deep analysis of the problem")
+    shell_command: str | None = Field(None, description="Command to run (optional)")
+    file_patch: str | None = Field(None, description="Unified diff to apply (optional)")
+    final_message: str | None = Field(None, description="Response to user if no action needed")
+
+
+def parse_agent_response(payload: str) -> AgentResponse:
+    """Parse and validate a JSON agent response."""
+    return AgentResponse.model_validate_json(payload)
 
 
 @dataclass
@@ -36,6 +51,7 @@ class AttemptContext:
 
 
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
+ResponseFetcher = Callable[[PreparedPrompt], Awaitable[str]]
 
 
 def _resolve_template_root() -> Path:
@@ -71,7 +87,7 @@ async def prepare_agent_prompt(
     max_command_output_chars: int,
 ) -> PreparedPrompt:
     """
-    Builds a structured, XML-delimited prompt for Codex.
+    Builds a structured, JSON-oriented prompt for Codex.
     """
     branch, commit, is_dirty = await _collect_git_context(root)
 
@@ -89,12 +105,9 @@ async def prepare_agent_prompt(
         output, detected_files = await gather_context(run_command, root)
         trimmed = output[-max_command_output_chars:]
         diagnostic_section = (
-            "<diagnostic_command>\n"
-            f"  <cmd>{run_command}</cmd>\n"
-            "  <output>\n"
+            f"Command: {run_command}\n"
+            f"Output (last {max_command_output_chars} chars):\n"
             f"{trimmed}\n"
-            "  </output>\n"
-            "</diagnostic_command>\n\n"
         )
 
         # Prioritize files detected in the stack trace
@@ -114,18 +127,12 @@ async def prepare_agent_prompt(
     if include_diff:
         diff_text = await _collect_git_diff(root, 10_000)
         if diff_text:
-            safe_diff = _safe_cdata(diff_text)
-            git_diff_section = (
-                "<git_diff>\n"
-                "<![CDATA[\n"
-                f"{safe_diff}\n"
-                "]]>\n"
-                "</git_diff>\n\n"
-            )
+            git_diff_section = diff_text
         else:
-            git_diff_section = "<git_diff>NO CHANGES</git_diff>\n\n"
+            git_diff_section = "NO CHANGES"
 
     template_root = _resolve_template_root()
+    response_schema = AgentResponse.model_json_schema()
     context = {
         "workspace_root": str(root),
         "branch": branch,
@@ -138,6 +145,7 @@ async def prepare_agent_prompt(
         "dependency_section": dependency_section,
         "git_diff_section": git_diff_section,
         "instruction": base_prompt.strip(),
+        "response_schema": response_schema,
     }
 
     prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
@@ -217,12 +225,11 @@ async def _build_file_context_section(paths: Sequence[Path], max_file_context_ch
         snippet = await asyncio.to_thread(smart_read_context, path, max_file_context_chars)
         if not snippet:
             continue
-        safe_snippet = _safe_cdata(snippet)
-        sections.append(f"<file_context path='{path.name}'>\n<![CDATA[\n{safe_snippet}\n]]>\n</file_context>\n")
+        sections.append(f"Path: {path}\n---\n{snippet}\n")
         attached.append(path)
     if not sections:
         return "", attached
-    return "".join(sections) + "\n", attached
+    return "\n".join(sections), attached
 
 
 async def _build_dependency_section(paths: Sequence[Path], root: Path, max_file_context_chars: int) -> str:
@@ -239,12 +246,9 @@ async def _build_dependency_section(paths: Sequence[Path], root: Path, max_file_
         snippet = await asyncio.to_thread(smart_read_context, dep, max_file_context_chars)
         if not snippet:
             continue
-        safe_snippet = _safe_cdata(snippet)
-        sections.append(
-            f"<dependency_context path='{dep.name}'>\n<![CDATA[\n{safe_snippet}\n]]>\n</dependency_context>\n"
-        )
+        sections.append(f"Dependency: {dep}\n---\n{snippet}\n")
 
-    return "".join(sections) + "\n"
+    return "\n".join(sections)
 
 
 async def _collect_git_diff(root: Path, max_chars: int) -> str | None:
@@ -320,7 +324,8 @@ def _build_repair_instruction(
         "Autonomous repair loop in progress. Use the failure details to craft a minimal fix.\n"
         f"Current error:\n{current_error.strip()}\n\n"
         f"Previous attempts:\n{history_block}\n\n"
-        "Respond ONLY with a Git patch or unified diff. Do not add explanations."
+        "Respond with a single JSON object that matches the AgentResponse schema. "
+        "Place the unified diff in `file_patch`. Do not return Markdown or prose."
     )
 
 
@@ -459,7 +464,7 @@ async def run_repair_loop(
     config: AppConfig,
     attach_recent: bool,
     include_diff: bool,
-    fetch_patch: PatchFetcher,
+    fetch_response: ResponseFetcher,
     max_retries: int = 3,
     keep_failed: bool = False,
 ) -> bool:
@@ -500,13 +505,31 @@ async def run_repair_loop(
             )
 
         try:
-            patch_text = await fetch_patch(prepared)
+            raw_response = await fetch_response(prepared)
         except Exception as exc:
-            console.print(f"[red]Failed to retrieve patch from agent:[/red] {exc}")
+            console.print(f"[red]Failed to retrieve agent response:[/red] {exc}")
             break
 
-        if not patch_text.strip():
-            console.print("[red]Agent returned empty patch. Aborting loop.[/red]")
+        if not raw_response.strip():
+            console.print("[red]Agent returned empty response. Aborting loop.[/red]")
+            break
+
+        try:
+            agent_response = parse_agent_response(raw_response)
+        except ValidationError as exc:
+            validation_error = f"Agent response validation failed: {exc}"
+            console.print(f"[red]{validation_error}[/red]")
+            current_error = validation_error
+            history.append(AttemptContext(iteration=attempt + 1, last_error=validation_error, files_changed=[]))
+            continue
+
+        if agent_response.shell_command:
+            console.print(f"[yellow]Agent suggested shell command (not executed automatically):[/yellow] {agent_response.shell_command}")
+
+        patch_text = (agent_response.file_patch or "").strip()
+        if not patch_text:
+            message = agent_response.final_message or "Agent returned no patch content."
+            console.print(f"[red]{message}[/red]")
             break
 
         applied_paths = await _apply_patch_text(patch_text, root)

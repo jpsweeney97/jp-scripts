@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -33,15 +34,15 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
             max_command_output_chars=1000,
         )
 
-    prompt = prepared.prompt
-    assert "<git_context>" in prompt
-    assert "<branch>feature/test</branch>" in prompt
-    assert "<head>abc1234</head>" in prompt
-    assert "<dirty>False</dirty>" in prompt
-    assert "<diagnostic_command>" in prompt
-    assert "sample.txt" in prompt
-    assert "<constitution>" in prompt
-    assert "<output_format>" in prompt
+    prompt = json.loads(prepared.prompt)
+    git_ctx = prompt["system_context"]["git_context"]
+    assert git_ctx["branch"] == "feature/test"
+    assert git_ctx["head"] == "abc1234"
+    assert git_ctx["dirty"] is False
+    assert "diagnostic" in prompt
+    assert "sample.txt" in prompt["file_context"]
+    assert "constitution" in prompt["system_context"]
+    assert "response_contract" in prompt
 
 
 @pytest.mark.asyncio
@@ -64,9 +65,9 @@ async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path:
             max_command_output_chars=1000,
         )
 
-    prompt = prepared.prompt
-    assert "<dirty>True</dirty>" in prompt
-    assert "<git_diff>NO CHANGES</git_diff>" in prompt
+    prompt = json.loads(prepared.prompt)
+    assert prompt["system_context"]["git_context"]["dirty"] is True
+    assert prompt["git_diff"] == "NO CHANGES"
 
 
 @pytest.mark.asyncio
@@ -88,7 +89,6 @@ async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -
             max_command_output_chars=1000,
         )
 
-    prompt = prepared.prompt
-    assert "<constitution>" in prompt
-    assert "Rule 1: Be helpful." in prompt
-    assert "thinking" in prompt.lower()
+    prompt = json.loads(prepared.prompt)
+    assert "Rule 1: Be helpful." in prompt["system_context"]["constitution"]
+    assert "response_contract" in prompt

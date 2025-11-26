@@ -6,10 +6,11 @@ import shutil
 from typing import Any
 
 import typer
+from pydantic import ValidationError
 from rich import box
 from rich.panel import Panel
 
-from jpscripts.core.agent import PreparedPrompt, prepare_agent_prompt, run_repair_loop
+from jpscripts.core.agent import PreparedPrompt, parse_agent_response, prepare_agent_prompt, run_repair_loop
 from jpscripts.core.console import console
 
 
@@ -91,7 +92,7 @@ async def _execute_codex_prompt(cmd: list[str], *, status_label: str) -> tuple[l
         status.stop()
 
 
-async def _fetch_patch_from_codex(prepared: PreparedPrompt, codex_bin: str, model: str, full_auto: bool) -> str:
+async def _fetch_agent_response_from_codex(prepared: PreparedPrompt, codex_bin: str, model: str, full_auto: bool) -> str:
     cmd = _build_codex_command(codex_bin, model, prepared.prompt, full_auto)
     assistant_parts, stderr_text = await _execute_codex_prompt(cmd, status_label="Consulting Codex...")
     if stderr_text:
@@ -129,7 +130,7 @@ def codex_exec(
     effective_retries = max(1, max_retries)
 
     if loop_enabled and run_command:
-        fetcher = lambda prepared: _fetch_patch_from_codex(prepared, codex_bin, target_model, full_auto)
+        fetcher = lambda prepared: _fetch_agent_response_from_codex(prepared, codex_bin, target_model, full_auto)
         success = asyncio.run(
             run_repair_loop(
                 base_prompt=prompt,
@@ -137,7 +138,7 @@ def codex_exec(
                 config=state.config,
                 attach_recent=attach_recent,
                 include_diff=diff,
-                fetch_patch=fetcher,
+                fetch_response=fetcher,
                 max_retries=effective_retries,
                 keep_failed=keep_failed,
             )
@@ -183,5 +184,18 @@ def codex_exec(
         console.print(Panel(f"[red]{stderr_text}[/red]", title="Codex stderr", box=box.SIMPLE))
 
     if assistant_parts:
-        final_message = "\n\n".join(assistant_parts)
-        console.print(Panel(final_message, title="Codex response", box=box.SIMPLE))
+        raw_response = "\n\n".join(assistant_parts)
+        try:
+            agent_response = parse_agent_response(raw_response)
+        except ValidationError as exc:
+            console.print(Panel(f"[red]Agent response validation failed:[/red]\n{exc}", title="Parse error", box=box.SIMPLE))
+            console.print(Panel(raw_response, title="Raw agent response", box=box.SIMPLE))
+            return
+
+        console.print(Panel(agent_response.thought_process, title="Thought process", box=box.SIMPLE))
+        if agent_response.shell_command:
+            console.print(Panel(agent_response.shell_command, title="Shell command", box=box.SIMPLE))
+        if agent_response.file_patch:
+            console.print(Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE))
+        if agent_response.final_message:
+            console.print(Panel(agent_response.final_message, title="Final message", box=box.SIMPLE))

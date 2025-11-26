@@ -1,0 +1,27 @@
+{
+  "system_context": {
+    "workspace_root": {{ workspace_root | tojson }},
+    "mode": "God-Mode CLI",
+    "git_context": {
+      "branch": {{ branch | tojson }},
+      "head": {{ head | tojson }},
+      "dirty": {{ dirty | tojson }}
+    },
+    "repository_map": {{ repository_map | tojson }},
+    "constitution": {{ constitution | tojson }}
+  },
+  "diagnostic": {{ diagnostic_section | tojson }},
+  "file_context": {{ file_context_section | tojson }},
+  "dependencies": {{ dependency_section | tojson }},
+  "git_diff": {{ git_diff_section | tojson }},
+  "instruction": {{ instruction | tojson }},
+  "response_contract": {
+    "schema": {{ response_schema | tojson }},
+    "rules": [
+      "Respond with a single JSON object that validates against the AgentResponse schema.",
+      "Do not wrap the JSON in Markdown or include any explanatory prose.",
+      "Populate `file_patch` with a unified diff when code changes are required; leave null when not needed.",
+      "Use `shell_command` only when a command must be run before patching."
+    ]
+  }
+}
