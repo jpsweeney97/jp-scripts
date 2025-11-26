@@ -40,6 +40,8 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
     assert "<dirty>False</dirty>" in prompt
     assert "<diagnostic_command>" in prompt
     assert "sample.txt" in prompt
+    assert "<constitution>" in prompt
+    assert "<output_format>" in prompt
 
 
 @pytest.mark.asyncio
@@ -65,3 +67,28 @@ async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path:
     prompt = prepared.prompt
     assert "<dirty>True</dirty>" in prompt
     assert "<git_diff>NO CHANGES</git_diff>" in prompt
+
+
+@pytest.mark.asyncio
+async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -> None:
+    (tmp_path / "AGENTS.md").write_text("Rule 1: Be helpful.", encoding="utf-8")
+
+    with patch(
+        "jpscripts.core.agent._collect_git_context",
+        AsyncMock(return_value=("main", "deadbee", False)),
+    ):
+        prepared = await prepare_agent_prompt(
+            "Honor the rules",
+            root=tmp_path,
+            run_command=None,
+            attach_recent=False,
+            include_diff=False,
+            ignore_dirs=[],
+            max_file_context_chars=5000,
+            max_command_output_chars=1000,
+        )
+
+    prompt = prepared.prompt
+    assert "<constitution>" in prompt
+    assert "Rule 1: Be helpful." in prompt
+    assert "thinking" in prompt.lower()

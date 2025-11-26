@@ -10,7 +10,7 @@ from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.context import gather_context, smart_read_context
+from jpscripts.core.context import gather_context, read_file_context, smart_read_context
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.structure import generate_map, get_import_dependencies
 
@@ -30,6 +30,11 @@ AGENT_PROMPT_TEMPLATE = (
     "{repository_map}\n"
     "  ]]>\n"
     "  </repository_map>\n"
+    "  <constitution>\n"
+    "  <![CDATA[\n"
+    "{constitution}\n"
+    "  ]]>\n"
+    "  </constitution>\n"
     "</system_context>\n"
     "{diagnostic_section}"
     "{file_context_section}"
@@ -37,7 +42,11 @@ AGENT_PROMPT_TEMPLATE = (
     "{git_diff_section}"
     "<instruction>\n"
     "{instruction}\n"
-    "</instruction>"
+    "</instruction>\n"
+    "<output_format>\n"
+    "You must respond with a <thinking> block analyzing the request, exploring the file context, and planning the fix.\n"
+    "Then, provide the response (e.g., the git patch or answer) outside the thinking block.\n"
+    "</output_format>"
 )
 
 
@@ -75,6 +84,8 @@ async def prepare_agent_prompt(
 
     repository_map = await asyncio.to_thread(generate_map, root, 3)
     safe_repo_map = _safe_cdata(repository_map)
+    constitution_text = await _load_constitution(root)
+    safe_constitution = _safe_cdata(constitution_text)
 
     attached: list[Path] = []
 
@@ -129,6 +140,7 @@ async def prepare_agent_prompt(
         head=commit,
         dirty=is_dirty,
         repository_map=safe_repo_map,
+        constitution=safe_constitution,
         diagnostic_section=diagnostic_section,
         file_context_section=file_context_section,
         dependency_section=dependency_section,
@@ -142,6 +154,31 @@ async def prepare_agent_prompt(
 def _safe_cdata(content: str) -> str:
     """Escape CDATA terminators inside arbitrary content."""
     return content.replace("]]>", "]]]]><![CDATA[>")
+
+
+async def _load_constitution(root: Path) -> str:
+    """Read AGENTS.md content under the workspace root.
+
+    Args:
+        root: Workspace root for validation and lookup.
+
+    Returns:
+        Constitution text or a fallback message when unavailable.
+    """
+    try:
+        candidate = security.validate_path(root / "AGENTS.md", root)
+    except Exception as exc:
+        logger.debug("Unable to resolve AGENTS.md under %s: %s", root, exc)
+        return "AGENTS.md not accessible."
+
+    if not candidate.exists():
+        return "AGENTS.md not found."
+
+    content = await asyncio.to_thread(read_file_context, candidate, 5000)
+    if not content:
+        return "AGENTS.md is empty or unreadable."
+
+    return content
 
 
 async def _collect_git_context(root: Path) -> tuple[str, str, bool]:

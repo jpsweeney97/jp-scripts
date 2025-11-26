@@ -8,6 +8,7 @@
 - Async git core helpers for remote URL lookup, stash management, and porcelain-short status parsing to replace GitPython-only surfaces.
 - `make lint` entry for strict `mypy` gating ahead of tests.
 - `jp fix` supports `--loop`/`--max-retries` self-healing runs with automated patch application and optional revert on failure.
+- MCP git tool `get_workspace_status` reports branch state across all workspace repositories for external agents.
 
 ### Changed
 
@@ -15,6 +16,8 @@
 - `git-extra` commands (`gstage`, `gbrowse`, `stashview`) now run through `AsyncRepo` with asyncio orchestration, removing direct GitPython dependencies.
 - Python context reads fall back to warn-tagged head/tail slices when AST parsing fails, preserving context through syntax errors.
 - Memory storage now uses a VectorStore adapter with LanceDB + NoOp implementations, simplifying optional dependency handling while retaining keyword fallbacks.
+- Agent prompts now auto-inline AGENTS.md as a constitution and require explicit <thinking> blocks in responses.
+- `jp standup` now uses AsyncRepo-powered async git queries (no GitPython dependency) while honoring author and date filters.
 
 ## [0.4.0] - The Trinity Update
 

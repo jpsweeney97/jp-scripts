@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 import shlex
 import shutil
 import sqlite3
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 import pyperclip  # type: ignore[import-untyped]
-from git import Repo
 import typer
 from rich import box
 from rich.table import Table
@@ -20,6 +21,7 @@ from jpscripts.core import notes_impl
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"
 CLIPHIST_DB = CLIPHIST_DIR / "history.db"
+
 
 def note(
     ctx: typer.Context,
@@ -79,12 +81,46 @@ def note_search(
         console.print("[yellow]No matches found.[/yellow]")
 
 
-def _repo_commits_since(repo: Repo, since: dt.datetime, author: str | None) -> list:
-    args = {}
-    if author:
-        args["author"] = author
-    commits = list(repo.iter_commits(since=since.isoformat(), **args))
-    return commits
+@dataclass
+class RepoSummary:
+    path: Path
+    commits: list[git_core.GitCommit]
+    error: str | None = None
+
+
+async def _collect_repo_commits(
+    repo_path: Path,
+    since: dt.datetime,
+    author_email: str | None,
+    limit: int,
+) -> RepoSummary:
+    cutoff = int(since.timestamp())
+    try:
+        repo = await git_core.AsyncRepo.open(repo_path)
+        commits = await repo.get_commits("HEAD", limit)
+        filtered = [
+            commit
+            for commit in commits
+            if commit.committed_date >= cutoff and (author_email is None or commit.author_email == author_email)
+        ]
+        return RepoSummary(path=repo_path, commits=filtered)
+    except Exception as exc:
+        return RepoSummary(path=repo_path, commits=[], error=str(exc))
+
+
+async def _detect_user_email(root: Path) -> str | None:
+    try:
+        repo = await git_core.AsyncRepo.open(root)
+    except Exception:
+        return None
+
+    try:
+        email_raw = await repo._run_git("config", "user.email")
+    except Exception:
+        return None
+
+    email = email_raw.strip()
+    return email or None
 
 
 def standup(
@@ -97,53 +133,45 @@ def standup(
     root = state.config.worktree_root or state.config.workspace_root
     root = root.expanduser()
     since = dt.datetime.now() - dt.timedelta(days=days)
-
-    user_email: str | None = None
-    try:
-        import git
-
-        repo = git.Repo(root, search_parent_directories=True)
-        with repo.config_reader() as cfg:
-            try:
-                value = cfg.get_value("user", "email")
-            except Exception:
-                value = None
-            if isinstance(value, str):
-                user_email = value
-    except Exception:
-        pass
+    commit_limit = min(1000, max(100, days * 100))
 
     repos = list(git_core.iter_git_repos(root, max_depth=max_depth))
     if not repos:
         console.print(f"[yellow]No git repositories found under {root}.[/yellow]")
         return
 
-    table = Table(title=f"Commits since {since.date()}", box=box.SIMPLE_HEAVY, expand=True)
-    table.add_column("Repo", style="cyan", no_wrap=True)
-    table.add_column("Count", style="white", no_wrap=True)
-    table.add_column("Latest", style="white")
+    async def _render_standup() -> None:
+        user_email = await _detect_user_email(root)
+        summaries = await asyncio.gather(
+            *(_collect_repo_commits(repo_path, since, user_email, commit_limit) for repo_path in repos)
+        )
 
-    total = 0
-    for repo_path in repos:
-        try:
-            repo = Repo(repo_path)
-            commits = _repo_commits_since(repo, since, user_email)
-            if not commits:
+        table = Table(title=f"Commits since {since.date()}", box=box.SIMPLE_HEAVY, expand=True)
+        table.add_column("Repo", style="cyan", no_wrap=True)
+        table.add_column("Count", style="white", no_wrap=True)
+        table.add_column("Latest", style="white")
+
+        total = 0
+        for summary in summaries:
+            repo_label = summary.path.name or summary.path.as_posix()
+            if repo_label in {"", "."}:
+                resolved = summary.path.resolve()
+                repo_label = resolved.name or resolved.as_posix()
+            if summary.error:
+                table.add_row(repo_label, "0", f"error: {summary.error}", style="red")
                 continue
-            latest = commits[0]
-            table.add_row(
-                repo_path.name,
-                str(len(commits)),
-                latest.summary,
-            )
-            total += len(commits)
-        except Exception as exc:
-            table.add_row(repo_path.name, "0", f"error: {exc}", style="red")
+            if not summary.commits:
+                continue
+            latest = summary.commits[0]
+            table.add_row(repo_label, str(len(summary.commits)), latest.summary)
+            total += len(summary.commits)
 
-    if total == 0:
-        console.print(f"[yellow]No commits in the last {days} days.[/yellow]")
-    else:
-        console.print(table)
+        if total == 0:
+            console.print(f"[yellow]No commits in the last {days} days.[/yellow]")
+        else:
+            console.print(table)
+
+    asyncio.run(_render_standup())
 
 
 def standup_note(ctx: typer.Context, days: int = typer.Option(3, "--days", "-d", help="Look back this many days.")) -> None:
