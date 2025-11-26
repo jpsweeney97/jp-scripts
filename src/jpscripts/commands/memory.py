@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import shutil
+from pathlib import Path
+
 import typer
 from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
-from jpscripts.core.memory import query_memory, save_memory
+from jpscripts.core.memory import query_memory, reindex_memory, save_memory
 
 app = typer.Typer(help="Persistent memory store for ADRs and lessons learned.")
 
@@ -43,3 +46,20 @@ def search(
         table.add_row(line)
 
     console.print(table)
+
+
+@app.command("reindex")
+def reindex(
+    ctx: typer.Context,
+    force: bool = typer.Option(False, "--force", "-f", help="Force full re-index"),
+) -> None:
+    state = ctx.obj
+    store_path = Path(state.config.memory_store).expanduser()
+    if force and store_path.exists():
+        if store_path.is_dir():
+            shutil.rmtree(store_path, ignore_errors=True)
+        else:
+            store_path.unlink(missing_ok=True)
+
+    rebuilt_path = reindex_memory(config=state.config, target_path=store_path)
+    console.print(Panel(f"[green]Memory reindexed.[/green]\nStore: {rebuilt_path}", title="Memory"))

@@ -17,6 +17,8 @@ from rich.table import Table
 from jpscripts.core.console import console
 from jpscripts.core import git as git_core
 from jpscripts.core import notes_impl
+from jpscripts.core import search as search_core
+from jpscripts.commands.ui import fzf_stream
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"
@@ -60,23 +62,37 @@ def note_search(
         console.print(f"[yellow]Notes directory {notes_dir} does not exist.[/yellow]")
         raise typer.Exit(code=1)
 
-    if not shutil.which("rg"):
-        console.print("[red]ripgrep (rg) is required for note-search.[/red]")
-        raise typer.Exit(code=1)
-
-    rg_cmd = ["rg", "--line-number", query, str(notes_dir)]
     use_fzf = shutil.which("fzf") and not no_fzf
 
     if use_fzf:
-        proc_rg = subprocess.Popen(rg_cmd, stdout=subprocess.PIPE)
-        proc_fzf = subprocess.run(["fzf", "--delimiter", ":", "--nth", "3.."], stdin=proc_rg.stdout, text=True)
-        if proc_fzf.returncode == 0:
-            console.print(proc_fzf.stdout.strip())
+        cmd = search_core.get_ripgrep_cmd(query, notes_dir, line_number=True)
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
+            if proc_rg.stdout is None:
+                console.print("[red]Failed to start ripgrep.[/red]")
+                raise typer.Exit(code=1)
+            selection = fzf_stream(
+                proc_rg.stdout,
+                prompt="note-search> ",
+                ansi=True,
+                extra_args=["--delimiter", ":", "--nth", "3.."],
+            )
+            proc_rg.wait()
+
+        if isinstance(selection, list):
+            for line in selection:
+                console.print(line)
+        elif isinstance(selection, str):
+            console.print(selection)
         return
 
-    proc = subprocess.run(rg_cmd, text=True, capture_output=True)
-    if proc.stdout:
-        console.print(proc.stdout)
+    try:
+        result = search_core.run_ripgrep(query, notes_dir, line_number=True)
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
+
+    if result:
+        console.print(result)
     else:
         console.print("[yellow]No matches found.[/yellow]")
 

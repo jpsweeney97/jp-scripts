@@ -8,6 +8,7 @@ from typer.main import get_command
 from jpscripts import __version__
 import jpscripts.commands.handbook as handbook_cmd
 import jpscripts.main as jp_main
+import jpscripts.core.diagnostics as diagnostics
 from jpscripts.main import app
 
 runner = CliRunner()
@@ -19,13 +20,13 @@ def test_app_version():
 
 def test_doctor_mocked(monkeypatch):
     """Ensure doctor runs without crashing even if tools are missing."""
-    tool = jp_main.ExternalTool(name="mock", binary="mock-bin", required=False)
-    fake = jp_main.ToolCheck(tool=tool, status="ok", version="1.0.0")
+    tool = diagnostics.ExternalTool(name="mock", binary="mock-bin", required=False)
+    fake = diagnostics.ToolCheck(tool=tool, status="ok", version="1.0.0")
 
     async def fake_run(_tools):
         return [fake]
 
-    monkeypatch.setattr(jp_main, "_run_doctor", fake_run)
+    monkeypatch.setattr(diagnostics, "_run_doctor", fake_run)
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "mock" in result.stdout
