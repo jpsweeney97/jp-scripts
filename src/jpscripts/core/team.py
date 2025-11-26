@@ -7,9 +7,9 @@ import shutil
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import AsyncIterator, Iterable, Sequence
+from typing import AsyncIterator, Iterable, Literal, Sequence
 
-import yaml
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
@@ -35,9 +35,8 @@ class AgentRole(Enum):
 ROLE_PRIMERS: dict[AgentRole, str] = {
     AgentRole.ARCHITECT: (
         "You design the technical plan and break down the work. Produce concise steps and"
-        " call out risks for implementation. Update the Swarm State YAML (objective,"
-        " current_phase, plan_steps, artifacts) and include the updated YAML in a"
-        " <plan_update> block."
+        " call out risks for implementation. Respond using the Swarm State JSON schema"
+        " only—no markdown or YAML."
     ),
     AgentRole.ENGINEER: (
         "You execute the plan, propose concrete code changes, and resolve edge cases."
@@ -50,19 +49,34 @@ ROLE_PRIMERS: dict[AgentRole, str] = {
 }
 
 
+class Objective(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    constraints: list[str] = Field(default_factory=list)
+
+
+class PlanStep(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    summary: str
+    status: Literal["pending", "in_progress", "done"] = "pending"
+
+
+class SwarmState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    objective: Objective
+    plan_steps: list[PlanStep] = Field(default_factory=list)
+    current_phase: Literal["planning", "coding", "verifying"] = "planning"
+    artifacts: list[str] = Field(default_factory=list)
+
+
 @dataclass
 class AgentUpdate:
     role: AgentRole
     kind: str  # stdout | stderr | status | exit
     content: str
-
-
-@dataclass
-class SwarmState:
-    objective: str
-    plan_steps: list[str]
-    current_phase: str  # "planning", "coding", "verifying"
-    artifacts: list[str]  # Files created/modified
 
 
 def _codex_path() -> str:
@@ -123,24 +137,23 @@ def _compose_prompt(
     config_summary = _render_config_context(config, safe_mode)
     context_section = f"\n\nRepository context (from git status):\n{context_log.strip()}" if context_log.strip() else ""
     file_section = _format_file_snippets(context_files, max_chars=max_file_context_chars)
-    swarm_yaml = yaml.safe_dump(
-        {
-            "objective": swarm_state.objective,
-            "current_phase": swarm_state.current_phase,
-            "plan_steps": swarm_state.plan_steps,
-            "artifacts": swarm_state.artifacts,
-        },
-        sort_keys=False,
-    ).strip()
+    swarm_json = swarm_state.model_dump_json(indent=2)
+    schema_instruction = ""
+    if role is AgentRole.ARCHITECT:
+        schema_instruction = (
+            "\n\nRespond ONLY with JSON that matches this schema. Do not add markdown or explanations:\n"
+            f"{json.dumps(SwarmState.model_json_schema(), indent=2)}"
+        )
     return (
         f"You are the {role.label} in a three-agent swarm (Architect, Engineer, QA).\n"
         f"{primer}\n"
         f"Objective:\n{objective.strip()}\n\n"
-        f"Current Swarm State:\n{swarm_yaml}\n\n"
+        f"Current Swarm State (JSON):\n{swarm_json}\n\n"
         f"Repo root: {repo_root}\n"
         f"Safe Mode Config:\n{config_summary}"
         f"{context_section}"
-        f"{file_section}\n\n"
+        f"{file_section}"
+        f"{schema_instruction}\n\n"
         "Coordinate asynchronously; keep responses compact so they can be relayed in real time."
     )
 
@@ -201,6 +214,8 @@ class AgentProcess:
         self._process: asyncio.subprocess.Process | None = None
         self._stream_tasks: list[asyncio.Task] = []
         self._launched = False
+        self._captured_output: list[str] = []
+        self._captured_raw: list[str] = []
 
     async def _read_context_files(self) -> str:
         """Read context files asynchronously and truncate to 10KB each."""
@@ -260,7 +275,12 @@ class AgentProcess:
             line = await stream.readline()
             if not line:
                 break
-            message = _parse_event_line(line.decode(errors="replace").rstrip())
+            decoded = line.decode(errors="replace").rstrip()
+            if kind == "stdout":
+                self._captured_raw.append(decoded)
+            message = _parse_event_line(decoded)
+            if kind == "stdout":
+                self._captured_output.append(message)
             await self._queue.put(AgentUpdate(self.role, kind, message))
 
     async def terminate(self) -> None:
@@ -272,6 +292,45 @@ class AgentProcess:
                 task.cancel()
         if self._stream_tasks:
             await asyncio.gather(*self._stream_tasks, return_exceptions=True)
+
+    @property
+    def captured_stdout(self) -> str:
+        return "\n".join(self._captured_output).strip()
+
+    @property
+    def captured_raw(self) -> str:
+        return "\n".join(self._captured_raw).strip()
+
+
+async def _stream_agent_updates(
+    agents: Sequence[AgentProcess],
+    queue: asyncio.Queue[AgentUpdate],
+) -> AsyncIterator[AgentUpdate]:
+    tasks = [asyncio.create_task(agent.run()) for agent in agents]
+    active = len(tasks)
+
+    try:
+        while active:
+            update = await queue.get()
+            if update.kind == "exit":
+                active -= 1
+            yield update
+    finally:
+        for agent in agents:
+            await agent.terminate()
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _validate_swarm_output(agent: AgentProcess) -> tuple[SwarmState | None, str]:
+    last_error: str = ""
+    for payload in (agent.captured_raw, agent.captured_stdout):
+        if not payload:
+            continue
+        try:
+            return SwarmState.model_validate_json(payload), ""
+        except ValidationError as exc:
+            last_error = exc.json()
+    return None, last_error or "No output captured from architect agent."
 
 
 async def swarm_chat(
@@ -299,7 +358,7 @@ async def swarm_chat(
     # Gather Context (Timed)
     context_log, context_files = await _collect_repo_context(root)
     swarm_state = SwarmState(
-        objective=objective.strip(),
+        objective=Objective(summary=objective.strip()),
         plan_steps=[],
         current_phase="planning",
         artifacts=[str(path) for path in context_files],
@@ -308,7 +367,65 @@ async def swarm_chat(
     # Yield success status
     yield AgentUpdate(AgentRole.ARCHITECT, "status", "context loaded")
 
-    # 3. Launch Agents
+    roles_list = list(roles)
+    max_context_chars = active_config.max_file_context_chars
+
+    if AgentRole.ARCHITECT in roles_list:
+        attempts = 0
+        correction_suffix = ""
+        validated = False
+        base_prompt = _compose_prompt(
+            AgentRole.ARCHITECT,
+            objective,
+            swarm_state,
+            context_log,
+            active_config,
+            safe_mode,
+            root,
+            context_files,
+            max_context_chars,
+        )
+
+        while attempts < 3 and not validated:
+            architect_agent = AgentProcess(
+                role=AgentRole.ARCHITECT,
+                prompt=base_prompt + correction_suffix,
+                codex_bin=codex_bin,
+                model=target_model,
+                attached_files=context_files,
+                env=env,
+                queue=queue,
+                max_file_context_chars=max_context_chars,
+            )
+
+            async for update in _stream_agent_updates([architect_agent], queue):
+                yield update
+
+            parsed_state, error_text = _validate_swarm_output(architect_agent)
+            if parsed_state:
+                swarm_state = parsed_state
+                validated = True
+                break
+
+            attempts += 1
+            correction_suffix = (
+                "\n\nSystem Correction: The last response was not valid SwarmState JSON.\n"
+                f"Validation error: {error_text}\n"
+                "Resend only the JSON payload that matches the provided schema."
+            )
+            yield AgentUpdate(AgentRole.ARCHITECT, "status", "retrying with schema correction")
+
+        if not validated:
+            yield AgentUpdate(
+                AgentRole.ARCHITECT,
+                "stderr",
+                "Failed to produce valid SwarmState JSON after retries; continuing with initial state.",
+            )
+
+    remaining_roles = [role for role in roles_list if role != AgentRole.ARCHITECT]
+    if not remaining_roles:
+        return
+
     agents = [
         AgentProcess(
             role=role,
@@ -321,31 +438,17 @@ async def swarm_chat(
                 safe_mode,
                 root,
                 context_files,
-                active_config.max_file_context_chars,
+                max_context_chars,
             ),
             codex_bin=codex_bin,
             model=target_model,
             attached_files=context_files,
             env=env,
             queue=queue,
-            max_file_context_chars=active_config.max_file_context_chars,
+            max_file_context_chars=max_context_chars,
         )
-        for role in roles
+        for role in remaining_roles
     ]
 
-    tasks = [asyncio.create_task(agent.run()) for agent in agents]
-    active = len(tasks)
-
-    try:
-        while active:
-            update = await queue.get()
-            if update.kind == "exit":
-                active -= 1
-            yield update
-    finally:
-        for agent in agents:
-            await agent.terminate()
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
+    async for update in _stream_agent_updates(agents, queue):
+        yield update

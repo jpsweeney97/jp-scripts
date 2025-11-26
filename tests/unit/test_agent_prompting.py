@@ -19,7 +19,7 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
         "jpscripts.core.agent.gather_context",
         AsyncMock(return_value=("log output", {file_path})),
     ), patch(
-        "jpscripts.core.agent.read_file_context",
+        "jpscripts.core.agent.smart_read_context",
         return_value="file snippet",
     ):
         prepared = await prepare_agent_prompt(

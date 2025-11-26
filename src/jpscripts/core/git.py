@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, Sequence
@@ -19,6 +20,40 @@ class BranchStatus:
     untracked: int
     dirty: bool
     error: str | None = None
+
+
+class GitOperationError(RuntimeError):
+    """Raised when git operations fail."""
+
+
+class AsyncRepo:
+    """Async wrapper around GitPython Repo using background threads for I/O."""
+
+    def __init__(self, repo: Repo) -> None:
+        self._repo = repo
+
+    @property
+    def path(self) -> Path:
+        return Path(self._repo.working_tree_dir or ".")
+
+    @classmethod
+    async def open(cls, path: Path | str = ".") -> AsyncRepo:
+        try:
+            repo = await asyncio.to_thread(open_repo, path)
+            return cls(repo)
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to open git repo at {path}") from exc
+
+    async def fetch(self) -> None:
+        """Fetch updates from all remotes."""
+        try:
+            await asyncio.to_thread(self._fetch_all_remotes)
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to fetch for {self.path}") from exc
+
+    def _fetch_all_remotes(self) -> None:
+        for remote in self._repo.remotes:
+            remote.fetch()
 
 
 def open_repo(path: Path | str = ".") -> Repo:

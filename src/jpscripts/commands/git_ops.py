@@ -179,18 +179,15 @@ def whatpush(
 # Add to src/jpscripts/commands/git_ops.py
 
 async def _fetch_repo(path: Path) -> str:
-    """Run git fetch --all and return a status string."""
+    """Run git fetch on all remotes and return a status string."""
     try:
-        proc = await asyncio.create_subprocess_shell(
-            "git fetch --all",
-            cwd=path,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        await proc.communicate()
-        return "[green]fetched[/]" if proc.returncode == 0 else "[red]failed[/]"
-    except Exception:
-        return "[red]error[/]"
+        repo = await git_core.AsyncRepo.open(path)
+        await repo.fetch()
+        return "[green]fetched[/]"
+    except git_core.GitOperationError as exc:
+        return f"[red]failed: {exc}[/]"
+    except Exception as exc:
+        return f"[red]error: {exc}[/]"
 
 def sync(
     ctx: typer.Context,
@@ -209,12 +206,12 @@ def sync(
     table.add_column("Repo", style="cyan")
     table.add_column("Status", style="white")
 
-    async def runner():
+    async def runner() -> None:
         with Live(table, console=console, refresh_per_second=4):
             # Semaphore to prevent opening too many file descriptors
             sem = asyncio.Semaphore(10)
 
-            async def bounded_fetch(path):
+            async def bounded_fetch(path: Path) -> None:
                 async with sem:
                     res = await _fetch_repo(path)
                     table.add_row(path.name, res)

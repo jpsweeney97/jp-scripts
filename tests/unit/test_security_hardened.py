@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jpscripts.core.context import HARD_FILE_CONTEXT_LIMIT, read_file_context
-from jpscripts.core.security import validate_path
+from jpscripts.core.security import WorkspaceValidationError, cache_workspace_root, validate_path
 
 
 def test_validate_path_blocks_traversal(tmp_path: Path) -> None:
@@ -29,6 +29,25 @@ def test_validate_path_blocks_symlink_escape(tmp_path: Path) -> None:
 
     with pytest.raises(PermissionError):
         validate_path(malicious_link, workspace)
+
+
+def test_cache_workspace_root_requires_existing_dir(tmp_path: Path) -> None:
+    missing_root = tmp_path / "missing"
+
+    with pytest.raises(WorkspaceValidationError):
+        cache_workspace_root(missing_root)
+
+
+def test_validate_path_uses_cached_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    cache_workspace_root(workspace)
+
+    target = workspace / "child" / "file.txt"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("data", encoding="utf-8")
+
+    assert validate_path(target, None) == target.resolve()
 
 
 def test_read_file_context_caps_output(tmp_path: Path) -> None:

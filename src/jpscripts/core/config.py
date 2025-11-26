@@ -3,29 +3,18 @@ from __future__ import annotations
 import json
 import os
 import tomllib
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
+from unittest.mock import patch
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import Field, ValidationError
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from jpscripts.core.security import WorkspaceValidationError, cache_workspace_root
 
 CONFIG_ENV_VAR = "JPSCRIPTS_CONFIG"
-
-ENV_VAR_MAP: dict[str, str] = {
-    "editor": "JP_EDITOR",
-    "notes_dir": "JP_NOTES_DIR",
-    "workspace_root": "JP_WORKSPACE_ROOT",
-    "snapshots_dir": "JP_SNAPSHOTS_DIR",
-    "log_level": "JP_LOG_LEVEL",
-    "worktree_root": "JP_WORKTREE_ROOT",
-    "focus_audio_device": "JP_FOCUS_AUDIO_DEVICE",
-    "default_model": "JP_DEFAULT_MODEL",
-    "memory_store": "JP_MEMORY_STORE",
-    "memory_model": "JP_MEMORY_MODEL",
-    "use_semantic_search": "JP_USE_SEMANTIC_SEARCH",
-    "max_file_context_chars": "JP_MAX_FILE_CONTEXT_CHARS",
-    "max_command_output_chars": "JP_MAX_COMMAND_OUTPUT_CHARS",
-}
 
 
 class ConfigError(RuntimeError):
@@ -37,19 +26,23 @@ class ConfigLoadResult:
     path: Path
     file_loaded: bool
     env_overrides: set[str]
-    error: str | None = None  # NEW: Capture error instead of crashing
+    error: str | None = None
 
 
-class AppConfig(BaseModel):
-    """Application-wide configuration modeled with Pydantic."""
+class AppConfig(BaseSettings):
+    """Application-wide configuration modeled with Pydantic Settings."""
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="JP_",
+        env_nested_delimiter="__",
+        extra="ignore",
+    )
 
     editor: str = Field(default="code -w", description="Editor command used for interactive edits.")
     notes_dir: Path = Field(default_factory=lambda: Path.home() / "Notes" / "quick-notes")
     workspace_root: Path = Field(default_factory=lambda: Path.home() / "Projects")
     default_model: str = Field(default="gpt-5.1-codex", description="Default Codex/LLM model.")
-    memory_store: Path = Field(default_factory=lambda: Path.home() / ".jp_memory.jsonl", description="Path to the memory store file.")
+    memory_store: Path = Field(default_factory=lambda: Path.home() / ".jp_memory.sqlite", description="Path to the memory store file.")
     memory_model: str = Field(default="all-MiniLM-L6-v2", description="Embedding model for semantic memory search.")
     use_semantic_search: bool = Field(default=True, description="Enable semantic search with embeddings.")
     max_file_context_chars: int = Field(default=50000, description="Maximum characters to read when attaching file context.")
@@ -72,18 +65,22 @@ class AppConfig(BaseModel):
     worktree_root: Path | None = Field(default=None, description="Optional location for Git worktrees.")
     focus_audio_device: str | None = Field(default=None, description="Preferred audio device for focus helpers.")
 
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings,
+        env_settings,
+        dotenv_settings,
+        file_secret_settings,
+    ):
+        # Ensure environment variables override config file entries.
+        return (env_settings, init_settings, dotenv_settings, file_secret_settings)
+
 
 def _resolve_config_path(config_path: Path | None, env_vars: Mapping[str, str]) -> Path:
     candidate = config_path or env_vars.get(CONFIG_ENV_VAR) or (Path.home() / ".jpconfig")
     return Path(candidate).expanduser()
-
-
-def _read_env_overrides(env_vars: Mapping[str, str]) -> dict[str, Any]:
-    overrides: dict[str, Any] = {}
-    for field, env_key in ENV_VAR_MAP.items():
-        if env_key in env_vars:
-            overrides[field] = env_vars[env_key]
-    return overrides
 
 
 def _read_config_file(path: Path) -> dict[str, Any]:
@@ -97,13 +94,22 @@ def _read_config_file(path: Path) -> dict[str, Any]:
     try:
         data = parser(raw)
     except (json.JSONDecodeError, tomllib.TOMLDecodeError) as exc:
-        # Re-raise as ConfigError to be caught by load_config
         raise ConfigError(f"Syntax error in {path}: {exc}") from exc
 
     if not isinstance(data, dict):
         raise ConfigError(f"Config root in {path} must be a mapping.")
 
     return data
+
+
+def _detect_env_overrides(env_vars: Mapping[str, str]) -> set[str]:
+    prefix = AppConfig.model_config.get("env_prefix", "")
+    overrides: set[str] = set()
+    for field in AppConfig.model_fields:
+        env_key = f"{prefix}{field}".upper()
+        if env_key in env_vars:
+            overrides.add(field)
+    return overrides
 
 
 def load_config(
@@ -114,26 +120,39 @@ def load_config(
     Load configuration with Safe Mode fallback.
     If the file is invalid, returns default config + error message.
     """
-    env_vars: Mapping[str, str] = env or os.environ
+    env_vars: Mapping[str, str] = os.environ if env is None else {**os.environ, **env}
     resolved_path = _resolve_config_path(config_path, env_vars)
-    env_overrides = _read_env_overrides(env_vars)
+    env_overrides = _detect_env_overrides(env_vars)
+
+    error: str | None = None
+    file_loaded = False
+    file_data: dict[str, Any] = {}
 
     try:
         file_data = _read_config_file(resolved_path)
-        merged = {**file_data, **env_overrides}
-        config = AppConfig.model_validate(merged)
-        error = None
         file_loaded = resolved_path.exists()
-    except (ConfigError, ValidationError) as exc:
-        # Safe Mode: Fallback to defaults + env vars only
-        config = AppConfig.model_validate(env_overrides)
+    except ConfigError as exc:
         error = str(exc)
-        file_loaded = False
+
+    context_manager = patch.dict(os.environ, env_vars, clear=False) if env is not None else nullcontext()
+
+    try:
+        with context_manager:
+            config = AppConfig(**file_data)
+    except ValidationError as exc:
+        error = str(exc)
+        config = AppConfig()
+
+    try:
+        cached_root = cache_workspace_root(config.workspace_root)
+        config = config.model_copy(update={"workspace_root": cached_root})
+    except WorkspaceValidationError as exc:
+        error = f"{error}; {exc}" if error else str(exc)
 
     load_result = ConfigLoadResult(
         path=resolved_path,
         file_loaded=file_loaded,
-        env_overrides=set(env_overrides.keys()),
+        env_overrides=env_overrides,
         error=error,
     )
 

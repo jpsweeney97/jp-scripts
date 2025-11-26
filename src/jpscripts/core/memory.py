@@ -3,11 +3,17 @@ from __future__ import annotations
 import json
 import os
 import re
-from collections import Counter, deque
+import sqlite3
+from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Sequence
+
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - optional dependency
+    np = None  # type: ignore
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
@@ -19,6 +25,7 @@ STOPWORDS = {
     "the", "and", "or", "a", "an", "to", "of", "in", "on", "for", "by", "with", "is", "it", "this",
     "that", "as", "at", "be", "from", "are", "we", "use", "uses", "using",
 }
+MAX_ENTRIES = 5000
 
 
 @dataclass
@@ -27,15 +34,16 @@ class MemoryEntry:
     content: str
     tags: list[str]
     tokens: list[str]
-    embedding: list[float] | None = None
+    embedding: bytes | None = None
+    row_id: int | None = None
 
 
 def _resolve_store(config: AppConfig | None = None, store_path: Path | None = None) -> Path:
     if store_path:
         return store_path.expanduser()
     if config and getattr(config, "memory_store", None):
-        return config.memory_store.expanduser()
-    return Path.home() / ".jp_memory.jsonl"
+        return Path(config.memory_store).expanduser()
+    return Path.home() / ".jp_memory.sqlite"
 
 
 def _tokenize(text: str) -> list[str]:
@@ -47,8 +55,91 @@ def _format_entry(entry: MemoryEntry) -> str:
     return f"{entry.ts} {tags} {entry.content}".strip()
 
 
-def _embedding_sidecar_path(store_path: Path) -> Path:
-    return store_path.with_suffix(store_path.suffix + ".embeddings.json")
+def _serialize_content(content: str, tags: Sequence[str]) -> str:
+    payload = {"content": content.strip(), "tags": [t.strip() for t in tags if t.strip()]}
+    return json.dumps(payload, ensure_ascii=True)
+
+
+def _deserialize_content(raw: str) -> tuple[str, list[str]]:
+    try:
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            base_content = str(data.get("content", ""))
+            tag_list = [str(t) for t in data.get("tags", []) if str(t).strip()]
+            return base_content, tag_list
+    except json.JSONDecodeError:
+        pass
+    return raw, []
+
+
+def _compose_embedding_text(entry: MemoryEntry) -> str:
+    tags = " ".join(entry.tags)
+    return f"{entry.content} {tags}".strip()
+
+
+def _legacy_embedding_sidecar(path: Path) -> Path:
+    return path.with_suffix(path.suffix + ".embeddings.json")
+
+
+class SQLiteVectorStore:
+    def __init__(self, db_path: Path) -> None:
+        self.path = db_path.expanduser()
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _initialize(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS memory (id INTEGER PRIMARY KEY, content TEXT, timestamp TEXT, embedding BLOB)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_timestamp ON memory(timestamp)")
+            conn.commit()
+
+    def insert_entry(self, entry: MemoryEntry) -> MemoryEntry:
+        serialized = _serialize_content(entry.content, entry.tags)
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "INSERT INTO memory (content, timestamp, embedding) VALUES (?, ?, ?)",
+                (serialized, entry.ts, entry.embedding),
+            )
+            entry.row_id = int(cursor.lastrowid)
+        return entry
+
+    def update_embedding(self, row_id: int, embedding: bytes) -> None:
+        with self._connect() as conn:
+            conn.execute("UPDATE memory SET embedding = ? WHERE id = ?", (embedding, row_id))
+            conn.commit()
+
+    def fetch_entries(self, max_rows: int | None = None) -> list[MemoryEntry]:
+        query = "SELECT id, content, timestamp, embedding FROM memory ORDER BY id DESC"
+        params: tuple[int, ...] = ()
+        if max_rows:
+            query += " LIMIT ?"
+            params = (max_rows,)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        entries: list[MemoryEntry] = []
+        for row in rows:
+            content, tags = _deserialize_content(row["content"] or "")
+            token_source = f"{content} {' '.join(tags)}".strip()
+            entries.append(
+                MemoryEntry(
+                    ts=row["timestamp"] or "",
+                    content=content,
+                    tags=tags,
+                    tokens=_tokenize(token_source),
+                    embedding=row["embedding"],
+                    row_id=int(row["id"]),
+                )
+            )
+        return entries
 
 
 _SEMANTIC_WARNED = False
@@ -61,109 +152,12 @@ def _warn_semantic_unavailable() -> None:
         _SEMANTIC_WARNED = True
 
 
-def save_memory(
-    content: str,
-    tags: Sequence[str] | None = None,
-    *,
-    config: AppConfig | None = None,
-    store_path: Path | None = None,
-) -> MemoryEntry:
-    """Persist a memory entry for later recall."""
-    resolved = _resolve_store(config, store_path)
-    resolved.parent.mkdir(parents=True, exist_ok=True)
-
-    entry = MemoryEntry(
-        ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
-        content=content.strip(),
-        tags=[t.strip() for t in (tags or []) if t.strip()],
-        tokens=_tokenize(content + " " + " ".join(tags or [])),
-    )
-
-    try:
-        with resolved.open("a", encoding="utf-8") as fh:
-            fh.write(json.dumps(entry.__dict__, ensure_ascii=True) + "\n")
-    except OSError as exc:
-        logger.error("Failed to write memory entry to %s: %s", resolved, exc)
-        raise
-
-    return entry
-
-
-def _load_entries(path: Path, max_entries: int = 5000) -> list[MemoryEntry]:
-    if not path.exists():
-        return []
-
-    sidecar_map: dict[str, list[float]] = {}
-    sidecar = _embedding_sidecar_path(path)
-    if sidecar.exists():
-        try:
-            raw_sidecar = json.loads(sidecar.read_text(encoding="utf-8"))
-            if isinstance(raw_sidecar, list):
-                for item in raw_sidecar:
-                    if not isinstance(item, dict):
-                        continue
-                    ts = item.get("ts")
-                    embedding = item.get("embedding")
-                    if isinstance(ts, str) and isinstance(embedding, list):
-                        sidecar_map[ts] = embedding
-        except (json.JSONDecodeError, OSError):
-            sidecar_map = {}
-
-    entries: deque[MemoryEntry] = deque(maxlen=max_entries)
-    try:
-        with path.open("r", encoding="utf-8") as fh:
-            for line in fh:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    raw = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                tokens = raw.get("tokens") or _tokenize(raw.get("content", ""))
-                entry = MemoryEntry(
-                    ts=raw.get("ts", ""),
-                    content=raw.get("content", ""),
-                    tags=list(raw.get("tags") or []),
-                    tokens=tokens,
-                    embedding=sidecar_map.get(raw.get("ts", "")),
-                )
-                entries.append(entry)
-    except OSError as exc:
-        logger.error("Failed to read memory store %s: %s", path, exc)
-        return []
-
-    return list(entries)
-
-
-def _persist_embeddings(store_path: Path, entries: Sequence[MemoryEntry]) -> None:
-    sidecar = _embedding_sidecar_path(store_path)
-    tmp_path = sidecar.with_suffix(sidecar.suffix + ".tmp")
-    payload = [
-        {"ts": entry.ts, "embedding": entry.embedding}
-        for entry in entries
-        if entry.embedding is not None
-    ]
-    try:
-        tmp_path.write_text(json.dumps(payload), encoding="utf-8")
-        os.replace(tmp_path, sidecar)
-    except OSError as exc:
-        logger.debug("Failed to persist embeddings sidecar %s: %s", sidecar, exc)
-        try:
-            if tmp_path.exists():
-                tmp_path.unlink()
-        except OSError:
-            pass
-
-
 def _load_embedding_model(model_name: str):
     try:
         from sentence_transformers import SentenceTransformer
-        import numpy as _np  # type: ignore
     except ImportError:
         _warn_semantic_unavailable()
-        return None, None
+        return None
 
     cache_root = Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")).expanduser()
     cache_dir = cache_root / "jpscripts" / "sentence-transformers"
@@ -174,9 +168,9 @@ def _load_embedding_model(model_name: str):
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("Failed to load embedding model %s: %s", model_name, exc)
         _warn_semantic_unavailable()
-        return None, None
+        return None
 
-    return model, _np
+    return model
 
 
 class VectorStore:
@@ -184,35 +178,50 @@ class VectorStore:
         self.model_name = model_name
         self.enabled = enabled
         self._model = None
-        self._np = None
 
     def available(self) -> bool:
         if not self.enabled:
             return False
+        if np is None:
+            _warn_semantic_unavailable()
+            return False
         if self._model is not None:
             return True
-        model, np_mod = _load_embedding_model(self.model_name)
-        if model is None or np_mod is None:
+        model = _load_embedding_model(self.model_name)
+        if model is None:
             return False
         self._model = model
-        self._np = np_mod
         return True
 
-    def embed(self, texts: list[str]):
+    def embed(self, texts: list[str]) -> np.ndarray | None:
         if not self.available():
+            return None
+        if np is None:
             return None
         assert self._model is not None
         vectors = self._model.encode(texts, show_progress_bar=False, convert_to_numpy=True)
-        return self._np.asarray(vectors)
+        return np.asarray(vectors, dtype=np.float32)
 
-    def as_array(self, data):
-        assert self._np is not None
-        return self._np.asarray(data, dtype=float)
+    @staticmethod
+    def to_bytes(vector: np.ndarray) -> bytes:
+        if np is None:
+            raise RuntimeError("NumPy is required to serialize embeddings.")
+        return np.asarray(vector, dtype=np.float32).tobytes()
 
-    def cosine(self, a, b) -> float:
-        assert self._np is not None
-        denom = (self._np.linalg.norm(a) * self._np.linalg.norm(b)) + 1e-8
-        return float(self._np.dot(a, b) / denom)
+    @staticmethod
+    def from_bytes(blob: bytes) -> np.ndarray:
+        if np is None:
+            raise RuntimeError("NumPy is required to deserialize embeddings.")
+        return np.frombuffer(blob, dtype=np.float32)
+
+    @staticmethod
+    def cosine_batch(matrix: np.ndarray, query_vec: np.ndarray) -> np.ndarray:
+        if np is None:
+            raise RuntimeError("NumPy is required for cosine similarity.")
+        matrix = np.asarray(matrix, dtype=np.float32)
+        query_vec = np.asarray(query_vec, dtype=np.float32)
+        norms = (np.linalg.norm(matrix, axis=1) * np.linalg.norm(query_vec)) + 1e-8
+        return np.dot(matrix, query_vec) / norms
 
 
 def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
@@ -226,6 +235,96 @@ def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
     return float(overlap + 0.5 * tag_overlap)
 
 
+def _load_legacy_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntry]:
+    if not path.exists():
+        return []
+
+    sidecar_map: dict[str, bytes] = {}
+    sidecar = _legacy_embedding_sidecar(path)
+    if sidecar.exists():
+        try:
+            raw_sidecar = json.loads(sidecar.read_text(encoding="utf-8"))
+            if isinstance(raw_sidecar, list):
+                for item in raw_sidecar:
+                    if not isinstance(item, dict):
+                        continue
+                    ts = item.get("ts")
+                    embedding = item.get("embedding")
+                    if np is not None and isinstance(ts, str) and isinstance(embedding, list):
+                        sidecar_map[ts] = np.asarray(embedding, dtype=np.float32).tobytes()
+        except (json.JSONDecodeError, OSError):
+            sidecar_map = {}
+
+    entries: list[MemoryEntry] = []
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    raw = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                content = raw.get("content", "")
+                tags = list(raw.get("tags") or [])
+                token_source = f"{content} {' '.join(tags)}"
+                entry = MemoryEntry(
+                    ts=raw.get("ts", ""),
+                    content=content,
+                    tags=tags,
+                    tokens=_tokenize(token_source),
+                    embedding=sidecar_map.get(raw.get("ts", "")),
+                )
+                entries.append(entry)
+                if len(entries) >= max_entries:
+                    break
+    except OSError as exc:
+        logger.error("Failed to read legacy memory store %s: %s", path, exc)
+        return []
+
+    return entries
+
+
+def save_memory(
+    content: str,
+    tags: Sequence[str] | None = None,
+    *,
+    config: AppConfig | None = None,
+    store_path: Path | None = None,
+) -> MemoryEntry:
+    """Persist a memory entry for later recall."""
+    resolved = _resolve_store(config, store_path)
+    store = SQLiteVectorStore(resolved)
+
+    normalized_tags = [t.strip() for t in (tags or []) if t.strip()]
+    content_text = content.strip()
+    token_source = f"{content_text} {' '.join(normalized_tags)}".strip()
+
+    entry = MemoryEntry(
+        ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        content=content_text,
+        tags=normalized_tags,
+        tokens=_tokenize(token_source),
+    )
+
+    use_semantic = True
+    model_name = "all-MiniLM-L6-v2"
+    if config:
+        use_semantic = bool(getattr(config, "use_semantic_search", True))
+        model_name = getattr(config, "memory_model", model_name)
+
+    vector_store = VectorStore(model_name, enabled=use_semantic)
+    if vector_store.available():
+        vectors = vector_store.embed([_compose_embedding_text(entry)])
+        if vectors is not None and len(vectors):
+            entry.embedding = VectorStore.to_bytes(vectors[0])
+
+    store.insert_entry(entry)
+    return entry
+
+
 def query_memory(
     query: str,
     limit: int = 5,
@@ -235,7 +334,8 @@ def query_memory(
 ) -> list[str]:
     """Retrieve the most relevant memory snippets for a query."""
     resolved_store = _resolve_store(config, store_path)
-    entries = _load_entries(resolved_store)
+    store = SQLiteVectorStore(resolved_store)
+    entries = store.fetch_entries(MAX_ENTRIES)
     if not entries:
         return []
 
@@ -247,42 +347,53 @@ def query_memory(
 
     vector_store = VectorStore(model_name, enabled=use_semantic)
 
-    if vector_store.available():
-        # Ensure embeddings are present
-        missing_indices = [idx for idx, entry in enumerate(entries) if entry.embedding is None]
-        if missing_indices:
-            texts = [entries[idx].content for idx in missing_indices]
-            vectors = vector_store.embed(texts)
+    if vector_store.available() and np is not None:
+        missing = [entry for entry in entries if entry.embedding is None]
+        if missing:
+            vectors = vector_store.embed([_compose_embedding_text(entry) for entry in missing])
             if vectors is not None:
-                for idx, vec in zip(missing_indices, vectors):
-                    if hasattr(vec, "tolist"):
-                        entries[idx].embedding = vec.tolist()
-                    else:
-                        entries[idx].embedding = list(vec)
-            _persist_embeddings(resolved_store, entries)
+                for entry, vec in zip(missing, vectors):
+                    entry.embedding = VectorStore.to_bytes(vec)
+                    if entry.row_id is not None:
+                        store.update_embedding(entry.row_id, entry.embedding)
 
-        # Compute query embedding
-        query_vecs = vector_store.embed([query])
-        if query_vecs is not None:
-            query_vec = query_vecs[0]
-            scored: list[tuple[MemoryEntry, float]] = []
-            for entry in entries:
-                if entry.embedding is None:
-                    continue
-                entry_vec = vector_store.as_array(entry.embedding)
-                score = vector_store.cosine(entry_vec, query_vec)
-                scored.append((entry, score))
+        with_embeddings = [entry for entry in entries if entry.embedding is not None]
+        if with_embeddings:
+            matrix = np.vstack([VectorStore.from_bytes(entry.embedding) for entry in with_embeddings])
+            query_vecs = vector_store.embed([query])
+            if query_vecs is not None:
+                scores = VectorStore.cosine_batch(matrix, query_vecs[0])
+                paired = list(zip(with_embeddings, scores))
+                paired.sort(key=lambda x: x[1], reverse=True)
+                return [_format_entry(entry) for entry, _ in paired[:limit]]
 
-            scored.sort(key=lambda x: x[1], reverse=True)
-            return [_format_entry(entry) for entry, _ in scored[:limit]]
-
-    # Fallback to keyword scoring
     tokens = _tokenize(query)
-    scored_kw = [
-        (entry, _score(tokens, entry))
-        for entry in entries
-    ]
+    scored_kw = [(entry, _score(tokens, entry)) for entry in entries]
     scored_kw = [item for item in scored_kw if item[1] > 0]
     scored_kw.sort(key=lambda x: x[1], reverse=True)
 
     return [_format_entry(entry) for entry, _ in scored_kw[:limit]]
+
+
+def reindex_memory(
+    *,
+    config: AppConfig | None = None,
+    legacy_path: Path | None = None,
+    target_path: Path | None = None,
+) -> Path:
+    """
+    Migrate existing JSONL memory data to the SQLite vector store.
+    """
+    target_store = _resolve_store(config, target_path)
+    source = legacy_path or target_store.with_suffix(".jsonl")
+    entries = _load_legacy_entries(source)
+    if not entries:
+        return target_store
+
+    store = SQLiteVectorStore(target_store)
+    for entry in entries:
+        store.insert_entry(entry)
+        if entry.embedding and entry.row_id is not None:
+            store.update_embedding(entry.row_id, entry.embedding)
+
+    return target_store

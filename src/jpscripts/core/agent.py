@@ -10,7 +10,7 @@ from git.exc import InvalidGitRepositoryError, NoSuchPathError
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
 from jpscripts.core.console import get_logger
-from jpscripts.core.context import gather_context, read_file_context
+from jpscripts.core.context import gather_context, smart_read_context
 from jpscripts.core.nav import scan_recent
 
 logger = get_logger(__name__)
@@ -76,13 +76,13 @@ async def prepare_agent_prompt(
 
         # Prioritize files detected in the stack trace
         detected_paths = list(sorted(detected_files))[:5]
-        file_context_section, attached = _build_file_context_section(detected_paths, max_file_context_chars)
+        file_context_section, attached = await _build_file_context_section(detected_paths, max_file_context_chars)
 
     # 3. Recent Context (Ambient)
     elif attach_recent:
         recents = await scan_recent(root, 3, False, set(ignore_dirs))
         recent_paths = [entry.path for entry in recents[:5]]
-        file_context_section, attached = _build_file_context_section(recent_paths, max_file_context_chars)
+        file_context_section, attached = await _build_file_context_section(recent_paths, max_file_context_chars)
 
     # 4. Git Diff (Work in Progress)
     git_diff_section = ""
@@ -148,11 +148,11 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
     return branch, commit, is_dirty
 
 
-def _build_file_context_section(paths: Sequence[Path], max_file_context_chars: int) -> tuple[str, list[Path]]:
+async def _build_file_context_section(paths: Sequence[Path], max_file_context_chars: int) -> tuple[str, list[Path]]:
     sections: list[str] = []
     attached: list[Path] = []
     for path in paths:
-        snippet = read_file_context(path, max_file_context_chars)
+        snippet = await asyncio.to_thread(smart_read_context, path, max_file_context_chars)
         if not snippet:
             continue
         sections.append(f"<file_context path='{path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n")
