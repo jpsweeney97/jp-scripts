@@ -9,6 +9,8 @@ from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Iterable, Sequence
 
+import yaml
+
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
@@ -33,7 +35,9 @@ class AgentRole(Enum):
 ROLE_PRIMERS: dict[AgentRole, str] = {
     AgentRole.ARCHITECT: (
         "You design the technical plan and break down the work. Produce concise steps and"
-        " call out risks for implementation."
+        " call out risks for implementation. Update the Swarm State YAML (objective,"
+        " current_phase, plan_steps, artifacts) and include the updated YAML in a"
+        " <plan_update> block."
     ),
     AgentRole.ENGINEER: (
         "You execute the plan, propose concrete code changes, and resolve edge cases."
@@ -51,6 +55,14 @@ class AgentUpdate:
     role: AgentRole
     kind: str  # stdout | stderr | status | exit
     content: str
+
+
+@dataclass
+class SwarmState:
+    objective: str
+    plan_steps: list[str]
+    current_phase: str  # "planning", "coding", "verifying"
+    artifacts: list[str]  # Files created/modified
 
 
 def _codex_path() -> str:
@@ -96,15 +108,35 @@ def _format_file_snippets(files: Sequence[Path], max_files: int = 3, max_chars: 
     return "\n\nContext files:\n" + "\n\n".join(snippets)
 
 
-def _compose_prompt(role: AgentRole, objective: str, context_log: str, config: AppConfig, safe_mode: bool, repo_root: Path, context_files: Sequence[Path], max_file_context_chars: int) -> str:
+def _compose_prompt(
+    role: AgentRole,
+    objective: str,
+    swarm_state: SwarmState,
+    context_log: str,
+    config: AppConfig,
+    safe_mode: bool,
+    repo_root: Path,
+    context_files: Sequence[Path],
+    max_file_context_chars: int,
+) -> str:
     primer = ROLE_PRIMERS.get(role, "")
     config_summary = _render_config_context(config, safe_mode)
     context_section = f"\n\nRepository context (from git status):\n{context_log.strip()}" if context_log.strip() else ""
     file_section = _format_file_snippets(context_files, max_chars=max_file_context_chars)
+    swarm_yaml = yaml.safe_dump(
+        {
+            "objective": swarm_state.objective,
+            "current_phase": swarm_state.current_phase,
+            "plan_steps": swarm_state.plan_steps,
+            "artifacts": swarm_state.artifacts,
+        },
+        sort_keys=False,
+    ).strip()
     return (
         f"You are the {role.label} in a three-agent swarm (Architect, Engineer, QA).\n"
         f"{primer}\n"
         f"Objective:\n{objective.strip()}\n\n"
+        f"Current Swarm State:\n{swarm_yaml}\n\n"
         f"Repo root: {repo_root}\n"
         f"Safe Mode Config:\n{config_summary}"
         f"{context_section}"
@@ -266,6 +298,12 @@ async def swarm_chat(
 
     # Gather Context (Timed)
     context_log, context_files = await _collect_repo_context(root)
+    swarm_state = SwarmState(
+        objective=objective.strip(),
+        plan_steps=[],
+        current_phase="planning",
+        artifacts=[str(path) for path in context_files],
+    )
 
     # Yield success status
     yield AgentUpdate(AgentRole.ARCHITECT, "status", "context loaded")
@@ -274,7 +312,17 @@ async def swarm_chat(
     agents = [
         AgentProcess(
             role=role,
-            prompt=_compose_prompt(role, objective, context_log, active_config, safe_mode, root, context_files, active_config.max_file_context_chars),
+            prompt=_compose_prompt(
+                role,
+                objective,
+                swarm_state,
+                context_log,
+                active_config,
+                safe_mode,
+                root,
+                context_files,
+                active_config.max_file_context_chars,
+            ),
             codex_bin=codex_bin,
             model=target_model,
             attached_files=context_files,

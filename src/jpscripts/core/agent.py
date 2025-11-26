@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
+from jpscripts.core import git as git_core
+from jpscripts.core import git_ops
 from jpscripts.core.context import gather_context, read_file_context
 from jpscripts.core.nav import scan_recent
 
@@ -29,11 +31,18 @@ async def prepare_agent_prompt(
     """
     Builds a structured, XML-delimited prompt for Codex.
     """
+    branch, commit, is_dirty = await _collect_git_context(root)
+
     # 1. System Pulse
     prompt = (
         f"<system_context>\n"
         f"  <workspace_root>{root}</workspace_root>\n"
         f"  <mode>God-Mode CLI</mode>\n"
+        f"  <git_context>\n"
+        f"    <branch>{branch}</branch>\n"
+        f"    <head>{commit}</head>\n"
+        f"    <dirty>{is_dirty}</dirty>\n"
+        f"  </git_context>\n"
         f"</system_context>\n\n"
     )
 
@@ -77,11 +86,46 @@ async def prepare_agent_prompt(
                 "]]>\n"
                 "</git_diff>\n\n"
             )
+        else:
+            prompt += "<git_diff>NO CHANGES</git_diff>\n\n"
 
     # 4. The User Instruction
     prompt += f"\n<instruction>\n{base_prompt.strip()}\n</instruction>"
 
     return PreparedPrompt(prompt=prompt, attached_files=attached)
+
+
+async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
+    if not root.exists() or not (root / ".git").exists():
+        return "(no repo)", "(no repo)", False
+
+    try:
+        repo = await asyncio.to_thread(git_core.open_repo, root)
+    except Exception:
+        return "(unknown)", "(unknown)", False
+
+    branch = "(unknown)"
+    commit = "(unknown)"
+    is_dirty = False
+
+    try:
+        status = await asyncio.to_thread(git_core.describe_status, repo)
+        branch = status.branch
+        is_dirty = status.dirty
+        _ = git_ops.format_status(status)
+    except Exception:
+        pass
+
+    try:
+        commit = await asyncio.to_thread(repo.git.rev_parse, "--short", "HEAD")
+        commit = str(commit).strip()
+    except Exception:
+        try:
+            commit = repo.head.commit.hexsha[:7]
+        except Exception:
+            commit = "(unknown)"
+
+    return branch, commit, is_dirty
 
 
 async def _collect_git_diff(root: Path, max_chars: int) -> str | None:

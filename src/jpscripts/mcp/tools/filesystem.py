@@ -30,12 +30,53 @@ async def read_file(path: str) -> str:
             return f"Error: {target} is not a file."
 
         max_chars = getattr(cfg, "max_file_context_chars", 50000)
+        total_size = target.stat().st_size
         content = await asyncio.to_thread(read_file_context, target, max_chars)
         if content is None:
             return f"Error: Could not read file {target} (unsupported encoding or IO error)."
+        if total_size > max_chars:
+            content += (
+                f"\n\n[SYSTEM WARNING: File truncated at {max_chars} chars. "
+                f"Total size: {total_size}. Use read_file_paged(path, offset={max_chars}) to read more.]"
+            )
         return content
     except Exception as e:
         return f"Error reading file: {str(e)}"
+
+
+@tool()
+async def read_file_paged(path: str, offset: int = 0, limit: int = 20000) -> str:
+    """
+    Read a file segment starting at byte offset. Use this to read large files.
+    """
+    try:
+        cfg = get_config()
+        if cfg is None:
+            return "Config not loaded."
+
+        root = cfg.workspace_root.expanduser()
+        base = Path(path)
+        candidate = base if base.is_absolute() else root / base
+        target = validate_path(candidate, root)
+
+        if not target.exists():
+            return f"Error: File {target} does not exist."
+        if not target.is_file():
+            return f"Error: {target} is not a file."
+        if offset < 0:
+            return "Error: offset must be non-negative."
+        if limit <= 0:
+            return "Error: limit must be positive."
+
+        def _read_slice() -> str:
+            with target.open("rb") as fh:
+                fh.seek(offset)
+                data = fh.read(limit)
+            return data.decode("utf-8", errors="replace")
+
+        return await asyncio.to_thread(_read_slice)
+    except Exception as e:
+        return f"Error reading file segment: {str(e)}"
 
 
 @tool()
