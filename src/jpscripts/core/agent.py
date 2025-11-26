@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -46,9 +48,32 @@ class AgentResponse(BaseModel):
     final_message: str | None = Field(None, description="Response to user if no action needed")
 
 
+def _clean_json_payload(text: str) -> str:
+    """Extract JSON content from raw agent output, tolerating code fences and stray prose."""
+    stripped = text.strip()
+    if not stripped:
+        return stripped
+
+    fence = re.search(r"```json\s*(.*?)```", stripped, flags=re.DOTALL | re.IGNORECASE)
+    if fence:
+        candidate = fence.group(1).strip()
+        if candidate:
+            return candidate
+
+    start = stripped.find("{")
+    end = stripped.rfind("}")
+    if start != -1 and end != -1 and end > start:
+        candidate = stripped[start : end + 1].strip()
+        if candidate:
+            return candidate
+
+    return stripped
+
+
 def parse_agent_response(payload: str) -> AgentResponse:
     """Parse and validate a JSON agent response."""
-    return AgentResponse.model_validate_json(payload)
+    cleaned = _clean_json_payload(payload)
+    return AgentResponse.model_validate_json(cleaned)
 
 
 @dataclass
@@ -528,6 +553,35 @@ async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
     return []
 
 
+async def _verify_syntax(files: list[Path]) -> str | None:
+    """Verify Python syntax for changed files using py_compile."""
+    py_files = [path for path in files if path.suffix == ".py"]
+    if not py_files:
+        return None
+
+    for path in py_files:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-m",
+                "py_compile",
+                str(path),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            return "Python interpreter not found for syntax check."
+        except Exception as exc:  # pragma: no cover - defensive
+            return f"Syntax check failed for {path}: {exc}"
+
+        stdout, stderr = await proc.communicate()
+        if proc.returncode != 0:
+            message = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+            return f"Syntax error in {path}: {message or 'py_compile failed'}"
+
+    return None
+
+
 async def _archive_session_summary(
     fetch_response: ResponseFetcher,
     *,
@@ -707,6 +761,14 @@ async def run_repair_loop(
             break
 
         applied_paths = await _apply_patch_text(patch_text, root)
+        syntax_error = await _verify_syntax(applied_paths)
+        if syntax_error:
+            console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
+            history.append(AttemptContext(iteration=attempt + 1, last_error=syntax_error, files_changed=applied_paths))
+            changed_files.update(applied_paths)
+            current_error = syntax_error
+            continue
+
         history.append(AttemptContext(iteration=attempt + 1, last_error=current_error, files_changed=applied_paths))
         changed_files.update(applied_paths)
 

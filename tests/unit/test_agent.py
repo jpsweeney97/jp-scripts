@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import typer
 
 from jpscripts.commands.agent import codex_exec
+from jpscripts.core.agent import parse_agent_response
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
@@ -123,3 +125,20 @@ def test_run_repair_loop_auto_archives(monkeypatch, tmp_path: Path) -> None:
     assert calls  # Summary fetch invoked
     assert saved
     assert "auto-fix" in (saved[0][1] or [])
+
+
+def test_parse_agent_response_handles_json_variants() -> None:
+    base = {
+        "thought_process": "Reasoned",
+        "shell_command": None,
+        "file_patch": None,
+        "final_message": "All good",
+    }
+
+    raw_json = json.dumps(base)
+    fenced_json = f"```json\n{raw_json}\n```"
+    prose_json = f"Here you go:\n{raw_json}\nThanks!"
+
+    for payload in (raw_json, fenced_json, prose_json):
+        parsed = parse_agent_response(payload)
+        assert parsed.final_message == "All good"

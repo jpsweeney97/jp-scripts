@@ -11,6 +11,8 @@ from typing import Any, Callable
 import yaml  # type: ignore[import-untyped]
 from rich.console import Console
 
+from jpscripts.core.console import get_logger
+
 # Regex to catch file paths, often with line numbers (e.g., "src/main.py:42")
 # Matches: (start of line or space) (relative path) (:line_number optional)
 FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE | re.IGNORECASE)
@@ -19,6 +21,13 @@ FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE |
 HARD_CONTEXT_CAP = 500_000
 STRUCTURED_EXTENSIONS = {".json", ".yml", ".yaml"}
 SYNTAX_WARNING = "# [WARN] Syntax error detected. AST features disabled.\n"
+
+logger = get_logger(__name__)
+
+
+def estimate_tokens(text: str) -> int:
+    """Heuristic token estimator using ~4 characters per token."""
+    return max(0, int(len(text) / 4))
 
 
 async def run_and_capture(command: str, cwd: Path) -> str:
@@ -94,6 +103,16 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
     """
     limit = max(0, min(max_chars, HARD_CONTEXT_CAP))
     try:
+        estimated_tokens = int(path.stat().st_size / 4)
+        if estimated_tokens > 10_000:
+            logger.warning(
+                "File %s estimated at %d tokens; context may be truncated.",
+                path,
+                estimated_tokens,
+            )
+    except OSError:
+        pass
+    try:
         with path.open("r", encoding="utf-8") as fh:
             text = fh.read(limit)
     except (OSError, UnicodeDecodeError):
@@ -101,9 +120,12 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
     return text
 
 
-def smart_read_context(path: Path, max_chars: int) -> str:
+def smart_read_context(path: Path, max_chars: int, max_tokens: int | None = None) -> str:
     """Read files with syntax-aware truncation to keep output parsable."""
-    limit = max(0, min(max_chars, HARD_CONTEXT_CAP))
+    limits: list[int] = [max_chars, HARD_CONTEXT_CAP]
+    if max_tokens is not None:
+        limits.append(max(0, max_tokens * 4))
+    limit = max(0, min(limits))
     if limit == 0:
         return ""
 

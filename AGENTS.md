@@ -1,66 +1,24 @@
-# JPScripts Constitution & Architectural Guidelines
+# JPScripts Constitution (God-Mode)
 
-You are contributing to `jpscripts`, a mission-critical Python CLI OS.
-Follow these invariants strictly.
+Read this document before touching code. Violations halt work until corrected.
 
-## 1. Architecture & Boundaries
+## 1) Prime Directives
+- **Context is King**: Always read this constitution first, then re-check relevant files before edits.
+- **Atomic Commits**: Separate refactors from feature work; never mix orthogonal changes in one commit.
 
-- **Unidirectional Flow**: `Commands` import `Core`. `Core` never imports `Commands`.
-- **Entry Point**: `src/jpscripts/main.py` is for registration only. No logic allowed.
-- **Core Libraries**:
-  - **CLI**: `typer` (commands), `rich` (output).
-  - **Data**: `pydantic` (validation), `sqlite3` (storage).
-  - **Async**: `asyncio` is mandatory for all I/O.
+## 2) Architecture
+- Layering is strict: `Commands` ➜ `Core` ➜ `MCP`. Dependencies flow downward only.
+- Entry point `src/jpscripts/main.py` performs registration/bootstrap only—no business logic.
+- All I/O is asynchronous via `asyncio`; blocking calls must be wrapped in threads or replaced with async equivalents.
+- Core libraries: Typer/Rich for CLI, Pydantic for validation, SQLite for storage. No ad-hoc dependencies.
 
-## 2. Coding Standards
+## 3) MCP Protocol
+- Tools live in `src/jpscripts/mcp/tools/` and are registered via `src/jpscripts/mcp/server.py` through `register_tools`.
+- Every new MCP tool must use the `@tool` decorator and wrap execution with `@tool_error_handler`.
+- File and path operations must call `security.validate_path(...)` to enforce sandbox boundaries.
+- Favor structured outputs; avoid free-form text from MCP tools unless explicitly required.
 
-- **Type Safety**: `mypy --strict` compliance is required. Use `from __future__ import annotations`.
-- **Error Handling**:
-  - Never use bare `except:`.
-  - User-facing errors must be caught and printed nicely via `console.print(..., style="red")`.
-  - Raw stack traces are only for `--verbose` mode.
-- **Path Safety**: All file operations must check `security.validate_path(path, root)` to prevent directory traversal.
-
-## Performance Invariants
-
-- File system traversal must utilize `ripgrep` or `fd` via subprocess. Python-native walking is banned for depth > 2.
-
-## 3. Agent Interaction Strategy
-
-- **Context**: When modifying a file, first check its imports to understand dependencies.
-- **tools**: Prefer using the specific MCP tools (`search_codebase`, `read_file`) over raw shell commands (`grep`, `cat`).
-- **Testing**:
-  - Unit tests go in `tests/unit/`.
-  - Integration tests go in `tests/integration/`.
-  - **Mandatory**: Every new feature must have a `test_smoke.py` entry ensuring the CLI command runs without crashing.
-- **Validation**:
-  - After each file modification, run tests.
-
-## 4. File System & Git
-
-- **Performance**: Do not list all files in the repo. Use `git ls-files` or `rg` for discovery.
-- **Safety**: Never run `git push` or `git clean -fdx` without explicit user confirmation flags (`--force` / `-y`).
-
-## 5. Documentation
-
-- Update `CHANGELOG.md` with every feature addition.
-- Docstrings must be Google-style.
-
-## Agent Protocol
-
-- All Agent interactions must use Structured JSON Outputs enforced by Pydantic schemas. No Regex parsing of natural language responses.
-
-## Negative Constraints
-
-- Never modify or delete an existing test case to make a build pass unless the test itself is proven incorrect. Fix the code, not the test.
-- Do not import packages that are not listed in `pyproject.toml`. If a new dependency is needed, explicitly ask the user to install it first.
-- All Python code changes must be compliant with `ruff` defaults. Do not introduce unused imports.
-- When using `git_commit`, keep the message under 50 chars for the subject line. Use the body for details.
-
-## 6. The Self-Correction Protocol
-
-When acting in an autonomous loop (`jp fix --loop`):
-
-1. **Verify First**: Never declare a task complete without running the verification command provided.
-2. **Incrementalism**: If a fix fails, do not hallucinate a new library. Revert to first principles. Read the error message literally.
-3. **Output Format**: When requested, provide _only_ the raw Git Patch or diff code block to minimize parsing errors.
+## 4) Testing Standards
+- Async code requires `pytest-asyncio`; write tests that exercise awaitables directly.
+- Every new CLI command must have a `test_smoke.py` entry to ensure `--help` and basic invocation succeed.
+- Keep unit tests in `tests/unit/` and integration/system tests in `tests/integration/`; do not bypass them.
