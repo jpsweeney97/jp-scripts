@@ -125,20 +125,26 @@ def whatpush(
     """Show what will be pushed to the upstream branch."""
     repo_path = repo_path.expanduser()
 
+    async def _collect() -> tuple[git_core.BranchStatus, list[git_core.Commit], str]:
+        repo = await git_core.AsyncRepo.open(repo_path)
+        status = await repo.status()
+        upstream = status.upstream
+        if not upstream:
+            raise git_core.GitOperationError(
+                "No upstream branch is configured. Set one with git push --set-upstream origin <branch>"
+            )
+        commits = await repo.get_commits(f"{upstream}..HEAD", max_commits)
+        diffstat = await repo.diff_stat(f"{upstream}..HEAD") if commits else ""
+        return status, commits, diffstat
+
     try:
-        repo = git_core.open_repo(repo_path)
+        status, commits, diffstat = asyncio.run(_collect())
+    except git_core.GitOperationError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
     except Exception as exc:
         console.print(f"[red]Failed to open git repo at {repo_path}: {exc}[/red]")
         raise typer.Exit(code=1)
-
-    status = git_core.describe_status(repo)
-    upstream = status.upstream
-    if not upstream:
-        console.print("[yellow]No upstream branch is configured. Set one with[/yellow] git push --set-upstream origin <branch>")
-        raise typer.Exit(code=1)
-
-    commits = list(repo.iter_commits(f"{upstream}..HEAD"))[:max_commits]
-    diffstat = repo.git.diff("--stat", f"{upstream}..HEAD") if commits else ""
 
     summary = Table(title="Push summary", box=box.SIMPLE)
     summary.add_column("Field", style="cyan", no_wrap=True)

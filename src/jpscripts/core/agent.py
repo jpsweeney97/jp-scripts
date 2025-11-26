@@ -89,10 +89,11 @@ async def prepare_agent_prompt(
     if include_diff:
         diff_text = await _collect_git_diff(root, 10_000)
         if diff_text:
+            safe_diff = _safe_cdata(diff_text)
             git_diff_section = (
                 "<git_diff>\n"
                 "<![CDATA[\n"
-                f"{diff_text}\n"
+                f"{safe_diff}\n"
                 "]]>\n"
                 "</git_diff>\n\n"
             )
@@ -111,6 +112,11 @@ async def prepare_agent_prompt(
     )
 
     return PreparedPrompt(prompt=prompt, attached_files=attached)
+
+
+def _safe_cdata(content: str) -> str:
+    """Escape CDATA terminators inside arbitrary content."""
+    return content.replace("]]>", "]]]]><![CDATA[>")
 
 
 async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
@@ -155,7 +161,8 @@ async def _build_file_context_section(paths: Sequence[Path], max_file_context_ch
         snippet = await asyncio.to_thread(smart_read_context, path, max_file_context_chars)
         if not snippet:
             continue
-        sections.append(f"<file_context path='{path.name}'>\n<![CDATA[\n{snippet}\n]]>\n</file_context>\n")
+        safe_snippet = _safe_cdata(snippet)
+        sections.append(f"<file_context path='{path.name}'>\n<![CDATA[\n{safe_snippet}\n]]>\n</file_context>\n")
         attached.append(path)
     if not sections:
         return "", attached

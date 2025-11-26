@@ -30,13 +30,13 @@ async def git_commit(message: str) -> str:
 
 
 def _describe_status() -> str:
-    repo = git_core.open_repo(Path.cwd())
-    status = git_core.describe_status(repo)
+    repo = asyncio.run(git_core.AsyncRepo.open(Path.cwd()))
+    status = asyncio.run(repo.status())
     return git_ops_core.format_status(status)
 
 
 def _commit_all(message: str) -> tuple[str, str, str]:
-    repo = git_core.open_repo(Path.cwd())
-    sha = git_ops_core.commit_all(repo, message)
-    status = git_core.describe_status(repo)
+    repo = asyncio.run(git_core.AsyncRepo.open(Path.cwd()))
+    sha = asyncio.run(git_ops_core.commit_all(repo, message))
+    status = asyncio.run(repo.status())
     return sha, status.branch, git_ops_core.format_status(status)

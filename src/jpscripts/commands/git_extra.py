@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
@@ -50,10 +51,10 @@ def gundo_last(
 ) -> None:
     """Safely undo the last commit. Works on local branches too."""
     repo_path = repo_path.expanduser()
-    repo = _ensure_repo(repo_path)
 
     try:
-        message = git_ops_core.undo_last_commit(repo, hard=hard)
+        repo = asyncio.run(git_core.AsyncRepo.open(repo_path))
+        message = asyncio.run(git_ops_core.undo_last_commit(repo, hard=hard))
     except git_ops_core.GitOperationError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)

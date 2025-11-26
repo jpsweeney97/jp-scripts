@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Iterator, Sequence
 
 from git import GitCommandError, InvalidGitRepositoryError, NoSuchPathError, Repo
+from git.objects import Commit
 
 
 @dataclass
@@ -54,6 +55,50 @@ class AsyncRepo:
     def _fetch_all_remotes(self) -> None:
         for remote in self._repo.remotes:
             remote.fetch()
+
+    async def commit(self, message: str) -> str:
+        try:
+            commit_obj: Commit = await asyncio.to_thread(self._repo.index.commit, message)
+            return commit_obj.hexsha
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to commit in {self.path}: {exc}") from exc
+
+    async def reset(self, mode: str, ref: str) -> None:
+        try:
+            await asyncio.to_thread(self._repo.git.reset, mode, ref)
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to reset {self.path}: {exc}") from exc
+
+    async def add(self, *, all: bool = False, paths: Sequence[Path] | None = None) -> None:
+        try:
+            if all:
+                await asyncio.to_thread(self._repo.git.add, all=True)
+            elif paths:
+                await asyncio.to_thread(self._repo.index.add, [str(path) for path in paths])
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to add changes in {self.path}: {exc}") from exc
+
+    async def status(self) -> BranchStatus:
+        try:
+            return await asyncio.to_thread(describe_status, self._repo)
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to read status for {self.path}: {exc}") from exc
+
+    async def get_commits(self, ref_range: str, limit: int) -> list[Commit]:
+        try:
+            return await asyncio.to_thread(self._iter_commits, ref_range, limit)
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to read commits in {self.path}: {exc}") from exc
+
+    async def diff_stat(self, ref_range: str) -> str:
+        try:
+            return await asyncio.to_thread(self._repo.git.diff, "--stat", ref_range)
+        except GitCommandError as exc:
+            raise GitOperationError(f"Failed to diff {self.path}: {exc}") from exc
+
+    def _iter_commits(self, ref_range: str, limit: int) -> list[Commit]:
+        commits = list(self._repo.iter_commits(ref_range))
+        return commits[:limit]
 
 
 def open_repo(path: Path | str = ".") -> Repo:

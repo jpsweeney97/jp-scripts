@@ -2,13 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from git import GitCommandError, Repo
+from git import Repo
+from git.objects import Commit
 
 from . import git as git_core
 
-
-class GitOperationError(RuntimeError):
-    """Raised when a git operation fails."""
+GitOperationError = git_core.GitOperationError
 
 
 def format_status(status: git_core.BranchStatus) -> str:
@@ -30,40 +29,33 @@ def format_status(status: git_core.BranchStatus) -> str:
     return "\n".join(lines)
 
 
-def commit_all(repo: Repo, message: str) -> str:
+async def commit_all(repo: git_core.AsyncRepo, message: str) -> str:
     """
     Stage all changes and create a commit. Returns the commit SHA.
     Raises GitOperationError if there is nothing to commit or git fails.
     """
-    try:
-        repo.git.add(all=True)
-        if not repo.is_dirty(untracked_files=True):
-            raise GitOperationError("No changes to commit.")
-        commit = repo.index.commit(message)
-        return commit.hexsha
-    except GitCommandError as exc:
-        raise GitOperationError(str(exc)) from exc
+    await repo.add(all=True, paths=[])
+    status = await repo.status()
+    if not status.dirty:
+        raise GitOperationError("No changes to commit.")
+    return await repo.commit(message)
 
 
-def undo_last_commit(repo: Repo, hard: bool = False) -> str:
+async def undo_last_commit(repo: git_core.AsyncRepo, hard: bool = False) -> str:
     """
     Reset the current branch back one commit.
     Refuses to operate if the branch is behind its upstream to avoid history rewrites.
     """
-    try:
-        repo.head.commit  # Ensures at least one commit exists
-    except ValueError:
+    commits = await repo.get_commits("HEAD", 1)
+    if not commits:
         raise GitOperationError("Repo has no commits to undo.")
 
-    status = git_core.describe_status(repo)
+    status = await repo.status()
     if status.upstream and status.behind > 0:
         raise GitOperationError("Refusing to undo: branch is behind upstream. Pull first.")
 
     mode = "--hard" if hard else "--soft"
-    try:
-        repo.git.reset(mode, "HEAD~1")
-    except GitCommandError as exc:
-        raise GitOperationError(str(exc)) from exc
+    await repo.reset(mode, "HEAD~1")
 
     return f"Reset {status.branch} one commit back ({mode})."
 

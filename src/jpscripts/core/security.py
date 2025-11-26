@@ -8,14 +8,12 @@ from git.exc import InvalidGitRepositoryError, NoSuchPathError
 
 from jpscripts.core import git as git_core
 
-_CACHED_WORKSPACE_ROOT: Path | None = None
-
 
 class WorkspaceValidationError(PermissionError):
     """Raised when the workspace root fails validation."""
 
 
-def cache_workspace_root(root: Path) -> Path:
+def validate_workspace_root(root: Path) -> Path:
     resolved = Path(root).expanduser().resolve()
     if not resolved.exists():
         raise WorkspaceValidationError(f"Workspace root {resolved} does not exist.")
@@ -26,25 +24,15 @@ def cache_workspace_root(root: Path) -> Path:
             f"Workspace root {resolved} must be a git repository or owned by the current user."
         )
 
-    global _CACHED_WORKSPACE_ROOT
-    _CACHED_WORKSPACE_ROOT = resolved
     return resolved
 
 
-def validate_path(path: str | Path, root: Path | None = None) -> Path:
+def validate_path(path: str | Path, root: Path) -> Path:
     """
-    Resolve a user-supplied path and ensure it stays within the cached workspace root.
+    Resolve a user-supplied path and ensure it stays within the provided workspace root.
     Raises PermissionError if the path escapes the root (including via symlinks).
     """
-    base_root = _CACHED_WORKSPACE_ROOT
-    resolved_root = Path(root).expanduser().resolve() if root is not None else None
-
-    if base_root is None and resolved_root is None:
-        raise PermissionError("Workspace root is not initialized.")
-    if base_root is None and resolved_root is not None:
-        base_root = cache_workspace_root(resolved_root)
-
-    assert base_root is not None
+    base_root = validate_workspace_root(root)
     candidate = Path(path).expanduser().resolve()
 
     try:

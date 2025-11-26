@@ -12,7 +12,7 @@ from unittest.mock import patch
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from jpscripts.core.security import WorkspaceValidationError, cache_workspace_root
+from jpscripts.core.security import WorkspaceValidationError, validate_workspace_root
 
 CONFIG_ENV_VAR = "JPSCRIPTS_CONFIG"
 
@@ -144,8 +144,8 @@ def load_config(
         config = AppConfig()
 
     try:
-        cached_root = cache_workspace_root(config.workspace_root)
-        config = config.model_copy(update={"workspace_root": cached_root})
+        resolved_root = validate_workspace_root(config.workspace_root)
+        config = config.model_copy(update={"workspace_root": resolved_root})
     except WorkspaceValidationError as exc:
         error = f"{error}; {exc}" if error else str(exc)
 

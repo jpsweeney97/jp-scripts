@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jpscripts.core.context import HARD_FILE_CONTEXT_LIMIT, read_file_context
-from jpscripts.core.security import WorkspaceValidationError, cache_workspace_root, validate_path
+from jpscripts.core.security import WorkspaceValidationError, validate_path, validate_workspace_root
 
 
 def test_validate_path_blocks_traversal(tmp_path: Path) -> None:
@@ -35,19 +35,24 @@ def test_cache_workspace_root_requires_existing_dir(tmp_path: Path) -> None:
     missing_root = tmp_path / "missing"
 
     with pytest.raises(WorkspaceValidationError):
-        cache_workspace_root(missing_root)
+        validate_workspace_root(missing_root)
 
 
-def test_validate_path_uses_cached_root(tmp_path: Path) -> None:
+def test_validate_path_requires_valid_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
-    cache_workspace_root(workspace)
 
     target = workspace / "child" / "file.txt"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("data", encoding="utf-8")
 
-    assert validate_path(target, None) == target.resolve()
+    assert validate_path(target, workspace) == target.resolve()
+
+
+def test_validate_path_raises_on_invalid_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    with pytest.raises(WorkspaceValidationError):
+        validate_path("file.txt", workspace)
 
 
 def test_read_file_context_caps_output(tmp_path: Path) -> None:
