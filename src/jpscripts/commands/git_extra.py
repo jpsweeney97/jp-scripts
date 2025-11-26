@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-import subprocess
 import webbrowser
 from pathlib import Path
 
@@ -43,6 +42,18 @@ def _ensure_repo(path: Path) -> git_core.AsyncRepo:
     return asyncio.run(git_core.AsyncRepo.open(repo_path))
 
 
+async def _run_passthrough_command(*args: str) -> None:
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        error_text = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+        raise RuntimeError(error_text or f"{args[0]} command failed")
+
+
 @handle_exceptions
 def gundo_last(
     ctx: typer.Context,
@@ -50,6 +61,7 @@ def gundo_last(
     hard: bool = typer.Option(False, "--hard", help="Use hard reset instead of soft."),
 ) -> None:
     """Safely undo the last commit. Works on local branches too."""
+    _ = ctx
     repo_path = repo_path.expanduser()
 
     repo = asyncio.run(git_core.AsyncRepo.open(repo_path))
@@ -67,6 +79,7 @@ def gstage(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Interactively stage files."""
+    _ = ctx
     repo = _ensure_repo(repo_path.expanduser())
     status_entries = asyncio.run(repo.status_short())
 
@@ -101,15 +114,20 @@ def gstage(
     console.print(f"[green]Staged[/green] {target_path_str}")
 
 
-def gpr(
+app.command("gstage")(gstage)
+
+
+@handle_exceptions
+async def gpr(
     ctx: typer.Context,
     action: str = typer.Option("view", "--action", "-a", help="view, checkout, or copy"),
     limit: int = typer.Option(30, "--limit", help="Max PRs to list."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Interact with GitHub PRs via gh (Typed & Robust)."""
+    _ = ctx
     try:
-        prs = _get_prs(limit)
+        prs = await _get_prs(limit)
     except RuntimeError as e:
         console.print(f"[red]{e}[/red]")
         raise typer.Exit(code=1)
@@ -141,33 +159,44 @@ def gpr(
 
     # Action dispatch
     if action == "checkout":
-        subprocess.run(["gh", "pr", "checkout", str(number)])
+        await _run_passthrough_command("gh", "pr", "checkout", str(number))
     elif action == "view":
-        subprocess.run(["gh", "pr", "view", str(number), "--web"])
+        await _run_passthrough_command("gh", "pr", "view", str(number), "--web")
     elif action == "copy":
         # Find the PR object to get the URL directly without another shell call
         target_pr = next((p for p in prs if p.number == number), None)
         if target_pr:
             import pyperclip  # type: ignore[import-untyped]
+
             pyperclip.copy(target_pr.url)
             console.print(f"[green]Copied[/green] {target_pr.url}")
     else:
         console.print(f"[red]Unknown action: {action}[/red]")
 
-def _get_prs(limit: int) -> list[PullRequest]:
+
+app.command("gpr")(gpr)
+
+async def _get_prs(limit: int) -> list[PullRequest]:
     if not shutil.which("gh"):
         raise RuntimeError("GitHub CLI (gh) is required.")
 
-    proc = subprocess.run(
-        ["gh", "pr", "list", f"--limit={limit}", "--json", "number,title,headRefName,author,url"],
-        capture_output=True,
-        text=True,
+    proc = await asyncio.create_subprocess_exec(
+        "gh",
+        "pr",
+        "list",
+        f"--limit={limit}",
+        "--json",
+        "number,title,headRefName,author,url",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
 
+    stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"gh failed: {proc.stderr}")
+        error_text = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+        raise RuntimeError(f"gh failed: {error_text}")
 
-    data = json.loads(proc.stdout)
+    data = json.loads(stdout.decode("utf-8"))
     return [PullRequest(**item) for item in data]
 
 

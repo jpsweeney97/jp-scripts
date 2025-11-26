@@ -140,8 +140,16 @@ def ssh_open(
         return
 
     console.print(f"[green]Connecting to[/green] {target} ...")
-    # NOTE: We keep subprocess here because ssh requires taking over the terminal TTY
-    subprocess.run(["ssh", target])
+    # NOTE: ssh must control the TTY for auth/IO; subprocess.run is intentional here.
+    # Async wrappers would detach stdio and break interactive shells.
+    if not shutil.which("ssh"):
+        console.print("[red]ssh binary not found on PATH.[/red]")
+        raise typer.Exit(code=1)
+    try:
+        subprocess.run(["ssh", target], check=False)
+    except FileNotFoundError:
+        console.print("[red]ssh binary not found on PATH.[/red]")
+        raise typer.Exit(code=1)
 
 
 def tmpserver(

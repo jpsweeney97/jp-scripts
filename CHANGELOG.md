@@ -1,5 +1,16 @@
 # Changelog
 
+# Changelog
+
+## [0.5.0] - The God-Mode Update
+
+### Changed
+
+- GitHub PR interactions now run fully async (`gpr`/`_get_prs`) with non-blocking gh subprocesses and safer TTY handling for SSH commands.
+- Context ingestion keeps JSON valid via structural truncation and YAML-aware dispatch in `smart_read_context`.
+- Swarm orchestration uses a `SwarmController` state machine with agent-nominated `next_step`, bounded turns, and structured handoffs.
+- Memory scoring now prefers recent entries via time-decayed keyword overlap.
+
 ## [0.4.9] - Unreleased
 
 ### Added

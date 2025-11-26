@@ -4,14 +4,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from jpscripts.core.team import (
-    AgentRole,
-    Objective,
-    PlanStep,
-    SwarmState,
-    _compose_prompt,
-    _validate_swarm_output,
-)
+from jpscripts.core.team import AgentRole, AgentTurnResponse, Objective, PlanStep, SwarmState, _compose_prompt, _parse_agent_turn
 from jpscripts.core.config import AppConfig
 
 
@@ -35,29 +28,33 @@ def test_compose_prompt_includes_schema_for_architect(tmp_path: Path) -> None:
         max_file_context_chars=1000,
     )
 
-    schema = json.dumps(SwarmState.model_json_schema(), indent=2)
+    schema = json.dumps(AgentTurnResponse.model_json_schema(), indent=2)
     assert schema.strip() in prompt
 
 
 def test_validate_swarm_output_accepts_valid_json() -> None:
-    payload = SwarmState(
-        objective=Objective(summary="Refactor"),
-        plan_steps=[PlanStep(summary="Step 1", status="pending")],
-        current_phase="planning",
-        artifacts=[],
+    payload = AgentTurnResponse(
+        swarm_state=SwarmState(
+            objective=Objective(summary="Refactor"),
+            plan_steps=[PlanStep(summary="Step 1", status="pending")],
+            current_phase="planning",
+            artifacts=[],
+        ),
+        next_step="engineer",
     ).model_dump_json()
 
     agent = SimpleNamespace(captured_raw=payload, captured_stdout="")
-    parsed, error_text = _validate_swarm_output(agent)  # type: ignore[arg-type]
+    parsed, error_text = _parse_agent_turn(agent)  # type: ignore[arg-type]
 
     assert parsed is not None
     assert error_text == ""
-    assert parsed.objective.summary == "Refactor"
+    assert parsed.swarm_state.objective.summary == "Refactor"
+    assert parsed.next_step == "engineer"
 
 
 def test_validate_swarm_output_returns_error() -> None:
     agent = SimpleNamespace(captured_raw="not-json", captured_stdout="")
-    parsed, error_text = _validate_swarm_output(agent)  # type: ignore[arg-type]
+    parsed, error_text = _parse_agent_turn(agent)  # type: ignore[arg-type]
 
     assert parsed is None
     assert "json_invalid" in error_text

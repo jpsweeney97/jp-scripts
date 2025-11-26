@@ -553,7 +553,21 @@ def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
     e_counts = Counter(entry.tokens)
     overlap = sum(min(q_counts[t], e_counts[t]) for t in set(q_counts) & set(e_counts))
     tag_overlap = len(set(entry.tags) & set(query_tokens))
-    return float(overlap + 0.5 * tag_overlap)
+    base_score = float(overlap + 0.5 * tag_overlap)
+    if base_score == 0.0:
+        return 0.0
+
+    decay = 1.0
+    try:
+        timestamp = datetime.fromisoformat(entry.ts)
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=timezone.utc)
+        days_since = max((datetime.now(timezone.utc) - timestamp).days, 0)
+        decay = 1 / (1 + 0.1 * float(days_since))
+    except Exception:
+        decay = 1.0
+
+    return base_score * decay
 
 
 def save_memory(

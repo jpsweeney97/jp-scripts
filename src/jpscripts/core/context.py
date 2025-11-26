@@ -6,7 +6,7 @@ import json
 import re
 import shutil
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable
 
 import yaml  # type: ignore[import-untyped]
 
@@ -87,9 +87,10 @@ def smart_read_context(path: Path, max_chars: int) -> str:
         return skeleton[:limit]
     if len(text) <= limit:
         return text
-    if suffix in STRUCTURED_EXTENSIONS:
-        loader = json.loads if suffix == ".json" else yaml.safe_load
-        return _truncate_structured_text(text, limit, loader)
+    if suffix == ".json":
+        return _truncate_json(text, limit)
+    if suffix in {".yaml", ".yml"}:
+        return _truncate_structured_text(text, limit, yaml.safe_load)
     return text[:limit]
 
 
@@ -353,6 +354,61 @@ def _validate_structured_prefix(candidate: str, loader: Callable[[str], object])
         except Exception:
             lines.pop()
     return None
+
+
+def _truncate_json(text: str, limit: int) -> str:
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        return _truncate_structured_text(text, limit, json.loads)
+
+    def _serialized_length(obj: Any) -> int:
+        return len(json.dumps(obj, ensure_ascii=False))
+
+    def _shrink(value: Any) -> Any:
+        if _serialized_length(value) <= limit:
+            return value
+        if isinstance(value, dict):
+            pruned: dict[str, Any] = {}
+            for key, val in value.items():
+                candidate = _shrink(val)
+                pruned[key] = candidate
+                if _serialized_length(pruned) > limit:
+                    pruned.pop(key, None)
+                    break
+            return pruned
+        if isinstance(value, list):
+            pruned_list: list[Any] = []
+            for item in value:
+                candidate = _shrink(item)
+                pruned_list.append(candidate)
+                if _serialized_length(pruned_list) > limit:
+                    pruned_list.pop()
+                    break
+            return pruned_list
+        if isinstance(value, str):
+            return value[: max(limit // 4, 0)]
+        return value
+
+    pruned_value = _shrink(data)
+    serialized = json.dumps(pruned_value, ensure_ascii=False)
+    if len(serialized) <= limit:
+        return serialized
+
+    if isinstance(pruned_value, list):
+        while pruned_value and len(json.dumps(pruned_value, ensure_ascii=False)) > limit:
+            pruned_value.pop()
+    elif isinstance(pruned_value, dict):
+        for key in list(pruned_value.keys())[::-1]:
+            pruned_value.pop(key, None)
+            if len(json.dumps(pruned_value, ensure_ascii=False)) <= limit:
+                break
+
+    serialized = json.dumps(pruned_value, ensure_ascii=False)
+    if len(serialized) > limit:
+        minimal = "{}" if isinstance(pruned_value, dict) else "[]"
+        return minimal[:limit]
+    return serialized
 
 
 def _truncate_structured_text(text: str, limit: int, loader: Callable[[str], object]) -> str:
