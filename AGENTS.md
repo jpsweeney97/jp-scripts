@@ -17,6 +17,7 @@ Read this document before touching code. Violations halt work until corrected.
 - Every new MCP tool must use the `@tool` decorator and wrap execution with `@tool_error_handler`.
 - File and path operations must call `security.validate_path(...)` to enforce sandbox boundaries.
 - Favor structured outputs; avoid free-form text from MCP tools unless explicitly required.
+- All MCP tools must rely on Pydantic runtime validation. Primitives must be fully type-hinted. The server will fail to start if untyped arguments are detected.
 
 ## 4) Testing Standards
 - Async code requires `pytest-asyncio`; write tests that exercise awaitables directly.

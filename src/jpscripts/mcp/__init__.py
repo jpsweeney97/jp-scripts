@@ -6,17 +6,18 @@ import functools
 import inspect
 import json
 from pathlib import Path
-from typing import Any, ParamSpec
+from typing import Any, ParamSpec, TypeVar
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
+from jpscripts.core.mcp_registry import strict_tool_validator
 
 logger = get_logger("mcp")
 config: AppConfig | None = None
 
 P = ParamSpec("P")
+R = TypeVar("R")
 _TOOL_METADATA_ATTR = "__mcp_tool_metadata__"
-ToolCallable = Callable[..., Any]
 ToolAsyncCallable = Callable[P, Awaitable[str]]
 
 
@@ -31,12 +32,13 @@ def get_config() -> AppConfig | None:
     return config
 
 
-def tool(**metadata: Any) -> Callable[[ToolCallable], ToolCallable]:
+def tool(**metadata: Any) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Mark a function as an MCP tool and attach optional registration metadata."""
 
-    def decorator(fn: ToolCallable) -> ToolCallable:
-        setattr(fn, _TOOL_METADATA_ATTR, metadata)
-        return fn
+    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
+        wrapped = strict_tool_validator(fn)
+        setattr(wrapped, _TOOL_METADATA_ATTR, metadata)
+        return functools.wraps(fn)(wrapped)
 
     return decorator
 

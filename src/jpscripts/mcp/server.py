@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 from collections.abc import Callable, Iterable
 from types import ModuleType
 from typing import Any
@@ -45,6 +46,12 @@ def _import_tool_modules(module_names: Iterable[str]) -> list[ModuleType]:
 def register_tools(mcp: FastMCP, module_names: Iterable[str] | None = None) -> None:
     modules = _import_tool_modules(module_names or TOOL_MODULES)
     for func, metadata in _iter_tools(modules):
+        signature = inspect.signature(func)
+        for name, param in signature.parameters.items():
+            if param.annotation is inspect.Parameter.empty:
+                raise RuntimeError(
+                    f"MCP tool '{getattr(func, '__name__', repr(func))}' argument '{name}' is missing a type hint."
+                )
         try:
             mcp.add_tool(func, **metadata)
         except Exception as exc:
