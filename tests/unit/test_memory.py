@@ -68,6 +68,9 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
         def __init__(self, _path, embedding_dim: int) -> None:
             self.embedding_dim = embedding_dim
 
+        def available(self) -> bool:
+            return True
+
         def search(self, _vector, _limit: int):
             return [
                 memory_core.MemoryEntry(

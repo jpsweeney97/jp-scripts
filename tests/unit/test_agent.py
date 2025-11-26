@@ -26,21 +26,21 @@ agent_app.command(name="fix")(codex_exec)
 
 def test_codex_exec_builds_command(runner):
     """Verify jp fix constructs the correct codex CLI call."""
-    # We patch shutil.which to ensure the command doesn't fail validation
-    mock_proc = MagicMock()
-    mock_proc.stdout = io.StringIO("")
-    mock_proc.stderr = io.StringIO("")
-    mock_proc.wait.return_value = 0
+    captured: list[list[str]] = []
 
-    with patch("jpscripts.commands.agent.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-         patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"):
+    async def fake_execute(cmd, *, status_label):
+        captured.append(cmd)
+        return ["done"], None
+
+    with patch("jpscripts.commands.agent._execute_codex_prompt", side_effect=fake_execute), \
+         patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"):
 
         result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
         assert result.exit_code == 0
+        assert captured
 
-        args, _ = mock_popen.call_args
-        cmd = args[0]
+        cmd = captured[0]
 
         assert cmd[0] == "/usr/bin/codex"
         assert "exec" in cmd
@@ -53,22 +53,24 @@ def test_codex_exec_attaches_recent_files(runner):
     mock_entry.path = Path("fake_recent.py")
     mock_entry.path.write_text("hello world", encoding="utf-8")
 
-    mock_proc = MagicMock()
-    mock_proc.stdout = io.StringIO("")
-    mock_proc.stderr = io.StringIO("")
-    mock_proc.wait.return_value = 0
+    captured: list[list[str]] = []
 
     async def fake_scan_recent(*_args, **_kwargs):
         return [mock_entry]
 
-    with patch("jpscripts.commands.agent.subprocess.Popen", return_value=mock_proc) as mock_popen, \
-         patch("jpscripts.commands.agent.shutil.which", return_value="/usr/bin/codex"), \
+    async def fake_execute(cmd, *, status_label):
+        captured.append(cmd)
+        return ["done"], None
+
+    with patch("jpscripts.commands.agent._execute_codex_prompt", side_effect=fake_execute), \
+         patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"), \
          patch("jpscripts.core.agent.scan_recent", side_effect=fake_scan_recent):
 
         result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
         assert result.exit_code == 0
-        cmd = mock_popen.call_args[0][0]
+        assert captured
+        cmd = captured[0]
 
         # Prompt (last arg) should include the recent file snippet/path
         prompt_arg = cmd[-1]

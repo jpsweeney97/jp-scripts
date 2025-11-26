@@ -1,25 +1,30 @@
 # Changelog
 
-## [0.4.4] - Unreleased
+## [0.4.9] - Unreleased
 
 ### Added
+
 - Integration safeguard for Codex handoff with a mocked subprocess and XML prompt validation (`tests/integration/test_agent_real.py`).
 - Async git core helpers for remote URL lookup, stash management, and porcelain-short status parsing to replace GitPython-only surfaces.
 - `make lint` entry for strict `mypy` gating ahead of tests.
+- `jp fix` supports `--loop`/`--max-retries` self-healing runs with automated patch application and optional revert on failure.
 
 ### Changed
+
 - Git plumbing now uses true asyncio subprocess calls and porcelain v2 parsing for status, fetch, and commit workflows (no GitPython threads).
 - `git-extra` commands (`gstage`, `gbrowse`, `stashview`) now run through `AsyncRepo` with asyncio orchestration, removing direct GitPython dependencies.
 - Python context reads fall back to warn-tagged head/tail slices when AST parsing fails, preserving context through syntax errors.
-- Memory storage migrated to LanceDB with a pydantic schema and vector search, while retaining keyword fallback when AI extras are absent.
+- Memory storage now uses a VectorStore adapter with LanceDB + NoOp implementations, simplifying optional dependency handling while retaining keyword fallbacks.
 
 ## [0.4.0] - The Trinity Update
 
 ### Added
+
 - **Architecture Map**: New `jp map` command (and `repo-map` alias) generates high-density AST summaries of the codebase for context-efficient planning.
 - **Diff-Aware Agents**: `jp fix` now automatically attaches `git diff` context so agents can see uncommitted changes.
 
 ### Changed
+
 - **Modular MCP**: Refactored monolithic `mcp_server.py` into a modular `jpscripts.mcp` package with dynamic tool registration.
 - **Documentation**: Updated `AGENTS.md` to mandate `jp map` usage for architectural exploration.
 

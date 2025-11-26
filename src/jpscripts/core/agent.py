@@ -3,11 +3,13 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Awaitable, Callable, Sequence
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
-from jpscripts.core.console import get_logger
+from jpscripts.core import security
+from jpscripts.core.config import AppConfig
+from jpscripts.core.console import console, get_logger
 from jpscripts.core.context import gather_context, smart_read_context
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.structure import generate_map, get_import_dependencies
@@ -43,6 +45,16 @@ AGENT_PROMPT_TEMPLATE = (
 class PreparedPrompt:
     prompt: str
     attached_files: list[Path]
+
+
+@dataclass
+class AttemptContext:
+    iteration: int
+    last_error: str
+    files_changed: list[Path]
+
+
+PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
 
 
 async def prepare_agent_prompt(
@@ -236,3 +248,249 @@ async def _collect_git_diff(root: Path, max_chars: int) -> str | None:
         return f"{diff[:max_chars]}... [truncated]"
 
     return diff
+
+
+def _summarize_output(stdout: str, stderr: str, limit: int) -> str:
+    combined = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
+    if not combined:
+        return "Command failed without output."
+    if len(combined) > limit:
+        return combined[-limit:] + "... [truncated]"
+    return combined
+
+
+def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str:
+    if not history:
+        return "None yet."
+
+    lines: list[str] = []
+    for attempt in history:
+        relative_files = []
+        for path in attempt.files_changed:
+            try:
+                relative_files.append(str(path.relative_to(root)))
+            except ValueError:
+                relative_files.append(str(path))
+        file_part = f" | files: {', '.join(relative_files)}" if relative_files else ""
+        lines.append(f"Attempt {attempt.iteration}: {attempt.last_error}{file_part}")
+
+    return "\n".join(lines)
+
+
+def _build_repair_instruction(
+    base_prompt: str,
+    current_error: str,
+    history: Sequence[AttemptContext],
+    root: Path,
+) -> str:
+    history_block = _build_history_summary(history, root)
+    return (
+        f"{base_prompt.strip()}\n\n"
+        "Autonomous repair loop in progress. Use the failure details to craft a minimal fix.\n"
+        f"Current error:\n{current_error.strip()}\n\n"
+        f"Previous attempts:\n{history_block}\n\n"
+        "Respond ONLY with a Git patch or unified diff. Do not add explanations."
+    )
+
+
+async def _run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except Exception as exc:
+        return 1, "", str(exc)
+
+    stdout, stderr = await proc.communicate()
+    return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+
+
+def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
+    candidates: set[Path] = set()
+    for raw_line in patch_text.splitlines():
+        if not raw_line.startswith(("+++ ", "--- ")):
+            continue
+        try:
+            _, path_str = raw_line.split(" ", 1)
+        except ValueError:
+            continue
+        path_str = path_str.strip()
+        if path_str in {"/dev/null", "dev/null", "a/dev/null", "b/dev/null"}:
+            continue
+        if path_str.startswith(("a/", "b/")):
+            path_str = path_str[2:]
+        try:
+            candidates.add(security.validate_path(root / path_str, root))
+        except PermissionError as exc:
+            logger.debug("Skipped unsafe patch path %s: %s", path_str, exc)
+        except Exception as exc:
+            logger.debug("Failed to normalize patch path %s: %s", path_str, exc)
+    return sorted(candidates)
+
+
+def _write_failed_patch(patch_text: str, root: Path) -> None:
+    try:
+        destination = security.validate_path(root / "agent_failed_patch.diff", root)
+        destination.write_text(patch_text, encoding="utf-8")
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Unable to persist failed patch for inspection: %s", exc)
+
+
+async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
+    if not patch_text.strip():
+        return []
+
+    target_paths = _extract_patch_paths(patch_text, root)
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "apply",
+            "--whitespace=nowarn",
+            cwd=root,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        proc = None
+
+    if proc:
+        stdout, stderr = await proc.communicate(patch_text.encode())
+        if proc.returncode == 0:
+            return target_paths
+        logger.debug("git apply failed: %s", stderr.decode(errors="replace"))
+
+    try:
+        fallback = await asyncio.create_subprocess_exec(
+            "patch",
+            "-p1",
+            cwd=root,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        _write_failed_patch(patch_text, root)
+        return []
+
+    out, err = await fallback.communicate(patch_text.encode())
+    if fallback.returncode == 0:
+        return target_paths
+
+    logger.error(
+        "Patch application failed: %s",
+        err.decode(errors="replace") or out.decode(errors="replace"),
+    )
+    _write_failed_patch(patch_text, root)
+    return []
+
+
+async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
+    if not paths:
+        return
+
+    safe_paths: list[Path] = []
+    for path in paths:
+        try:
+            safe_paths.append(security.validate_path(path, root))
+        except PermissionError as exc:
+            logger.debug("Skipping revert for unsafe path %s: %s", path, exc)
+
+    if not safe_paths:
+        return
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "checkout",
+            "--",
+            *[str(path) for path in safe_paths],
+            cwd=root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return
+
+    _, stderr = await proc.communicate()
+    if proc.returncode != 0:
+        logger.debug("Failed to revert files after unsuccessful loop: %s", stderr.decode(errors="replace"))
+
+
+async def run_repair_loop(
+    *,
+    base_prompt: str,
+    command: str,
+    config: AppConfig,
+    attach_recent: bool,
+    include_diff: bool,
+    fetch_patch: PatchFetcher,
+    max_retries: int = 3,
+    keep_failed: bool = False,
+) -> bool:
+    """
+    Execute an autonomous repair loop that retries the provided command.
+    """
+    root = security.validate_workspace_root(config.workspace_root or config.notes_dir)
+    attempt_cap = max(1, max_retries)
+    history: list[AttemptContext] = []
+    changed_files: set[Path] = set()
+
+    for attempt in range(attempt_cap):
+        console.print(f"[cyan]Attempt {attempt + 1}/{attempt_cap}: running `{command}`[/cyan]")
+        exit_code, stdout, stderr = await _run_shell_command(command, root)
+        if exit_code == 0:
+            console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+            return True
+
+        current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
+        console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
+
+        iteration_prompt = _build_repair_instruction(base_prompt, current_error, history, root)
+        prepared = await prepare_agent_prompt(
+            iteration_prompt,
+            root=root,
+            run_command=None,
+            attach_recent=attach_recent,
+            include_diff=include_diff,
+            ignore_dirs=config.ignore_dirs,
+            max_file_context_chars=config.max_file_context_chars,
+            max_command_output_chars=config.max_command_output_chars,
+        )
+
+        if prepared.attached_files:
+            console.print(
+                f"[green]Attached files for attempt {attempt + 1}:[/green] "
+                f"{', '.join(path.name for path in prepared.attached_files)}"
+            )
+
+        try:
+            patch_text = await fetch_patch(prepared)
+        except Exception as exc:
+            console.print(f"[red]Failed to retrieve patch from agent:[/red] {exc}")
+            break
+
+        if not patch_text.strip():
+            console.print("[red]Agent returned empty patch. Aborting loop.[/red]")
+            break
+
+        applied_paths = await _apply_patch_text(patch_text, root)
+        history.append(AttemptContext(iteration=attempt + 1, last_error=current_error, files_changed=applied_paths))
+        changed_files.update(applied_paths)
+
+    console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
+    exit_code, stdout, stderr = await _run_shell_command(command, root)
+    if exit_code == 0:
+        console.print("[green]Command succeeded after final verification.[/green]")
+        return True
+
+    console.print(f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}")
+    if changed_files and not keep_failed:
+        console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
+        await _revert_changed_files(list(changed_files), root)
+
+    return False

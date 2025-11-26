@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Sequence, TYPE_CHECKING
+from typing import Protocol, Sequence, TYPE_CHECKING
 from uuid import uuid4
 
 from jpscripts.core.config import AppConfig
@@ -79,6 +79,17 @@ class MemoryEntry:
     tags: list[str]
     tokens: list[str]
     embedding: list[float] | None = None
+
+
+class VectorStore(Protocol):
+    def insert(self, entries: Sequence[MemoryEntry]) -> None:
+        ...
+
+    def search(self, vector: list[float], limit: int) -> list[MemoryEntry]:
+        ...
+
+    def available(self) -> bool:
+        ...
 
 
 def _resolve_store(config: AppConfig | None = None, store_path: Path | None = None) -> Path:
@@ -253,6 +264,7 @@ class LanceDBStore:
         self._embedding_dim = embedding_dim
         self._model_cls: type[MemoryRecord] = MemoryRecord
         self._table: LanceTable = self._ensure_table()
+        self._available = True
 
     def _ensure_table(self) -> LanceTable:
         db = self._lancedb.connect(str(self._db_path))
@@ -299,6 +311,30 @@ class LanceDBStore:
                 )
             )
         return matches
+
+    def available(self) -> bool:
+        return self._available
+
+
+class NoOpStore:
+    def insert(self, entries: Sequence[MemoryEntry]) -> None:  # pragma: no cover - trivial
+        return
+
+    def search(self, vector: list[float], limit: int) -> list[MemoryEntry]:  # pragma: no cover - trivial
+        return []
+
+    def available(self) -> bool:
+        return False
+
+
+def get_vector_store(db_path: Path, embedding_dim: int) -> VectorStore:
+    try:
+        return LanceDBStore(db_path, embedding_dim=embedding_dim)
+    except ImportError:
+        _warn_semantic_unavailable()
+    except Exception as exc:
+        logger.debug("Vector store unavailable at %s: %s", db_path, exc)
+    return NoOpStore()
 
 
 def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
@@ -349,13 +385,12 @@ def save_memory(
     _append_entry(fallback_path, entry)
 
     if entry.embedding and len(entry.embedding) > 0:
-        try:
-            store = LanceDBStore(resolved_store, embedding_dim=len(entry.embedding))
-            store.insert([entry])
-        except ImportError:
-            _warn_semantic_unavailable()
-        except Exception as exc:
-            logger.debug("Failed to persist memory to LanceDB at %s: %s", resolved_store, exc)
+        store = get_vector_store(resolved_store, embedding_dim=len(entry.embedding))
+        if store.available():
+            try:
+                store.insert([entry])
+            except Exception as exc:
+                logger.debug("Failed to persist memory to LanceDB at %s: %s", resolved_store, exc)
 
     return entry
 
@@ -387,15 +422,14 @@ def query_memory(
             vector = query_vecs[0]
             if len(vector) == 0:
                 return []
-            try:
-                store = LanceDBStore(resolved_store, embedding_dim=len(vector))
-                vector_results = store.search(vector, limit)
-                if vector_results:
-                    return [_format_entry(entry) for entry in vector_results]
-            except ImportError:
-                _warn_semantic_unavailable()
-            except Exception as exc:
-                logger.debug("Vector search failed, falling back to keywords: %s", exc)
+            store = get_vector_store(resolved_store, embedding_dim=len(vector))
+            if store.available():
+                try:
+                    vector_results = store.search(vector, limit)
+                    if vector_results:
+                        return [_format_entry(entry) for entry in vector_results]
+                except Exception as exc:
+                    logger.debug("Vector search failed, falling back to keywords: %s", exc)
 
     tokens = _tokenize(query)
     scored_kw = [(entry, _score(tokens, entry)) for entry in entries]
@@ -438,13 +472,12 @@ def reindex_memory(
         if populated:
             embedding_dim = len(populated[0].embedding or [])
             if embedding_dim > 0:
-                try:
-                    store = LanceDBStore(target_store, embedding_dim=embedding_dim)
-                    store.insert(populated)
-                except ImportError:
-                    _warn_semantic_unavailable()
-                except Exception as exc:
-                    logger.debug("Failed to populate LanceDB during reindex: %s", exc)
+                store = get_vector_store(target_store, embedding_dim=embedding_dim)
+                if store.available():
+                    try:
+                        store.insert(populated)
+                    except Exception as exc:
+                        logger.debug("Failed to populate LanceDB during reindex: %s", exc)
 
     _write_entries(fallback_target, entries)
     return target_store

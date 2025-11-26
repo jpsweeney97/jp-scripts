@@ -41,3 +41,11 @@ Follow these invariants strictly.
 
 - Update `CHANGELOG.md` with every feature addition.
 - Docstrings must be Google-style.
+
+## 6. The Self-Correction Protocol
+
+When acting in an autonomous loop (`jp fix --loop`):
+
+1. **Verify First**: Never declare a task complete without running the verification command provided.
+2. **Incrementalism**: If a fix fails, do not hallucinate a new library. Revert to first principles. Read the error message literally.
+3. **Output Format**: When requested, provide _only_ the raw Git Patch or diff code block to minimize parsing errors.

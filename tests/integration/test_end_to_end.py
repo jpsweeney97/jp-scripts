@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import os
 import subprocess
 from pathlib import Path
@@ -68,23 +67,11 @@ def test_end_to_end_fix_and_nav(
     buggy_file.write_text("def broken(:\n    pass\n", encoding="utf-8")
     print("workspace ready", buggy_file, flush=True)
 
-    class FakePopen:
-        def __init__(self, *_args, **_kwargs) -> None:
-            self.stdout = io.StringIO(
-                '{"event":"turn.completed","data":{"assistant_message":"fixed bug"}}\n'
-            )
-            self.stderr = io.StringIO("")
-            self.pid = 1234
-            self.returncode = 0
+    monkeypatch.setattr("jpscripts.commands.agent._ensure_codex", lambda: "/usr/bin/codex")
+    async def fake_execute(cmd, *, status_label):
+        return ["fixed bug"], None
 
-        def wait(self) -> int:
-            return 0
-
-        def poll(self) -> int:
-            return 0
-
-    monkeypatch.setattr("jpscripts.commands.agent.shutil.which", lambda *_args, **_kwargs: "/usr/bin/codex")
-    monkeypatch.setattr("jpscripts.commands.agent.subprocess.Popen", FakePopen)
+    monkeypatch.setattr("jpscripts.commands.agent._execute_codex_prompt", fake_execute)
     from jpscripts.core.agent import PreparedPrompt
 
     async def fake_prepare_agent_prompt(**_kwargs) -> PreparedPrompt:
