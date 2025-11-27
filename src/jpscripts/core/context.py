@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import fnmatch
 import json
 import re
 import shlex
@@ -22,6 +23,7 @@ FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE |
 HARD_CONTEXT_CAP = 500_000
 STRUCTURED_EXTENSIONS = {".json", ".yml", ".yaml"}
 SYNTAX_WARNING = "# [WARN] Syntax error detected. AST features disabled.\n"
+SENSITIVE_PATTERNS = [".env", ".env.*", "*.pem", "*.key", "id_rsa"]
 
 logger = get_logger(__name__)
 
@@ -113,6 +115,10 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
     Returns None on any read/encoding error.
     """
     limit = max(0, min(max_chars, HARD_CONTEXT_CAP))
+    for pattern in SENSITIVE_PATTERNS:
+        if fnmatch.fnmatch(path.name, pattern):
+            logger.warning("Blocked sensitive file read: %s", path)
+            return None
     try:
         estimated_tokens = int(path.stat().st_size / 4)
         if estimated_tokens > 10_000:

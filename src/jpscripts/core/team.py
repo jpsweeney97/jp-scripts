@@ -5,15 +5,18 @@ import json
 import os
 import shutil
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import AsyncIterator, Iterable, Literal, Sequence
 
+from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
 from jpscripts.core.engine import AgentEngine, Message, PreparedPrompt
+from jpscripts.core import security
 
 logger = get_logger(__name__)
 
@@ -140,7 +143,17 @@ def _format_file_snippets(files: Sequence[Path], max_files: int = 3, max_chars: 
     return "\n\nContext files:\n" + "\n\n".join(snippets)
 
 
-def _compose_prompt(
+def _resolve_template_root() -> Path:
+    package_root = Path(__file__).resolve().parent.parent
+    return security.validate_path(package_root / "templates", package_root)
+
+
+@lru_cache(maxsize=1)
+def _get_template_environment(template_root: Path) -> Environment:
+    return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
+
+
+def _render_swarm_prompt(
     persona: Persona,
     objective: str,
     swarm_state: SwarmState,
@@ -151,29 +164,31 @@ def _compose_prompt(
     context_files: Sequence[Path],
     max_file_context_chars: int,
 ) -> str:
-    primer = persona.style
-    config_summary = _render_config_context(config, safe_mode)
+    template_root = _resolve_template_root()
+    env = _get_template_environment(template_root)
+    template_name = f"swarm_{persona.name.lower()}.j2"
+    try:
+        template = env.get_template(template_name)
+    except TemplateNotFound as exc:
+        raise FileNotFoundError(f"Template {template_name} not found in {template_root}") from exc
+
     context_section = f"\n\nRepository context (from git status):\n{context_log.strip()}" if context_log.strip() else ""
     file_section = _format_file_snippets(context_files, max_chars=max_file_context_chars)
-    swarm_json = swarm_state.model_dump_json(indent=2)
     handoff_guidance = "Use `next_step` to route work to the appropriate persona (engineer/qa) or `finish` when done."
-    schema_instruction = (
-        "\n\nRespond ONLY with JSON that matches this schema. Do not add markdown or explanations:\n"
-        f"{json.dumps(AgentTurnResponse.model_json_schema(), indent=2)}\n"
-        f"Handoff rules: {handoff_guidance}"
-    )
-    return (
-        f"You are the {persona.label} in a three-agent swarm (Architect, Engineer, QA).\n"
-        f"{primer}\n"
-        f"Objective:\n{objective.strip()}\n\n"
-        f"Current Swarm State (JSON):\n{swarm_json}\n\n"
-        f"Repo root: {repo_root}\n"
-        f"Safe Mode Config:\n{config_summary}"
-        f"{context_section}"
-        f"{file_section}"
-        f"{schema_instruction}\n\n"
-        "Coordinate asynchronously; keep responses compact so they can be relayed in real time."
-    )
+
+    render_context = {
+        "persona_label": persona.label,
+        "persona_style": persona.style,
+        "objective": objective.strip(),
+        "swarm_json": swarm_state.model_dump_json(indent=2),
+        "repo_root": repo_root,
+        "config_summary": _render_config_context(config, safe_mode),
+        "context_log": context_section,
+        "file_section": file_section,
+        "schema_json": json.dumps(AgentTurnResponse.model_json_schema(), indent=2),
+        "handoff_guidance": handoff_guidance,
+    }
+    return template.render(**render_context)
 
 
 def _parse_event_line(raw: str) -> str:
@@ -326,7 +341,7 @@ class SwarmController:
         )
 
     async def _run_turn(self, role: Persona) -> AsyncIterator[AgentUpdate]:
-        prompt = _compose_prompt(
+        prompt = _render_swarm_prompt(
             role,
             self.objective,
             self.swarm_state,

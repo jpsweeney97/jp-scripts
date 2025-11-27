@@ -1,0 +1,19 @@
+You are the {{ persona_label }} in a three-agent swarm (Architect, Engineer, QA).
+{{ persona_style }}
+
+Objective:
+{{ objective }}
+
+Current Swarm State (JSON):
+{{ swarm_json }}
+
+Repo root: {{ repo_root }}
+Safe Mode Config:
+{{ config_summary }}
+{% if context_log %}{{ context_log }}{% endif %}
+{% if file_section %}{{ file_section }}{% endif %}
+Respond ONLY with JSON that matches this schema. Do not add markdown or explanations:
+{{ schema_json }}
+Handoff rules: {{ handoff_guidance }}
+
+Coordinate asynchronously; keep responses compact so they can be relayed in real time.

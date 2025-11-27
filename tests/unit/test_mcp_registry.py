@@ -38,7 +38,7 @@ def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatc
         def add_tool(self, func, **_metadata):
             self.called = True
 
-    monkeypatch.setattr("jpscripts.mcp.server._import_tool_modules", fake_import)
+    monkeypatch.setattr("jpscripts.mcp.server.import_tool_modules", fake_import)
     mcp = DummyMCP()
 
     with pytest.raises(RuntimeError):

@@ -10,7 +10,7 @@ from jpscripts.core.team import (
     PlanStep,
     Persona,
     SwarmState,
-    _compose_prompt,
+    _render_swarm_prompt,
     _parse_agent_turn,
     get_default_swarm,
 )
@@ -26,7 +26,7 @@ def test_compose_prompt_includes_schema_for_architect(tmp_path: Path) -> None:
     )
     config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, log_level="INFO")
     architect = get_default_swarm()[0]
-    prompt = _compose_prompt(
+    prompt = _render_swarm_prompt(
         architect,
         "Ship feature",
         swarm_state,
