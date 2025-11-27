@@ -130,7 +130,7 @@ def test_run_repair_loop_auto_archives(monkeypatch, tmp_path: Path) -> None:
 def test_parse_agent_response_handles_json_variants() -> None:
     base = {
         "thought_process": "Reasoned",
-        "shell_command": None,
+        "tool_call": None,
         "file_patch": None,
         "final_message": "All good",
     }

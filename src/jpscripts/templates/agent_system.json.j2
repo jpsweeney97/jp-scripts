@@ -14,10 +14,12 @@
   "memory_context": {{ relevant_memories | tojson }},
   "file_context": {{ file_context_section | tojson }},
   "dependencies": {{ dependency_section | tojson }},
+  "tool_history": {{ tool_history | tojson }},
   "git_diff": {{ git_diff_section | tojson }},
   "tools": {
     "web": {{ web_tool | tojson }}
   },
+  "react_directive": "You function as a ReAct agent. If you lack context, DO NOT GUESS. Issue a `tool_call` to `read_file` or `run_shell` to investigate. Only return `file_patch` when you have verified the code structure and are ready to commit.",
   "instruction": {{ instruction | tojson }},
   "response_contract": {
     "schema": {{ response_schema | tojson }},
@@ -25,7 +27,8 @@
       "Respond with a single JSON object that validates against the AgentResponse schema.",
       "Do not wrap the JSON in Markdown or include any explanatory prose.",
       "Populate `file_patch` with a unified diff when code changes are required; leave null when not needed.",
-      "Use `shell_command` only when a command must be run before patching."
+      "Use `tool_call` to investigate missing context; prefer `read_file` or `run_shell`.",
+      "Never guess file structure; inspect with tools before patching."
     ]
   }
 }

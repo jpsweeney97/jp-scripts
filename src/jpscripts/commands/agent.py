@@ -238,8 +238,8 @@ def codex_exec(
             return
 
         console.print(Panel(agent_response.thought_process, title="Thought process", box=box.SIMPLE))
-        if agent_response.shell_command:
-            console.print(Panel(agent_response.shell_command, title="Shell command", box=box.SIMPLE))
+        if agent_response.tool_call:
+            console.print(Panel(json.dumps(agent_response.tool_call, indent=2), title="Tool call", box=box.SIMPLE))
         if agent_response.file_patch:
             console.print(Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE))
         if agent_response.final_message:

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 import re
+import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Awaitable, Callable, Sequence
+from typing import Any, Awaitable, Callable, Sequence
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, Field, ValidationError
@@ -16,6 +16,8 @@ from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
+from rich.panel import Panel
+
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.context import gather_context, get_file_skeleton, read_file_context, smart_read_context
 from jpscripts.core.memory import query_memory, save_memory
@@ -29,6 +31,11 @@ STRATEGY_OVERRIDE_TEXT = (
     "You are stuck in a loop. Stop editing code. Analyze the error trace and the file content again. "
     "List three possible root causes before proposing a new patch."
 )
+_ACTIVE_ROOT: Path | None = None
+
+
+class SecurityError(RuntimeError):
+    """Raised when a tool invocation is considered unsafe."""
 
 
 @dataclass
@@ -39,11 +46,16 @@ class PreparedPrompt:
     reasoning_effort: str | None = None
 
 
+class ToolCall(BaseModel):
+    tool: str = Field(..., description="Name of the tool to invoke")
+    arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
+
+
 class AgentResponse(BaseModel):
     """Structured response contract for agent outputs."""
 
     thought_process: str = Field(..., description="Deep analysis of the problem")
-    shell_command: str | None = Field(None, description="Command to run (optional)")
+    tool_call: ToolCall | None = Field(None, description="Tool invocation request")
     file_patch: str | None = Field(None, description="Unified diff to apply (optional)")
     final_message: str | None = Field(None, description="Response to user if no action needed")
 
@@ -124,6 +136,7 @@ async def prepare_agent_prompt(
     web_access: bool = False,
     temperature: float | None = None,
     reasoning_effort: str | None = None,
+    tool_history: str | None = None,
 ) -> PreparedPrompt:
     """
     Builds a structured, JSON-oriented prompt for Codex.
@@ -210,6 +223,7 @@ async def prepare_agent_prompt(
         "dependency_section": dependency_section,
         "git_diff_section": git_diff_section,
         "instruction": base_prompt.strip(),
+        "tool_history": tool_history or "",
         "response_schema": response_schema,
         "relevant_memories": relevant_memories,
         "web_tool": "Web search and page retrieval is available via fetch_page_content(url) returning markdown." if web_access else "",
@@ -409,6 +423,12 @@ def _summarize_stack_trace(text: str, limit: int) -> str:
     return assembled
 
 
+def _append_history(history: list[str], entry: str, keep: int = 3) -> None:
+    history.append(entry)
+    if len(history) > keep:
+        del history[:-keep]
+
+
 def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str:
     if not history:
         return "None yet."
@@ -470,6 +490,59 @@ async def _run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
 
     stdout, stderr = await proc.communicate()
     return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+
+
+async def _execute_tool(name: str, args: dict[str, Any]) -> str:
+    normalized = name.strip().lower()
+    root = _ACTIVE_ROOT or Path.cwd()
+
+    if normalized == "read_file":
+        path_arg = args.get("path")
+        if not isinstance(path_arg, str):
+            return "Invalid path argument."
+        target = Path(path_arg)
+        candidate = target if target.is_absolute() else root / target
+        try:
+            safe_target = security.validate_path(candidate, root)
+        except Exception as exc:
+            return f"Security error validating path: {exc}"
+
+        try:
+            return await asyncio.to_thread(smart_read_context, safe_target)
+        except FileNotFoundError:
+            return f"File not found: {safe_target}"
+        except Exception as exc:
+            return f"Failed to read file {safe_target}: {exc}"
+
+    if normalized == "run_shell":
+        command = args.get("command")
+        if not isinstance(command, str) or not command.strip():
+            return "Invalid command argument."
+        forbidden = re.compile(r"(rm|mv|cp|>|\\||sudo|chmod)", flags=re.IGNORECASE)
+        if forbidden.search(command):
+            raise SecurityError("Command contains forbidden operations.")
+        allowed = re.compile(r"^(ls|grep|find|cat|git status|git diff|git log)")
+        if not allowed.match(command.strip()):
+            raise SecurityError("Command not permitted by policy.")
+
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                command,
+                cwd=root,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except Exception as exc:
+            return f"Failed to run command: {exc}"
+
+        stdout_bytes, stderr_bytes = await proc.communicate()
+        stdout = stdout_bytes.decode(errors="replace")
+        stderr = stderr_bytes.decode(errors="replace")
+        if proc.returncode != 0:
+            return f"Command failed with exit code {proc.returncode}"
+        return (stdout + stderr).strip() or "Command produced no output."
+
+    return f"Unknown tool: {name}"
 
 
 def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
@@ -669,128 +742,207 @@ async def run_repair_loop(
     web_access: bool = False,
 ) -> bool:
     """
-    Execute an autonomous repair loop that retries the provided command.
+    Execute an autonomous repair loop using a ReAct-style multi-turn exploration.
     """
+    global _ACTIVE_ROOT
     root = security.validate_workspace_root(config.workspace_root or config.notes_dir)
     attempt_cap = max(1, max_retries)
-    history: list[AttemptContext] = []
     changed_files: set[Path] = set()
+    attempt_history: list[AttemptContext] = []
+    history: list[str] = []
+    previous_active_root = _ACTIVE_ROOT
+    _ACTIVE_ROOT = root
 
-    for attempt in range(attempt_cap):
-        console.print(f"[cyan]Attempt {attempt + 1}/{attempt_cap}: running `{command}`[/cyan]")
+    try:
+        for attempt in range(attempt_cap):
+            console.print(f"[cyan]Attempt {attempt + 1}/{attempt_cap}: running `{command}`[/cyan]")
+            exit_code, stdout, stderr = await _run_shell_command(command, root)
+            if exit_code == 0:
+                console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+                if auto_archive:
+                    await _archive_session_summary(
+                        fetch_response,
+                        base_prompt=base_prompt,
+                        command=command,
+                        last_error=attempt_history[-1].last_error if attempt_history else None,
+                        config=config,
+                        model=model,
+                        web_access=web_access,
+                    )
+                return True
+
+            current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
+            console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
+
+            loop_detected = _detect_repeated_failure(attempt_history, current_error)
+            strategy_override = STRATEGY_OVERRIDE_TEXT if loop_detected else None
+            reasoning_hint = "Increase temperature or reasoning effort to escape repetition." if loop_detected else None
+            temperature_override = 0.7 if loop_detected else None
+            if loop_detected:
+                console.print("[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]")
+
+            applied_paths: list[Path] = []
+            for turn in range(5):
+                iteration_prompt = _build_repair_instruction(
+                    base_prompt,
+                    current_error,
+                    attempt_history,
+                    root,
+                    strategy_override=strategy_override,
+                    reasoning_hint=reasoning_hint,
+                )
+                history_blob = "\n".join(history)
+                prompt_with_history = (
+                    f"{iteration_prompt}\n\nPrevious tool interactions:\n{history_blob}"
+                    if history_blob
+                    else iteration_prompt
+                )
+                prepared = await prepare_agent_prompt(
+                    prompt_with_history,
+                    root=root,
+                    config=config,
+                    model=model,
+                    run_command=None,
+                    attach_recent=attach_recent,
+                    include_diff=include_diff,
+                    ignore_dirs=config.ignore_dirs,
+                    max_file_context_chars=config.max_file_context_chars,
+                    max_command_output_chars=config.max_command_output_chars,
+                    temperature=temperature_override,
+                    reasoning_effort="high" if loop_detected else None,
+                    tool_history=history_blob,
+                )
+
+                if prepared.attached_files:
+                    console.print(
+                        f"[green]Attached files for attempt {attempt + 1} turn {turn + 1}:[/green] "
+                        f"{', '.join(path.name for path in prepared.attached_files)}"
+                    )
+
+                try:
+                    raw_response = await fetch_response(prepared)
+                except Exception as exc:
+                    console.print(f"[red]Failed to retrieve agent response:[/red] {exc}")
+                    break
+
+                if not raw_response.strip():
+                    console.print("[red]Agent returned empty response. Aborting loop.[/red]")
+                    break
+
+                try:
+                    agent_response = parse_agent_response(raw_response)
+                except ValidationError as exc:
+                    validation_error = f"Agent response validation failed: {exc}"
+                    console.print(f"[red]{validation_error}[/red]")
+                    _append_history(
+                        history,
+                        "<Turn>\nAgent thought: (invalid)\nTool output: "
+                        f"{validation_error}\n</Turn>",
+                    )
+                    current_error = validation_error
+                    continue
+
+                tool_call = agent_response.tool_call
+                patch_text = (agent_response.file_patch or "").strip()
+                thought = agent_response.thought_process
+
+                if tool_call:
+                    tool_name = tool_call.tool
+                    tool_args = tool_call.arguments
+                    console.print(Panel(f"🕵️ Agent invoking {tool_name} with args {tool_args}", title="Tool Call", box=box.SIMPLE))
+                    try:
+                        output = await _execute_tool(tool_name, tool_args if isinstance(tool_args, dict) else {})
+                    except SecurityError as exc:
+                        output = f"SecurityError: {exc}"
+                    except Exception as exc:
+                        output = f"Tool execution failed: {exc}"
+                    console.print(Panel(output, title="Tool Output", box=box.SIMPLE, style="cyan"))
+                    history_entry = (
+                        "<Turn>\n"
+                        f"Agent thought: {thought}\n"
+                        f"Tool call: {tool_name}({tool_args})\n"
+                        f"Tool output: {output}\n"
+                        "</Turn>"
+                    )
+                    _append_history(history, history_entry)
+                    continue
+
+                if patch_text:
+                    console.print("[green]⚡ Agent proposed a fix.[/green]")
+                    applied_paths = await _apply_patch_text(patch_text, root)
+                    syntax_error = await _verify_syntax(applied_paths)
+                    if syntax_error:
+                        console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
+                        _append_history(
+                            history,
+                            "<Turn>\n"
+                            f"Agent thought: {thought}\n"
+                            "Tool call: none\n"
+                            f"Tool output: Syntax check failed: {syntax_error}\n"
+                            "</Turn>",
+                        )
+                        changed_files.update(applied_paths)
+                        current_error = syntax_error
+                        continue
+
+                    changed_files.update(applied_paths)
+                    break
+
+                message = agent_response.final_message or "Agent returned no patch content."
+                console.print(f"[yellow]{message}[/yellow]")
+                _append_history(
+                    history,
+                    "<Turn>\n"
+                    f"Agent thought: {thought}\n"
+                    "Tool call: none\n"
+                    f"Tool output: {message}\n"
+                    "</Turn>",
+                )
+                break
+
+            exit_code, stdout, stderr = await _run_shell_command(command, root)
+            if exit_code == 0:
+                console.print("[green]Command succeeded after applying fixes.[/green]")
+                if auto_archive:
+                    await _archive_session_summary(
+                        fetch_response,
+                        base_prompt=base_prompt,
+                        command=command,
+                        last_error=current_error,
+                        config=config,
+                        model=model,
+                        web_access=web_access,
+                    )
+                return True
+
+            failure_msg = _summarize_output(stdout, stderr, config.max_command_output_chars)
+            console.print(f"[yellow]Verification failed:[/yellow] {failure_msg}")
+            attempt_history.append(
+                AttemptContext(iteration=attempt + 1, last_error=failure_msg, files_changed=list(changed_files))
+            )
+            _append_history(history, f"Verification failure (attempt {attempt + 1}): {failure_msg}")
+
+        console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
         exit_code, stdout, stderr = await _run_shell_command(command, root)
         if exit_code == 0:
-            console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+            console.print("[green]Command succeeded after final verification.[/green]")
             if auto_archive:
                 await _archive_session_summary(
                     fetch_response,
                     base_prompt=base_prompt,
                     command=command,
-                    last_error=history[-1].last_error if history else None,
+                    last_error=None if not attempt_history else attempt_history[-1].last_error,
                     config=config,
                     model=model,
                     web_access=web_access,
                 )
             return True
 
-        current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
-        console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
+        console.print(f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}")
+        if changed_files and not keep_failed:
+            console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
+            await _revert_changed_files(list(changed_files), root)
 
-        loop_detected = _detect_repeated_failure(history, current_error)
-        strategy_override = STRATEGY_OVERRIDE_TEXT if loop_detected else None
-        reasoning_hint = "Increase temperature or reasoning effort to escape repetition." if loop_detected else None
-        temperature_override = 0.7 if loop_detected else None
-        if loop_detected:
-            console.print("[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]")
-
-        iteration_prompt = _build_repair_instruction(
-            base_prompt,
-            current_error,
-            history,
-            root,
-            strategy_override=strategy_override,
-            reasoning_hint=reasoning_hint,
-        )
-        prepared = await prepare_agent_prompt(
-            iteration_prompt,
-            root=root,
-            config=config,
-            model=model,
-            run_command=None,
-            attach_recent=attach_recent,
-            include_diff=include_diff,
-            ignore_dirs=config.ignore_dirs,
-            max_file_context_chars=config.max_file_context_chars,
-            max_command_output_chars=config.max_command_output_chars,
-            temperature=temperature_override,
-            reasoning_effort="high" if loop_detected else None,
-        )
-
-        if prepared.attached_files:
-            console.print(
-                f"[green]Attached files for attempt {attempt + 1}:[/green] "
-                f"{', '.join(path.name for path in prepared.attached_files)}"
-            )
-
-        try:
-            raw_response = await fetch_response(prepared)
-        except Exception as exc:
-            console.print(f"[red]Failed to retrieve agent response:[/red] {exc}")
-            break
-
-        if not raw_response.strip():
-            console.print("[red]Agent returned empty response. Aborting loop.[/red]")
-            break
-
-        try:
-            agent_response = parse_agent_response(raw_response)
-        except ValidationError as exc:
-            validation_error = f"Agent response validation failed: {exc}"
-            console.print(f"[red]{validation_error}[/red]")
-            current_error = validation_error
-            history.append(AttemptContext(iteration=attempt + 1, last_error=validation_error, files_changed=[]))
-            continue
-
-        if agent_response.shell_command:
-            console.print(f"[yellow]Agent suggested shell command (not executed automatically):[/yellow] {agent_response.shell_command}")
-
-        patch_text = (agent_response.file_patch or "").strip()
-        if not patch_text:
-            message = agent_response.final_message or "Agent returned no patch content."
-            console.print(f"[red]{message}[/red]")
-            break
-
-        applied_paths = await _apply_patch_text(patch_text, root)
-        syntax_error = await _verify_syntax(applied_paths)
-        if syntax_error:
-            console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
-            history.append(AttemptContext(iteration=attempt + 1, last_error=syntax_error, files_changed=applied_paths))
-            changed_files.update(applied_paths)
-            current_error = syntax_error
-            continue
-
-        history.append(AttemptContext(iteration=attempt + 1, last_error=current_error, files_changed=applied_paths))
-        changed_files.update(applied_paths)
-
-    console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
-    exit_code, stdout, stderr = await _run_shell_command(command, root)
-    if exit_code == 0:
-        console.print("[green]Command succeeded after final verification.[/green]")
-        if auto_archive:
-            await _archive_session_summary(
-                fetch_response,
-                base_prompt=base_prompt,
-                command=command,
-                last_error=None if not history else history[-1].last_error,
-                config=config,
-                model=model,
-                web_access=web_access,
-            )
-        return True
-
-    console.print(f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}")
-    if changed_files and not keep_failed:
-        console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
-        await _revert_changed_files(list(changed_files), root)
-
-    return False
+        return False
+    finally:
+        _ACTIVE_ROOT = previous_active_root
