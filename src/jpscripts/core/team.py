@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
+from jpscripts.core.engine import AgentEngine, Message, PreparedPrompt
 
 logger = get_logger(__name__)
 
@@ -218,146 +219,28 @@ async def _collect_repo_context(repo_root: Path, config: AppConfig) -> tuple[str
         return f"Context error: {exc}", []
 
 
-class AgentProcess:
-    def __init__(
-        self,
-        role: AgentRole,
-        prompt: str,
-        codex_bin: str,
-        model: str,
-        attached_files: Sequence[Path],
-        env: dict[str, str],
-        queue: asyncio.Queue[AgentUpdate],
-        max_file_context_chars: int,
-    ) -> None:
-        self.role = role
-        self._prompt = prompt
-        self._codex_bin = codex_bin
-        self._model = model
-        self._files = list(attached_files)
-        self._env = env
-        self._queue = queue
-        self._max_file_context_chars = max_file_context_chars
-        self._process: asyncio.subprocess.Process | None = None
-        self._stream_tasks: list[asyncio.Task] = []
-        self._launched = False
-        self._captured_output: list[str] = []
-        self._captured_raw: list[str] = []
-
-    async def _read_context_files(self) -> str:
-        """Read context files asynchronously and truncate to 10KB each."""
-        chunks: list[str] = []
-        for path in self._files:
-            snippet = await asyncio.to_thread(read_file_context, path, self._max_file_context_chars)
-            if snippet is None:
-                continue
-            chunks.append(f"File: {path}\n```\n{snippet}\n```")
-
-        if not chunks:
-            return ""
-        return "\n\nContext files:\n" + "\n\n".join(chunks)
-
-    async def run(self) -> None:
-        context_blob = await self._read_context_files()
-        final_prompt = self._prompt
-        if context_blob:
-            final_prompt += "\n\n" + context_blob
-
-        # codex CLI expects prompt before flags; pattern: [bin, exec, prompt, --json, --model, model]
-        cmd: list[str] = [self._codex_bin, "exec", final_prompt, "--json", "--model", self._model]
-
-        await self._queue.put(AgentUpdate(self.role, "status", "starting"))
-        self._process = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            stdin=asyncio.subprocess.DEVNULL,
-            env=self._env,
-        )
-        self._launched = True
-        await self._queue.put(
-            AgentUpdate(
-                self.role,
-                "stdout",
-                f"launched {self._codex_bin} (model: {self._model})",
-            )
-        )
-
-        if self._process.stdout:
-            self._stream_tasks.append(asyncio.create_task(self._pump_stream(self._process.stdout, "stdout")))
-        if self._process.stderr:
-            self._stream_tasks.append(asyncio.create_task(self._pump_stream(self._process.stderr, "stderr")))
-
-        await self._queue.put(AgentUpdate(self.role, "status", "streaming"))
-        return_code = await self._process.wait()
-
-        await asyncio.gather(*self._stream_tasks, return_exceptions=True)
-        exit_msg = f"exit {return_code}"
-        if return_code != 0 and self._launched:
-            exit_msg += "; check `codex login` and network access"
-        await self._queue.put(AgentUpdate(self.role, "exit", exit_msg))
-
-    async def _pump_stream(self, stream: asyncio.StreamReader, kind: str) -> None:
-        while True:
-            line = await stream.readline()
-            if not line:
-                break
-            decoded = line.decode(errors="replace").rstrip()
-            if kind == "stdout":
-                self._captured_raw.append(decoded)
-            message = _parse_event_line(decoded)
-            if kind == "stdout":
-                self._captured_output.append(message)
-            await self._queue.put(AgentUpdate(self.role, kind, message))
-
-    async def terminate(self) -> None:
-        if self._process and self._process.returncode is None:
-            self._process.kill()
-            await self._process.wait()
-        for task in self._stream_tasks:
-            if not task.done():
-                task.cancel()
-        if self._stream_tasks:
-            await asyncio.gather(*self._stream_tasks, return_exceptions=True)
-
-    @property
-    def captured_stdout(self) -> str:
-        return "\n".join(self._captured_output).strip()
-
-    @property
-    def captured_raw(self) -> str:
-        return "\n".join(self._captured_raw).strip()
-
-
-async def _stream_agent_updates(
-    agents: Sequence[AgentProcess],
-    queue: asyncio.Queue[AgentUpdate],
-) -> AsyncIterator[AgentUpdate]:
-    tasks = [asyncio.create_task(agent.run()) for agent in agents]
-    active = len(tasks)
-
-    try:
-        while active:
-            update = await queue.get()
-            if update.kind == "exit":
-                active -= 1
-            yield update
-    finally:
-        for agent in agents:
-            await agent.terminate()
-        await asyncio.gather(*tasks, return_exceptions=True)
-
-
-def _parse_agent_turn(agent: AgentProcess) -> tuple[AgentTurnResponse | None, str]:
-    last_error: str = ""
-    for payload in (agent.captured_raw, agent.captured_stdout):
-        if not payload:
+def _parse_agent_turn_payload(payload: str, fallback: str = "") -> tuple[AgentTurnResponse | None, str]:
+    last_error = ""
+    for candidate in (payload, fallback):
+        if not candidate:
             continue
         try:
-            return AgentTurnResponse.model_validate_json(payload), ""
+            return AgentTurnResponse.model_validate_json(candidate), ""
         except ValidationError as exc:
             last_error = exc.json()
     return None, last_error or "No output captured from agent."
+
+
+def _parse_agent_turn(obj: object, stdout: str = "") -> tuple[AgentTurnResponse | None, str]:
+    if isinstance(obj, str):
+        return _parse_agent_turn_payload(obj, stdout)
+    raw = getattr(obj, "captured_raw", "") if obj is not None else ""
+    fallback = getattr(obj, "captured_stdout", "") if obj is not None else ""
+    return _parse_agent_turn_payload(raw, fallback)
+
+
+def parse_swarm_response(payload: str) -> AgentTurnResponse:
+    return AgentTurnResponse.model_validate_json(payload)
 
 
 class SwarmController:
@@ -392,6 +275,7 @@ class SwarmController:
         )
         self.max_file_context_chars = self.config.max_file_context_chars
         self._next_role: AgentRole | None = None
+        self._engines: dict[AgentRole, AgentEngine[AgentResponse]] = {}
 
     def _starting_role(self) -> AgentRole | None:
         if AgentRole.ARCHITECT in self.roles:
@@ -452,26 +336,51 @@ class SwarmController:
             self.context_files,
             self.max_file_context_chars,
         )
-        agent = AgentProcess(
-            role=role,
-            prompt=prompt,
-            codex_bin=self.codex_bin,
-            model=self.model,
-            attached_files=self.context_files,
-            env=self.env,
-            queue=self.queue,
-            max_file_context_chars=self.max_file_context_chars,
-        )
-        async for update in _stream_agent_updates([agent], self.queue):
-            yield update
 
-        parsed, error_text = _parse_agent_turn(agent)
-        if parsed:
-            self.swarm_state = parsed.swarm_state
-            next_step = parsed.next_step
-        else:
-            next_step = None
-            yield AgentUpdate(role, "stderr", f"Invalid response; falling back to defaults: {error_text}")
+        async def _prompt_builder(_history: Sequence[Message]) -> PreparedPrompt:
+            return PreparedPrompt(prompt=prompt, attached_files=self.context_files)
+
+        async def _fetch_response(prepared: PreparedPrompt) -> str:
+            cmd = [
+                self.codex_bin,
+                "exec",
+                prepared.prompt,
+                "--json",
+                "--model",
+                self.model,
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=self.env,
+            )
+            stdout_bytes, stderr_bytes = await proc.communicate()
+            stdout = stdout_bytes.decode(errors="replace").strip()
+            stderr = stderr_bytes.decode(errors="replace").strip()
+            if stderr:
+                await self.queue.put(AgentUpdate(role, "stderr", stderr))
+            for line in stdout.splitlines():
+                parsed_line = _parse_event_line(line)
+                await self.queue.put(AgentUpdate(role, "stdout", parsed_line))
+            return stdout or ""
+
+        engine = AgentEngine[AgentTurnResponse](
+            persona=role.label,
+            model=self.model,
+            prompt_builder=_prompt_builder,
+            fetch_response=_fetch_response,
+            parser=parse_swarm_response,
+            template_root=self.root,
+        )
+        self._engines[role] = engine
+
+        await self.queue.put(AgentUpdate(role, "status", "starting"))
+        response = await engine.step([])
+        await self.queue.put(AgentUpdate(role, "exit", "0"))
+
+        self.swarm_state = response.swarm_state
+        next_step = response.next_step
 
         yield AgentUpdate(role, "status", f"completed turn -> next: {next_step or 'finish'}")
         next_role = self._resolve_next_role(role, next_step)

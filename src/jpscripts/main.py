@@ -15,10 +15,10 @@ from rich.tree import Tree
 from typer.main import get_command
 
 from . import __version__
-from .commands import agent, git_extra, git_ops, handbook, init, map, memory, nav, notes, search, system, team, web
 from .core.config import AppConfig, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 from .core.diagnostics import ExternalTool, ToolCheck, run_diagnostics_suite
+from .core.registry import CommandSpec, discover_commands
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
 
@@ -143,43 +143,18 @@ def show_version() -> None:
     """Print the jpscripts version."""
     console.print(__version__)
 
+def _register_commands() -> None:
+    commands_path = Path(__file__).resolve().parent / "commands"
+    typer_modules, function_commands = discover_commands(commands_path)
 
-app.command("status-all")(git_ops.status_all)
-app.command("whatpush")(git_ops.whatpush)
-app.command("sync")(git_ops.sync)
-app.command("recent")(nav.recent)
-app.command("proj")(nav.proj)
-app.command("init")(init.init)
-app.add_typer(team.app, name="team")
-app.add_typer(memory.app, name="memory")
-app.command("web-snap")(web.web_snap)
-app.command("process-kill")(system.process_kill)
-app.command("port-kill")(system.port_kill)
-app.command("brew-explorer")(system.brew_explorer)
-app.command("audioswap")(system.audioswap)
-app.command("ssh-open")(system.ssh_open)
-app.command("tmpserver")(system.tmpserver)
-app.command("update")(system.update)
-app.command("note")(notes.note)
-app.command("note-search")(notes.note_search)
-app.command("standup")(notes.standup)
-app.command("standup-note")(notes.standup_note)
-app.command("cliphist")(notes.cliphist)
-app.command("map")(map.map_cmd)
-app.command("repo-map")(map.map_cmd)
-app.command("ripper")(search.ripper)
-app.command("todo-scan")(search.todo_scan)
-app.command("loggrep")(search.loggrep)
-app.command("gundo-last")(git_extra.gundo_last)
-app.command("gstage")(git_extra.gstage)
-app.command("gpr")(git_extra.gpr)
-app.command("gbrowse")(git_extra.gbrowse)
-app.command("git-branchcheck")(git_extra.git_branchcheck)
-app.command("stashview")(git_extra.stashview)
-app.command("fix")(agent.codex_exec)  # "jp fix" is faster to type than "jp agent"
-app.command("agent")(agent.codex_exec) # Alias
-app.command("config-fix")(init.config_fix)
-app.command("handbook")(handbook.handbook)
+    for name, module in typer_modules:
+        app.add_typer(module.app, name=name)
+
+    for spec in function_commands:
+        app.command(spec.name)(spec.handler)
+
+
+_register_commands()
 
 def cli() -> None:
     app()

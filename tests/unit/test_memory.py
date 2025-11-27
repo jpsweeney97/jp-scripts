@@ -88,3 +88,59 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
     results = memory_core.query_memory("vector", config=_dummy_config(store, use_semantic=True), store_path=store)
     assert results
     assert "vector match" in results[0]
+
+
+def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch, tmp_path: Path) -> None:
+    store = tmp_path / "mem.lance"
+    fallback = store.with_suffix(".jsonl")
+
+    vector_entry = memory_core.MemoryEntry(
+        id="vec",
+        ts="1",
+        content="vector only",
+        tags=["vec"],
+        tokens=["alpha"],
+        embedding=[0.1, 0.2],
+    )
+    keyword_entry = memory_core.MemoryEntry(
+        id="kw",
+        ts="2",
+        content="keyword only",
+        tags=["kw"],
+        tokens=["banana", "split"],
+        embedding=None,
+    )
+
+    memory_core._write_entries(fallback, [vector_entry, keyword_entry])
+
+    class FakeEmbeddingClient:
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
+
+        @property
+        def dimension(self) -> int | None:
+            return 2
+
+        def available(self) -> bool:
+            return True
+
+        def embed(self, texts):
+            return [[0.5, 0.5] for _ in texts]
+
+    class FakeStore:
+        def __init__(self, _path, embedding_dim: int) -> None:
+            self.embedding_dim = embedding_dim
+
+        def available(self) -> bool:
+            return True
+
+        def search(self, _vector, _limit: int):
+            return [vector_entry]
+
+    monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
+    monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
+
+    results = memory_core.query_memory("banana", config=_dummy_config(store, use_semantic=True), store_path=store, limit=5)
+    assert results
+    assert any("vector only" in item for item in results)
+    assert any("keyword only" in item for item in results)

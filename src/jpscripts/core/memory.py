@@ -63,6 +63,7 @@ MAX_ENTRIES = 5000
 DEFAULT_STORE = Path.home() / ".jp_memory.lance"
 FALLBACK_SUFFIX = ".jsonl"
 _SEMANTIC_WARNED = False
+_MEMORY_DEGRADED_WARNED = False
 
 
 def _run_coroutine(coro: Coroutine[Any, Any, T]) -> T | None:
@@ -223,6 +224,14 @@ def _warn_semantic_unavailable() -> None:
         return
     logger.warning("Semantic memory search unavailable. Install with `pip install jpscripts[ai]`.")
     _SEMANTIC_WARNED = True
+
+
+def _warn_memory_degraded() -> None:
+    global _MEMORY_DEGRADED_WARNED
+    if _MEMORY_DEGRADED_WARNED:
+        return
+    logger.warning("God-Mode Memory is degraded: vector store unavailable. Install with `pip install \"jpscripts[ai]\"`.")
+    _MEMORY_DEGRADED_WARNED = True
 
 
 class _GlobalEmbeddingClient(EmbeddingClientProtocol):
@@ -608,6 +617,8 @@ def save_memory(
                 store.insert([entry])
             except Exception as exc:
                 logger.debug("Failed to persist memory to LanceDB at %s: %s", resolved_store, exc)
+        else:
+            _warn_memory_degraded()
 
     return entry
 
@@ -619,7 +630,7 @@ def query_memory(
     config: AppConfig | None = None,
     store_path: Path | None = None,
 ) -> list[str]:
-    """Retrieve the most relevant memory snippets for a query."""
+    """Retrieve the most relevant memory snippets for a query using reciprocal rank fusion."""
     resolved_store = _resolve_store(config, store_path)
     fallback_path = _fallback_path(resolved_store)
     entries = _load_entries(fallback_path, MAX_ENTRIES)
@@ -628,26 +639,61 @@ def query_memory(
 
     use_semantic, model_name, server_url = _embedding_settings(config)
     embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
-    query_vecs = embedding_client.embed([query])
+
+    vector_results: list[MemoryEntry] = []
+    vector_ranks: dict[str, int] = {}
+
+    query_vecs = embedding_client.embed([query]) if use_semantic else None
     if query_vecs:
         vector = query_vecs[0]
-        if len(vector) == 0:
-            return []
-        store = get_vector_store(resolved_store, embedding_dim=len(vector))
-        if store.available():
-            try:
-                vector_results = store.search(vector, limit)
-                if vector_results:
-                    return [_format_entry(entry) for entry in vector_results]
-            except Exception as exc:
-                logger.debug("Vector search failed, falling back to keywords: %s", exc)
+        if vector:
+            store = get_vector_store(resolved_store, embedding_dim=len(vector))
+            if store.available():
+                try:
+                    vector_results = store.search(vector, limit)
+                except Exception as exc:
+                    logger.debug("Vector search failed, falling back to keywords: %s", exc)
+            else:
+                _warn_memory_degraded()
+        else:
+            _warn_semantic_unavailable()
+    elif use_semantic:
+        _warn_semantic_unavailable()
 
     tokens = _tokenize(query)
-    scored_kw = [(entry, _score(tokens, entry)) for entry in entries]
-    scored_kw = [item for item in scored_kw if item[1] > 0]
-    scored_kw.sort(key=lambda x: x[1], reverse=True)
+    kw_scored = [(entry, _score(tokens, entry)) for entry in entries]
+    kw_scored = [item for item in kw_scored if item[1] > 0]
+    kw_scored.sort(key=lambda x: x[1], reverse=True)
+    keyword_ranks: dict[str, int] = {entry.id: idx + 1 for idx, (entry, _score_val) in enumerate(kw_scored)}
 
-    return [_format_entry(entry) for entry, _ in scored_kw[:limit]]
+    k_const = 60.0
+    entry_lookup: dict[str, MemoryEntry] = {entry.id: entry for entry in entries}
+    for idx, entry in enumerate(vector_results, start=1):
+        entry_lookup[entry.id] = entry
+        vector_ranks[entry.id] = idx
+
+    fused: list[tuple[float, MemoryEntry]] = []
+    seen_ids = set(vector_ranks) | set(keyword_ranks)
+    if not seen_ids and kw_scored:
+        seen_ids = {entry.id for entry, _score_val in kw_scored[:limit]}
+
+    for entry_id in seen_ids:
+        v_rank = vector_ranks.get(entry_id)
+        k_rank = keyword_ranks.get(entry_id)
+        score = 0.0
+        if v_rank is not None:
+            score += 1.0 / (k_const + v_rank)
+        if k_rank is not None:
+            score += 1.0 / (k_const + k_rank)
+        entry = entry_lookup.get(entry_id)
+        if entry is not None:
+            fused.append((score, entry))
+
+    if not fused:
+        return []
+
+    fused.sort(key=lambda item: item[0], reverse=True)
+    return [_format_entry(entry) for _, entry in fused[:limit]]
 
 
 def reindex_memory(

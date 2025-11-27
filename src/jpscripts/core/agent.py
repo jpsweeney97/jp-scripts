@@ -10,16 +10,16 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable, Sequence
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import ValidationError
+from rich.panel import Panel
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
-from rich.panel import Panel
-
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.context import gather_context, get_file_skeleton, read_file_context, smart_read_context
+from jpscripts.core.engine import AgentEngine, AgentResponse, Message, PreparedPrompt, ToolCall, parse_agent_response
 from jpscripts.core.memory import query_memory, save_memory
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.structure import generate_map, get_import_dependencies
@@ -36,56 +36,6 @@ _ACTIVE_ROOT: Path | None = None
 
 class SecurityError(RuntimeError):
     """Raised when a tool invocation is considered unsafe."""
-
-
-@dataclass
-class PreparedPrompt:
-    prompt: str
-    attached_files: list[Path]
-    temperature: float | None = None
-    reasoning_effort: str | None = None
-
-
-class ToolCall(BaseModel):
-    tool: str = Field(..., description="Name of the tool to invoke")
-    arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
-
-
-class AgentResponse(BaseModel):
-    """Structured response contract for agent outputs."""
-
-    thought_process: str = Field(..., description="Deep analysis of the problem")
-    tool_call: ToolCall | None = Field(None, description="Tool invocation request")
-    file_patch: str | None = Field(None, description="Unified diff to apply (optional)")
-    final_message: str | None = Field(None, description="Response to user if no action needed")
-
-
-def _clean_json_payload(text: str) -> str:
-    """Extract JSON content from raw agent output, tolerating code fences and stray prose."""
-    stripped = text.strip()
-    if not stripped:
-        return stripped
-
-    fence = re.search(r"```json\s*(.*?)```", stripped, flags=re.DOTALL | re.IGNORECASE)
-    if fence:
-        candidate = fence.group(1).strip()
-        if candidate:
-            return candidate
-
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = stripped[start : end + 1].strip()
-        if candidate:
-            return candidate
-
-    return stripped
-
-
-def parse_agent_response(payload: str) -> AgentResponse:
-    """Parse and validate a JSON agent response."""
-    cleaned = _clean_json_payload(payload)
-    return AgentResponse.model_validate_json(cleaned)
 
 
 @dataclass
@@ -423,7 +373,7 @@ def _summarize_stack_trace(text: str, limit: int) -> str:
     return assembled
 
 
-def _append_history(history: list[str], entry: str, keep: int = 3) -> None:
+def _append_history(history: list[Message], entry: Message, keep: int = 3) -> None:
     history.append(entry)
     if len(history) > keep:
         del history[:-keep]
@@ -490,59 +440,6 @@ async def _run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
 
     stdout, stderr = await proc.communicate()
     return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
-
-
-async def _execute_tool(name: str, args: dict[str, Any]) -> str:
-    normalized = name.strip().lower()
-    root = _ACTIVE_ROOT or Path.cwd()
-
-    if normalized == "read_file":
-        path_arg = args.get("path")
-        if not isinstance(path_arg, str):
-            return "Invalid path argument."
-        target = Path(path_arg)
-        candidate = target if target.is_absolute() else root / target
-        try:
-            safe_target = security.validate_path(candidate, root)
-        except Exception as exc:
-            return f"Security error validating path: {exc}"
-
-        try:
-            return await asyncio.to_thread(smart_read_context, safe_target)
-        except FileNotFoundError:
-            return f"File not found: {safe_target}"
-        except Exception as exc:
-            return f"Failed to read file {safe_target}: {exc}"
-
-    if normalized == "run_shell":
-        command = args.get("command")
-        if not isinstance(command, str) or not command.strip():
-            return "Invalid command argument."
-        forbidden = re.compile(r"(rm|mv|cp|>|\\||sudo|chmod)", flags=re.IGNORECASE)
-        if forbidden.search(command):
-            raise SecurityError("Command contains forbidden operations.")
-        allowed = re.compile(r"^(ls|grep|find|cat|git status|git diff|git log)")
-        if not allowed.match(command.strip()):
-            raise SecurityError("Command not permitted by policy.")
-
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                cwd=root,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except Exception as exc:
-            return f"Failed to run command: {exc}"
-
-        stdout_bytes, stderr_bytes = await proc.communicate()
-        stdout = stdout_bytes.decode(errors="replace")
-        stderr = stderr_bytes.decode(errors="replace")
-        if proc.returncode != 0:
-            return f"Command failed with exit code {proc.returncode}"
-        return (stdout + stderr).strip() or "Command produced no output."
-
-    return f"Unknown tool: {name}"
 
 
 def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
@@ -742,16 +639,45 @@ async def run_repair_loop(
     web_access: bool = False,
 ) -> bool:
     """
-    Execute an autonomous repair loop using a ReAct-style multi-turn exploration.
+    Execute an autonomous repair loop using AgentEngine for orchestration.
     """
     global _ACTIVE_ROOT
     root = security.validate_workspace_root(config.workspace_root or config.notes_dir)
     attempt_cap = max(1, max_retries)
     changed_files: set[Path] = set()
     attempt_history: list[AttemptContext] = []
-    history: list[str] = []
+    history: list[Message] = []
     previous_active_root = _ACTIVE_ROOT
     _ACTIVE_ROOT = root
+
+    async def _prompt_builder(
+        history_messages: Sequence[Message],
+        iteration_prompt: str,
+        loop_detected_flag: bool,
+        temp_override: float | None,
+    ) -> PreparedPrompt:
+        history_text = "\n".join(msg.content for msg in history_messages)
+        instruction = iteration_prompt
+        if history_text:
+            instruction = f"{instruction}\n\nPrevious tool interactions:\n{history_text}"
+        return await prepare_agent_prompt(
+            instruction,
+            root=root,
+            config=config,
+            model=model,
+            run_command=None,
+            attach_recent=attach_recent,
+            include_diff=include_diff,
+            ignore_dirs=config.ignore_dirs,
+            max_file_context_chars=config.max_file_context_chars,
+            max_command_output_chars=config.max_command_output_chars,
+            reasoning_effort="high" if loop_detected_flag else None,
+            temperature=temp_override,
+            tool_history=history_text,
+        )
+
+    async def _fetch(prepared: PreparedPrompt) -> str:
+        return await fetch_response(prepared)
 
     try:
         for attempt in range(attempt_cap):
@@ -791,58 +717,37 @@ async def run_repair_loop(
                     strategy_override=strategy_override,
                     reasoning_hint=reasoning_hint,
                 )
-                history_blob = "\n".join(history)
-                prompt_with_history = (
-                    f"{iteration_prompt}\n\nPrevious tool interactions:\n{history_blob}"
-                    if history_blob
-                    else iteration_prompt
-                )
-                prepared = await prepare_agent_prompt(
-                    prompt_with_history,
-                    root=root,
-                    config=config,
-                    model=model,
-                    run_command=None,
-                    attach_recent=attach_recent,
-                    include_diff=include_diff,
-                    ignore_dirs=config.ignore_dirs,
-                    max_file_context_chars=config.max_file_context_chars,
-                    max_command_output_chars=config.max_command_output_chars,
-                    temperature=temperature_override,
-                    reasoning_effort="high" if loop_detected else None,
-                    tool_history=history_blob,
+
+                engine = AgentEngine[AgentResponse](
+                    persona="Engineer",
+                    model=model or config.default_model,
+                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override: _prompt_builder(
+                        msgs, ip, ld, temp
+                    ),
+                    fetch_response=_fetch,
+                    parser=parse_agent_response,
+                    template_root=root,
                 )
 
-                if prepared.attached_files:
-                    console.print(
-                        f"[green]Attached files for attempt {attempt + 1} turn {turn + 1}:[/green] "
-                        f"{', '.join(path.name for path in prepared.attached_files)}"
-                    )
-
                 try:
-                    raw_response = await fetch_response(prepared)
-                except Exception as exc:
-                    console.print(f"[red]Failed to retrieve agent response:[/red] {exc}")
-                    break
-
-                if not raw_response.strip():
-                    console.print("[red]Agent returned empty response. Aborting loop.[/red]")
-                    break
-
-                try:
-                    agent_response = parse_agent_response(raw_response)
+                    agent_response = await engine.step(history)
                 except ValidationError as exc:
                     validation_error = f"Agent response validation failed: {exc}"
                     console.print(f"[red]{validation_error}[/red]")
                     _append_history(
                         history,
-                        "<Turn>\nAgent thought: (invalid)\nTool output: "
-                        f"{validation_error}\n</Turn>",
+                        Message(
+                            role="system",
+                            content=(
+                                "<Turn>\nAgent thought: (invalid)\nTool output: "
+                                f"{validation_error}\n</Turn>"
+                            ),
+                        ),
                     )
                     current_error = validation_error
                     continue
 
-                tool_call = agent_response.tool_call
+                tool_call: ToolCall | None = agent_response.tool_call
                 patch_text = (agent_response.file_patch or "").strip()
                 thought = agent_response.thought_process
 
@@ -851,9 +756,7 @@ async def run_repair_loop(
                     tool_args = tool_call.arguments
                     console.print(Panel(f"🕵️ Agent invoking {tool_name} with args {tool_args}", title="Tool Call", box=box.SIMPLE))
                     try:
-                        output = await _execute_tool(tool_name, tool_args if isinstance(tool_args, dict) else {})
-                    except SecurityError as exc:
-                        output = f"SecurityError: {exc}"
+                        output = await engine.execute_tool(tool_call)
                     except Exception as exc:
                         output = f"Tool execution failed: {exc}"
                     console.print(Panel(output, title="Tool Output", box=box.SIMPLE, style="cyan"))
@@ -864,7 +767,7 @@ async def run_repair_loop(
                         f"Tool output: {output}\n"
                         "</Turn>"
                     )
-                    _append_history(history, history_entry)
+                    _append_history(history, Message(role="system", content=history_entry))
                     continue
 
                 if patch_text:
@@ -875,11 +778,16 @@ async def run_repair_loop(
                         console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
                         _append_history(
                             history,
-                            "<Turn>\n"
-                            f"Agent thought: {thought}\n"
-                            "Tool call: none\n"
-                            f"Tool output: Syntax check failed: {syntax_error}\n"
-                            "</Turn>",
+                            Message(
+                                role="system",
+                                content=(
+                                    "<Turn>\n"
+                                    f"Agent thought: {thought}\n"
+                                    "Tool call: none\n"
+                                    f"Tool output: Syntax check failed: {syntax_error}\n"
+                                    "</Turn>"
+                                ),
+                            ),
                         )
                         changed_files.update(applied_paths)
                         current_error = syntax_error
@@ -892,11 +800,16 @@ async def run_repair_loop(
                 console.print(f"[yellow]{message}[/yellow]")
                 _append_history(
                     history,
-                    "<Turn>\n"
-                    f"Agent thought: {thought}\n"
-                    "Tool call: none\n"
-                    f"Tool output: {message}\n"
-                    "</Turn>",
+                    Message(
+                        role="system",
+                        content=(
+                            "<Turn>\n"
+                            f"Agent thought: {thought}\n"
+                            "Tool call: none\n"
+                            f"Tool output: {message}\n"
+                            "</Turn>"
+                        ),
+                    ),
                 )
                 break
 
@@ -920,7 +833,7 @@ async def run_repair_loop(
             attempt_history.append(
                 AttemptContext(iteration=attempt + 1, last_error=failure_msg, files_changed=list(changed_files))
             )
-            _append_history(history, f"Verification failure (attempt {attempt + 1}): {failure_msg}")
+            _append_history(history, Message(role="system", content=f"Verification failure (attempt {attempt + 1}): {failure_msg}"))
 
         console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
         exit_code, stdout, stderr = await _run_shell_command(command, root)

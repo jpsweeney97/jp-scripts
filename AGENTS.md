@@ -11,6 +11,7 @@ Read this document before touching code. Violations halt work until corrected.
 - Entry point `src/jpscripts/main.py` performs registration/bootstrap only—no business logic.
 - All I/O is asynchronous via `asyncio`; blocking calls must be wrapped in threads or replaced with async equivalents.
 - Core libraries: Typer/Rich for CLI, Pydantic for validation, SQLite for storage. No ad-hoc dependencies.
+- Commands are dynamically discovered. To add a new command, create a file in `src/jpscripts/commands/` and define a module-level `app = typer.Typer()` object.
 
 ## 3) MCP Protocol
 - Tools live in `src/jpscripts/mcp/tools/` and are registered via `src/jpscripts/mcp/server.py` through `register_tools`.
@@ -18,8 +19,15 @@ Read this document before touching code. Violations halt work until corrected.
 - File and path operations must call `security.validate_path(...)` to enforce sandbox boundaries.
 - Favor structured outputs; avoid free-form text from MCP tools unless explicitly required.
 - All MCP tools must rely on Pydantic runtime validation. Primitives must be fully type-hinted. The server will fail to start if untyped arguments are detected.
+- Tools exposed to MCP must be identical to the tools registered in `AgentEngine`. The engine is the single source of truth for tool definitions.
 
 ## 4) Testing Standards
 - Async code requires `pytest-asyncio`; write tests that exercise awaitables directly.
 - Every new CLI command must have a `test_smoke.py` entry to ensure `--help` and basic invocation succeed.
 - Keep unit tests in `tests/unit/` and integration/system tests in `tests/integration/`; do not bypass them.
+
+## 5) The Unified Engine
+- All agentic workflows (single or swarm) MUST use `jpscripts.core.engine.AgentEngine`. Do not write ad-hoc prompt loops or subprocess calls in command modules.
+
+## Memory
+- Memory retrieval uses Reciprocal Rank Fusion (RRF). Do not modify the scoring constants `k=60` without empirical justification.
