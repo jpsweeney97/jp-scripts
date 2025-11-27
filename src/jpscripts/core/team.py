@@ -5,7 +5,6 @@ import json
 import os
 import shutil
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import AsyncIterator, Iterable, Literal, Sequence
 
@@ -19,35 +18,46 @@ from jpscripts.core.engine import AgentEngine, Message, PreparedPrompt
 logger = get_logger(__name__)
 
 
-class AgentRole(Enum):
-    ARCHITECT = "architect"
-    ENGINEER = "engineer"
-    QA = "qa"
+@dataclass
+class Persona:
+    name: str
+    style: str
+    color: str = "cyan"
 
     @property
     def label(self) -> str:
-        return {
-            AgentRole.ARCHITECT: "Architect",
-            AgentRole.ENGINEER: "Engineer",
-            AgentRole.QA: "QA",
-        }[self]
+        return self.name
 
 
-ROLE_PRIMERS: dict[AgentRole, str] = {
-    AgentRole.ARCHITECT: (
-        "You design the technical plan and break down the work. Produce concise steps and"
-        " call out risks for implementation. Respond using the Swarm State JSON schema"
-        " only—no markdown or YAML."
-    ),
-    AgentRole.ENGINEER: (
-        "You execute the plan, propose concrete code changes, and resolve edge cases."
-        " Keep responses terse and implementation-focused."
-    ),
-    AgentRole.QA: (
-        "You validate the plan and implementation. Identify missing tests, regressions,"
-        " and safety issues. Provide clear acceptance criteria."
-    ),
-}
+def get_default_swarm() -> list[Persona]:
+    """Return the default Architect/Engineer/QA personas."""
+    return [
+        Persona(
+            name="Architect",
+            style=(
+                "You design the technical plan and break down the work. Produce concise steps and "
+                "call out risks for implementation. Respond using the Swarm State JSON schema "
+                "only—no markdown or YAML."
+            ),
+            color="cyan",
+        ),
+        Persona(
+            name="Engineer",
+            style=(
+                "You execute the plan, propose concrete code changes, and resolve edge cases. "
+                "Keep responses terse and implementation-focused."
+            ),
+            color="green",
+        ),
+        Persona(
+            name="QA",
+            style=(
+                "You validate the plan and implementation. Identify missing tests, regressions, "
+                "and safety issues. Provide clear acceptance criteria."
+            ),
+            color="yellow",
+        ),
+    ]
 
 
 class Objective(BaseModel):
@@ -82,7 +92,7 @@ class AgentTurnResponse(BaseModel):
 
 @dataclass
 class AgentUpdate:
-    role: AgentRole
+    role: Persona
     kind: str  # stdout | stderr | status | exit
     content: str
 
@@ -131,7 +141,7 @@ def _format_file_snippets(files: Sequence[Path], max_files: int = 3, max_chars: 
 
 
 def _compose_prompt(
-    role: AgentRole,
+    persona: Persona,
     objective: str,
     swarm_state: SwarmState,
     context_log: str,
@@ -141,23 +151,19 @@ def _compose_prompt(
     context_files: Sequence[Path],
     max_file_context_chars: int,
 ) -> str:
-    primer = ROLE_PRIMERS.get(role, "")
+    primer = persona.style
     config_summary = _render_config_context(config, safe_mode)
     context_section = f"\n\nRepository context (from git status):\n{context_log.strip()}" if context_log.strip() else ""
     file_section = _format_file_snippets(context_files, max_chars=max_file_context_chars)
     swarm_json = swarm_state.model_dump_json(indent=2)
-    handoff_guidance = {
-        AgentRole.ARCHITECT: "Set `next_step` to 'engineer' after drafting the plan.",
-        AgentRole.ENGINEER: "Set `next_step` to 'qa' after proposing the implementation.",
-        AgentRole.QA: "Set `next_step` to 'finish' if tests pass, or 'engineer' if changes are required.",
-    }[role]
+    handoff_guidance = "Use `next_step` to route work to the appropriate persona (engineer/qa) or `finish` when done."
     schema_instruction = (
         "\n\nRespond ONLY with JSON that matches this schema. Do not add markdown or explanations:\n"
         f"{json.dumps(AgentTurnResponse.model_json_schema(), indent=2)}\n"
         f"Handoff rules: {handoff_guidance}"
     )
     return (
-        f"You are the {role.label} in a three-agent swarm (Architect, Engineer, QA).\n"
+        f"You are the {persona.label} in a three-agent swarm (Architect, Engineer, QA).\n"
         f"{primer}\n"
         f"Objective:\n{objective.strip()}\n\n"
         f"Current Swarm State (JSON):\n{swarm_json}\n\n"
@@ -247,7 +253,7 @@ class SwarmController:
     def __init__(
         self,
         objective: str,
-        roles: Iterable[AgentRole],
+        roles: Iterable[Persona],
         config: AppConfig | None,
         repo_root: Path | None,
         model: str | None,
@@ -274,43 +280,38 @@ class SwarmController:
             artifacts=[],
         )
         self.max_file_context_chars = self.config.max_file_context_chars
-        self._next_role: AgentRole | None = None
-        self._engines: dict[AgentRole, AgentEngine[AgentResponse]] = {}
+        self._next_role: Persona | None = None
+        self._engines: dict[str, AgentEngine[AgentTurnResponse]] = {}
 
-    def _starting_role(self) -> AgentRole | None:
-        if AgentRole.ARCHITECT in self.roles:
-            return AgentRole.ARCHITECT
-        return self.roles[0] if self.roles else None
+    def _starting_role(self) -> Persona | None:
+        if not self.roles:
+            return None
+        return self.roles[0]
 
-    def _default_next_role(self, current: AgentRole) -> AgentRole | None:
-        if current is AgentRole.ARCHITECT and AgentRole.ENGINEER in self.roles:
-            return AgentRole.ENGINEER
-        if current is AgentRole.ENGINEER and AgentRole.QA in self.roles:
-            return AgentRole.QA
+    def _default_next_role(self, current: Persona) -> Persona | None:
+        try:
+            current_index = self.roles.index(current)
+        except ValueError:
+            return None
+        if current_index + 1 < len(self.roles):
+            return self.roles[current_index + 1]
         return None
 
-    def _normalize_next_step(self, step: str | None) -> AgentRole | None:
+    def _normalize_next_step(self, step: str | None) -> Persona | None:
         if not step:
             return None
         lowered = step.lower().strip()
         if lowered == "finish":
             return None
-        for role in AgentRole:
-            if role.value == lowered:
-                return role
+        for persona in self.roles:
+            if persona.name.lower() == lowered:
+                return persona
         return None
 
-    def _resolve_next_role(self, current: AgentRole, requested_step: str | None) -> AgentRole | None:
+    def _resolve_next_role(self, current: Persona, requested_step: str | None) -> Persona | None:
         suggested = self._normalize_next_step(requested_step)
-        allowed: dict[AgentRole, set[AgentRole | None]] = {
-            AgentRole.ARCHITECT: {AgentRole.ENGINEER},
-            AgentRole.ENGINEER: {AgentRole.QA},
-            AgentRole.QA: {AgentRole.ENGINEER, None},
-        }
-
-        if suggested in allowed.get(current, set()) and (suggested is None or suggested in self.roles):
+        if suggested in self.roles:
             return suggested
-
         return self._default_next_role(current)
 
     async def _initialize(self) -> None:
@@ -324,7 +325,7 @@ class SwarmController:
             artifacts=[str(path) for path in context_files],
         )
 
-    async def _run_turn(self, role: AgentRole) -> AsyncIterator[AgentUpdate]:
+    async def _run_turn(self, role: Persona) -> AsyncIterator[AgentUpdate]:
         prompt = _compose_prompt(
             role,
             self.objective,
@@ -373,7 +374,7 @@ class SwarmController:
             parser=parse_swarm_response,
             template_root=self.root,
         )
-        self._engines[role] = engine
+        self._engines[role.name] = engine
 
         await self.queue.put(AgentUpdate(role, "status", "starting"))
         response = await engine.step([])
@@ -392,7 +393,7 @@ class SwarmController:
         await self._initialize()
         current_role = self._starting_role()
         if current_role is None:
-            yield AgentUpdate(AgentRole.ARCHITECT, "stderr", "No roles available for swarm.")
+            yield AgentUpdate(Persona(name="Unknown", style="", color="red"), "stderr", "No roles available for swarm.")
             return
 
         yield AgentUpdate(current_role, "status", "context loaded")
@@ -404,12 +405,16 @@ class SwarmController:
             current_role = getattr(self, "_next_role", None)
 
         if turn >= self.max_turns:
-            yield AgentUpdate(current_role or AgentRole.QA, "stderr", f"Max turns ({self.max_turns}) reached.")
+            yield AgentUpdate(
+                current_role or Persona(name="QA", style="", color="yellow"),
+                "stderr",
+                f"Max turns ({self.max_turns}) reached.",
+            )
 
 
 async def swarm_chat(
     objective: str,
-    roles: Iterable[AgentRole],
+    roles: Iterable[Persona],
     config: AppConfig | None = None,
     repo_root: Path | None = None,
     model: str | None = None,

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
-import subprocess
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
@@ -122,6 +122,11 @@ def web_snap(
 
     if sys.platform == "darwin":
         try:
-            subprocess.run(["open", "-R", str(output_path)], check=False)
+            asyncio.run(_reveal_in_finder(output_path))
         except FileNotFoundError:
             pass
+
+
+async def _reveal_in_finder(path: Path) -> None:
+    proc = await asyncio.create_subprocess_exec("open", "-R", str(path))
+    await proc.wait()

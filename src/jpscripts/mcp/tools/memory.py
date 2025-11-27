@@ -4,10 +4,11 @@ import asyncio
 
 from jpscripts.core import memory as memory_core
 from jpscripts.core.config import AppConfig
-from jpscripts.mcp import get_config, tool
+from jpscripts.mcp import get_config, tool, tool_error_handler
 
 
 @tool()
+@tool_error_handler
 async def remember(fact: str, tags: str | None = None) -> str:
     """
     Save a fact or lesson to the persistent memory store.
@@ -22,6 +23,7 @@ async def remember(fact: str, tags: str | None = None) -> str:
 
 
 @tool()
+@tool_error_handler
 async def recall(query: str, limit: int = 5) -> str:
     """Retrieve the most relevant memories for a query."""
     cfg = get_config()

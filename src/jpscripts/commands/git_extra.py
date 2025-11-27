@@ -16,9 +16,14 @@ from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core import security
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
-from jpscripts.commands.ui import fzf_select
+from jpscripts.commands.ui import fzf_select_async
 
 app = typer.Typer()
+
+
+def _pick_with_fzf(lines: list[str], prompt: str, extra_args: list[str] | None = None) -> str | list[str] | None:
+    """Wrapper to run fzf selection without blocking the main thread."""
+    return asyncio.run(fzf_select_async(lines, prompt=prompt, extra_args=extra_args))
 
 class PullRequest(BaseModel):
     number: int
@@ -92,7 +97,7 @@ def gstage(
     selection: str | None = None
     if use_fzf:
         lines = [f"{code}\t{path}" for code, path in entries]
-        fzf_selection = fzf_select(lines, prompt="stage> ")
+        fzf_selection = _pick_with_fzf(lines, prompt="stage> ")
         selection = fzf_selection if isinstance(fzf_selection, str) else None
     else:
         table = Table(title="Changes", box=box.SIMPLE_HEAVY, expand=True)
@@ -141,7 +146,7 @@ async def gpr(
     if use_fzf:
         # We pass the lookup key (number) as the prefix
         lines = [f"{pr.number}\t{pr.title} ({pr.headRefName})" for pr in prs]
-        selection = fzf_select(lines, prompt="pr> ")
+        selection = _pick_with_fzf(lines, prompt="pr> ")
         if not selection or not isinstance(selection, str):
             return
         number = int(selection.split("\t")[0])
@@ -290,7 +295,7 @@ def stashview(
         return
 
     use_fzf = shutil.which("fzf") and not no_fzf
-    selection = fzf_select(stash_list, prompt="stash> ") if use_fzf else stash_list[0]
+    selection = _pick_with_fzf(stash_list, prompt="stash> ") if use_fzf else stash_list[0]
     selection_str = selection if isinstance(selection, str) else None
     if not selection_str:
         return

@@ -71,6 +71,7 @@ class AppConfig(BaseSettings):
     worktree_root: Path | None = Field(default=None, description="Optional location for Git worktrees.")
     focus_audio_device: str | None = Field(default=None, description="Preferred audio device for focus helpers.")
     dry_run: bool = Field(default=False, description="If true, performs dry-run operations without side effects.")
+    trace_dir: Path = Field(default_factory=lambda: Path.home() / ".jpscripts" / "traces", description="Directory for agent trace logs.")
 
     @classmethod
     def settings_customise_sources(

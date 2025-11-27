@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 
 from jpscripts.core.notes_impl import append_to_daily_note
-from jpscripts.mcp import get_config, tool
+from jpscripts.mcp import get_config, tool, tool_error_handler
 
 
 @tool()
+@tool_error_handler
 async def append_daily_note(message: str) -> str:
     """Append a log entry to the user's daily note system."""
     try:

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
+import shlex
+import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Generic, Mapping, Protocol, Sequence, TypeVar
 
@@ -12,10 +16,13 @@ from pydantic import BaseModel, Field, ValidationError
 from jpscripts.core import security
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import smart_read_context
+from jpscripts.core.security import validate_path
 
 logger = get_logger(__name__)
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
+ENGINE_CORE_TOOLS: set[str] = {"read_file", "run_shell"}
+AUDIT_PREFIX = "audit.shell"
 
 
 class MemoryProtocol(Protocol):
@@ -52,6 +59,48 @@ class AgentResponse(BaseModel):
     tool_call: ToolCall | None = Field(None, description="Tool invocation request")
     file_patch: str | None = Field(None, description="Unified diff to apply (optional)")
     final_message: str | None = Field(None, description="Response to user if no action needed")
+
+
+class AgentTraceStep(BaseModel):
+    timestamp: str
+    agent_persona: str
+    input_history: list[dict[str, str]]
+    response: dict[str, Any]
+    tool_output: str | None = None
+
+
+class TraceRecorder:
+    def __init__(self, trace_dir: Path, trace_id: str | None = None) -> None:
+        self.trace_id = trace_id or uuid.uuid4().hex
+        self.trace_dir = self._ensure_trace_dir(trace_dir)
+        self._path = self.trace_dir / f"{self.trace_id}.jsonl"
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def _ensure_trace_dir(self, trace_dir: Path) -> Path:
+        primary = trace_dir.expanduser()
+        try:
+            primary.mkdir(parents=True, exist_ok=True)
+            return primary
+        except PermissionError:
+            fallback = (Path.cwd() / ".jpscripts" / "traces").resolve()
+            try:
+                fallback.mkdir(parents=True, exist_ok=True)
+                logger.warning("TraceRecorder falling back to %s due to permission issues", fallback)
+                return fallback
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.debug("Failed to create fallback trace dir %s: %s", fallback, exc)
+                raise
+
+    async def append(self, step: AgentTraceStep) -> None:
+        payload = step.model_dump_json()
+        await asyncio.to_thread(self._write_line, payload)
+
+    def _write_line(self, line: str) -> None:
+        with self._path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
 
 
 def _clean_json_payload(text: str) -> str:
@@ -94,6 +143,7 @@ class AgentEngine(Generic[ResponseT]):
         tools: Mapping[str, Callable[[dict[str, Any]], Awaitable[str]]] | None = None,
         memory: MemoryProtocol | None = None,
         template_root: Path | None = None,
+        trace_dir: Path | None = None,
     ) -> None:
         self.persona = persona
         self.model = model
@@ -103,6 +153,7 @@ class AgentEngine(Generic[ResponseT]):
         self._tools = tools or {}
         self._memory = memory
         self._template_root = template_root
+        self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
 
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)
@@ -110,7 +161,22 @@ class AgentEngine(Generic[ResponseT]):
     async def step(self, history: list[Message]) -> ResponseT:
         prepared = await self._render_prompt(history)
         raw = await self._fetch_response(prepared)
-        return self._parser(raw)
+        response = self._parser(raw)
+        await self._record_trace(history, response)
+        return response
+
+    async def _record_trace(self, history: Sequence[Message], response: BaseModel, tool_output: str | None = None) -> None:
+        try:
+            step = AgentTraceStep(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_persona=self.persona,
+                input_history=[{"role": msg.role, "content": msg.content} for msg in history],
+                response=response.model_dump(),
+                tool_output=tool_output,
+            )
+            await self._trace_recorder.append(step)
+        except Exception as exc:  # pragma: no cover - best effort
+            logger.debug("Failed to record trace: %s", exc)
 
     async def execute_tool(self, call: ToolCall) -> str:
         """
@@ -149,34 +215,80 @@ class AgentEngine(Generic[ResponseT]):
             return f"Failed to read file {safe_target}: {exc}"
 
     async def _run_shell_tool(self, args: dict[str, Any]) -> str:
+        """Executes command without shell interpolation."""
         command = args.get("command")
         if not isinstance(command, str) or not command.strip():
             return "Invalid command argument."
-        forbidden = re.compile(r"(rm|mv|cp|>|\\||sudo|chmod)", flags=re.IGNORECASE)
-        if forbidden.search(command):
-            return "SecurityError: Command contains forbidden operations."
-        allowed = re.compile(r"^(ls|grep|find|cat|git status|git diff|git log)")
-        if not allowed.match(command.strip()):
-            return "SecurityError: Command not permitted by policy."
-
-        root = self._template_root or Path.cwd()
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                command,
-                cwd=root,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except Exception as exc:  # pragma: no cover - defensive
-            return f"Failed to run command: {exc}"
-
-        stdout_bytes, stderr_bytes = await proc.communicate()
-        stdout = stdout_bytes.decode(errors="replace")
-        stderr = stderr_bytes.decode(errors="replace")
-        if proc.returncode != 0:
-            return f"Command failed with exit code {proc.returncode}"
-        return (stdout + stderr).strip() or "Command produced no output."
+        return await run_safe_shell(
+            command=command,
+            root=self._template_root or Path.cwd(),
+            audit_prefix=AUDIT_PREFIX,
+        )
 
 
 def load_template_environment(template_root: Path) -> Environment:
     return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
+
+
+def _validate_paths_in_args(args: list[str], root: Path) -> None:
+    """Validate any path-like tokens under the workspace root, raising on escape."""
+    for token in args:
+        if token.startswith("-"):
+            continue
+        candidate = Path(token)
+        target = candidate if candidate.is_absolute() else (root / candidate)
+        try:
+            validate_path(target, root)
+        except PermissionError as exc:
+            raise
+        except Exception:
+            continue
+
+
+async def run_safe_shell(command: str, root: Path, audit_prefix: str) -> str:
+    """
+    Shared safe shell runner for AgentEngine and MCP.
+    Enforces readonly allowlist, path validation, and audit logging.
+    """
+    forbidden = re.compile(r"(rm|mv|cp|>|\\||sudo|chmod|-exec)", flags=re.IGNORECASE)
+    if forbidden.search(command):
+        logger.warning("%s.reject forbidden command=%r", audit_prefix, command)
+        return "SecurityError: Command contains forbidden operations."
+    allowed = re.compile(r"^(ls|grep|find|cat|git status|git diff|git log)\\b")
+    if not allowed.match(command.strip()):
+        logger.warning("%s.reject disallowed command=%r", audit_prefix, command)
+        return "SecurityError: Command not permitted by policy."
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        logger.warning("%s.reject parse_error=%s", audit_prefix, exc)
+        return f"Unable to parse command; simplify quoting. ({exc})"
+
+    if not tokens:
+        return "Invalid command argument."
+
+    # Validate any path-like tokens stay under root
+    try:
+        _validate_paths_in_args(tokens[1:], root)
+    except PermissionError as exc:
+        logger.warning("%s.reject path_escape=%s cmd=%r", audit_prefix, exc, command)
+        return f"SecurityError: {exc}"
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *tokens,
+            cwd=root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        return f"Failed to run command: {exc}"
+
+    stdout_bytes, stderr_bytes = await proc.communicate()
+    stdout = stdout_bytes.decode(errors="replace")
+    stderr = stderr_bytes.decode(errors="replace")
+    if proc.returncode != 0:
+        logger.warning("%s.fail code=%s cmd=%r", audit_prefix, proc.returncode, command)
+        return f"Command failed with exit code {proc.returncode}"
+    return (stdout + stderr).strip() or "Command produced no output."

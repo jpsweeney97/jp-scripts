@@ -4,6 +4,7 @@ import ast
 import asyncio
 import json
 import re
+import shlex
 import shutil
 from pathlib import Path
 from typing import Any, Callable
@@ -31,9 +32,19 @@ def estimate_tokens(text: str) -> int:
 
 
 async def run_and_capture(command: str, cwd: Path) -> str:
-    """Run a shell command and return combined stdout/stderr."""
-    process = await asyncio.create_subprocess_shell(
-        command,
+    """Run a command without shell interpolation and return combined stdout/stderr."""
+    try:
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        logger.warning("Failed to parse context command: %s", exc)
+        return f"Unable to parse command; simplify quoting. ({exc})"
+
+    if not tokens:
+        return "Invalid command."
+
+    logger.debug("Executing context command: %s", tokens)
+    process = await asyncio.create_subprocess_exec(
+        *tokens,
         cwd=cwd,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,

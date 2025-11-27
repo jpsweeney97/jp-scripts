@@ -5,10 +5,11 @@ from pathlib import Path
 
 from jpscripts.core import memory as memory_core
 from jpscripts.core import nav as nav_core
-from jpscripts.mcp import get_config, tool
+from jpscripts.mcp import get_config, tool, tool_error_handler
 
 
 @tool()
+@tool_error_handler
 async def list_recent_files(limit: int = 20) -> str:
     """List files modified recently in the current workspace root and surface related memories."""
     try:
@@ -45,6 +46,7 @@ async def list_recent_files(limit: int = 20) -> str:
 
 
 @tool()
+@tool_error_handler
 async def list_projects() -> str:
     """List known projects (via zoxide)."""
     try:

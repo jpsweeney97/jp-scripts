@@ -11,19 +11,12 @@ from rich.panel import Panel
 from rich.text import Text
 
 from jpscripts.core.console import console
-from jpscripts.core.team import AgentRole, swarm_chat
+from jpscripts.core.team import Persona, get_default_swarm, swarm_chat
 
 app = typer.Typer(help="Coordinate a swarm of specialized Codex agents.")
 
 
-ROLE_STYLES: dict[AgentRole, str] = {
-    AgentRole.ARCHITECT: "cyan",
-    AgentRole.ENGINEER: "green",
-    AgentRole.QA: "magenta",
-}
-
-
-def _agent_panel(role: AgentRole, log_lines: list[str], status: str) -> Panel:
+def _agent_panel(role: Persona, log_lines: list[str], status: str) -> Panel:
     body = Text()
     for line in log_lines[-20:]:
         body.append(line + "\n")
@@ -31,10 +24,10 @@ def _agent_panel(role: AgentRole, log_lines: list[str], status: str) -> Panel:
         body.append("[dim]Waiting for output...[/dim]")
 
     title = f"{role.label} • {status}"
-    return Panel(body, title=title, border_style=ROLE_STYLES.get(role, "white"), padding=(1, 2))
+    return Panel(body, title=title, border_style=role.color or "white", padding=(1, 2))
 
 
-def _render_layout(objective: str, roles: Iterable[AgentRole], logs: dict[AgentRole, list[str]], statuses: dict[AgentRole, str], safe_mode: bool) -> Layout:
+def _render_layout(objective: str, roles: Iterable[Persona], logs: dict[Persona, list[str]], statuses: dict[Persona, str], safe_mode: bool) -> Layout:
     layout = Layout()
     header = Panel(
         f"[bold]Objective[/bold]: {objective}",
@@ -44,14 +37,14 @@ def _render_layout(objective: str, roles: Iterable[AgentRole], logs: dict[AgentR
     )
     layout.split_column(Layout(header, name="header", size=5), Layout(name="agents"))
 
-    agent_layouts = [Layout(_agent_panel(role, logs[role], statuses.get(role, "…")), name=role.value) for role in roles]
+    agent_layouts = [Layout(_agent_panel(role, logs[role], statuses.get(role, "…")), name=role.name.lower()) for role in roles]
     layout["agents"].split_row(*agent_layouts)
     return layout
 
 
-async def _run_swarm(objective: str, roles: list[AgentRole], state, safe_mode: bool) -> None:
-    logs: dict[AgentRole, list[str]] = {role: [] for role in roles}
-    statuses: dict[AgentRole, str] = {role: "queued" for role in roles}
+async def _run_swarm(objective: str, roles: list[Persona], state, safe_mode: bool) -> None:
+    logs: dict[Persona, list[str]] = {role: [] for role in roles}
+    statuses: dict[Persona, str] = {role: "queued" for role in roles}
 
     with Live(
         _render_layout(objective, roles, logs, statuses, safe_mode),
@@ -91,7 +84,7 @@ def swarm(
     Launch architect, engineer, and QA Codex agents in parallel.
     """
     state = ctx.obj
-    roles = [AgentRole.ARCHITECT, AgentRole.ENGINEER, AgentRole.QA]
+    roles = get_default_swarm()
     safe_mode_active = bool(getattr(state, "config_meta", None) and state.config_meta.error)
 
     # Pre-flight check for MCP configuration in Codex

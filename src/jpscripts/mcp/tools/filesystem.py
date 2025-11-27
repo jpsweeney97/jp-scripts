@@ -263,6 +263,7 @@ async def _apply_patch_with_system_patch(diff_text: str, root: Path, *, check_on
 
 
 @tool()
+@tool_error_handler
 async def apply_patch(path: str, diff: str) -> str:
     """Apply a unified diff to a file within the workspace.
 

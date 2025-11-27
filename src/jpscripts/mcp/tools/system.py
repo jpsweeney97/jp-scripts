@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import re
+import shlex
 
 from jpscripts.core import system as system_core
+from jpscripts.core.engine import AUDIT_PREFIX, run_safe_shell
 from jpscripts.mcp import get_config
-from jpscripts.mcp import tool
+from jpscripts.mcp import tool, tool_error_handler
 
 
 @tool()
+@tool_error_handler
 async def list_processes(name_filter: str | None = None, port_filter: int | None = None) -> str:
     """List running processes."""
     try:
@@ -23,6 +27,7 @@ async def list_processes(name_filter: str | None = None, port_filter: int | None
 
 
 @tool()
+@tool_error_handler
 async def kill_process(pid: int, force: bool = False) -> str:
     """Kill a process by PID."""
     try:
@@ -31,3 +36,24 @@ async def kill_process(pid: int, force: bool = False) -> str:
         return f"Process {pid}: {result}"
     except Exception as e:
         return f"Error killing process {pid}: {str(e)}"
+
+
+@tool()
+@tool_error_handler
+async def run_shell(command: str) -> str:
+    """
+    Execute a safe, sandboxed command without shell interpolation.
+    Only allows read-only inspection commands.
+    """
+    cfg = get_config()
+    if cfg is None:
+        return "Config not loaded."
+
+    if not isinstance(command, str) or not command.strip():
+        return "Invalid command argument."
+
+    return await run_safe_shell(
+        command=command,
+        root=cfg.workspace_root.expanduser(),
+        audit_prefix=AUDIT_PREFIX,
+    )

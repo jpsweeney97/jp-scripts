@@ -37,6 +37,17 @@ def test_all_mcp_tools_are_strictly_typed() -> None:
             issues.append(f"Tool '{func.__name__}' in '{module_name}' missing return type annotation.")
         elif sig.return_annotation is Any:
             issues.append(f"Tool '{func.__name__}' in '{module_name}' uses Any as return type.")
+        if not getattr(func, "__tool_error_handler__", False):
+            issues.append(f"Tool '{func.__name__}' in '{module_name}' is missing @tool_error_handler wrapping.")
 
     if issues:
         pytest.fail("\n".join(issues))
+
+
+def test_engine_core_tools_registered_in_mcp() -> None:
+    """Ensure AgentEngine core tools are present in MCP registry."""
+    from jpscripts.core.engine import ENGINE_CORE_TOOLS  # local import to avoid cycles
+
+    discovered = {func.__name__ for _, func in _iter_tools()}
+    missing = set(ENGINE_CORE_TOOLS) - discovered
+    assert not missing, f"MCP registry missing AgentEngine tools: {', '.join(sorted(missing))}"

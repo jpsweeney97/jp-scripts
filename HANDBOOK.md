@@ -213,6 +213,13 @@ If a tool fails, run the doctor. It checks the $PATH and version compatibility f
 - `codex`
 - `SwitchAudioSource` (macOS only)
 
+### Security & Async Invariants (do not break)
+
+- **No shell=True ever**: All subprocesses use `asyncio.create_subprocess_exec` with tokenized args; guardrails fail the build if `create_subprocess_shell` or blocking `subprocess.run`/`Popen` reappear in commands (only `commands/ui.py` encapsulates fzf).
+- **Async-first I/O**: Keep editors, ssh, fzf, and ripgrep flows behind async helpers or `asyncio.to_thread`; avoid blocking the loop.
+- **Workspace sandbox**: Run paths through `security.validate_path`; MCP tools must refuse anything outside `workspace_root`.
+- **MCP strictness**: Every MCP tool uses `@tool_error_handler` plus Pydantic validation; tool definitions must mirror AgentEngine tools to stay in sync.
+
 ---
 
 ## 7. Keyboard Shortcuts (Recommended)

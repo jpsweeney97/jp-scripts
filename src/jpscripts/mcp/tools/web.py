@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import asyncio
 
-from jpscripts.mcp import tool
+from jpscripts.mcp import tool, tool_error_handler
 
 
 @tool()
+@tool_error_handler
 async def fetch_url_content(url: str) -> str:
     """Fetch and parse a webpage into clean Markdown."""
     try:

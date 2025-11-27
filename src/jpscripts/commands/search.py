@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
 from pathlib import Path
 
 import typer
@@ -10,7 +9,7 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
-from jpscripts.commands.ui import fzf_stream
+from jpscripts.commands.ui import fzf_stream_with_command
 from jpscripts.core import search as search_core
 from jpscripts.core.console import console
 
@@ -26,15 +25,16 @@ def ripper(
 
     if use_fzf:
         cmd = search_core.get_ripgrep_cmd(pattern, path, context=context)
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
-            if proc_rg.stdout is None:
-                console.print("[red]Failed to start ripgrep.[/red]")
-                raise typer.Exit(code=1)
-            fzf_stream(proc_rg.stdout, prompt="ripper> ", ansi=True)
-            proc_rg.wait()
+        try:
+            asyncio.run(fzf_stream_with_command(cmd, prompt="ripper> ", ansi=True))
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1)
     else:
         try:
-            result = search_core.run_ripgrep(pattern, path, context=context)
+            result = asyncio.run(
+                asyncio.to_thread(search_core.run_ripgrep, pattern, path, context=context)
+            )
             panel_content = result or "[yellow]No matches.[/yellow]"
             console.print(Panel(panel_content, title="Matches", expand=False))
             console.print("[yellow]Install fzf for interactive filtering.[/yellow]")
@@ -87,15 +87,23 @@ def loggrep(
 
     if use_fzf:
         cmd = search_core.get_ripgrep_cmd(pattern, path, line_number=True, follow=follow, pcre2=True)
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
-            if proc_rg.stdout is None:
-                console.print("[red]Failed to start ripgrep.[/red]")
-                raise typer.Exit(code=1)
-            fzf_stream(proc_rg.stdout, prompt="loggrep> ", ansi=True)
-            proc_rg.wait()
+        try:
+            asyncio.run(fzf_stream_with_command(cmd, prompt="loggrep> ", ansi=True))
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1)
     else:
         try:
-            result = search_core.run_ripgrep(pattern, path, line_number=True, follow=follow, pcre2=True)
+            result = asyncio.run(
+                asyncio.to_thread(
+                    search_core.run_ripgrep,
+                    pattern,
+                    path,
+                    line_number=True,
+                    follow=follow,
+                    pcre2=True,
+                )
+            )
             panel_content = result or "[yellow]No matches.[/yellow]"
             console.print(Panel(panel_content, title="Matches", expand=False))
             console.print("[yellow]Install fzf for interactive filtering.[/yellow]")

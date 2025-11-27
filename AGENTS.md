@@ -31,3 +31,15 @@ Read this document before touching code. Violations halt work until corrected.
 
 ## Memory
 - Memory retrieval uses Reciprocal Rank Fusion (RRF). Do not modify the scoring constants `k=60` without empirical justification.
+
+## Security & Shell Execution
+- Direct shell execution (`shell=True`) is STRICTLY FORBIDDEN.
+- All subprocess calls must use `asyncio.create_subprocess_exec` with tokenized argument lists.
+- Use `shlex.split()` to parse command strings before execution.
+
+## Observability
+- All Agent interactions must be traceable.
+- `AgentEngine` MUST persist execution traces to `~/.jpscripts/traces`.
+
+## Swarm Architecture
+- Swarms run on Dynamic Personas, not fixed roles. Personas define name, style, and color; avoid hardcoding role enums.

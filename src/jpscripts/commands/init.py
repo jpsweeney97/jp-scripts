@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 import subprocess
@@ -113,9 +114,16 @@ def config_fix(ctx: typer.Context) -> None:
     cmd = [codex_bin, "exec", prompt, "--full-auto", "--model", "gpt-5.1-codex-max"]
 
     try:
-        subprocess.run(cmd, check=True)
+        exit_code = asyncio.run(_run_codex_command(cmd))
+        if exit_code != 0:
+            raise subprocess.CalledProcessError(exit_code, cmd)
         console.print(f"[green]Repaired[/green] {path}")
     except subprocess.CalledProcessError:
         console.print("[red]Codex failed to fix the configuration.[/red]")
         raise typer.Exit(code=1)
 
+
+async def _run_codex_command(cmd: list[str]) -> int:
+    """Run Codex CLI asynchronously while preserving terminal IO."""
+    proc = await asyncio.create_subprocess_exec(*cmd)
+    return await proc.wait()

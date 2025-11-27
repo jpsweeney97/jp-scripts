@@ -13,11 +13,16 @@ from rich.table import Table
 # Import core logic
 from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
-from jpscripts.commands.ui import fzf_select
+from jpscripts.commands.ui import fzf_select_async
 
 
 def _human_time(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+
+
+def _fzf_select(lines: list[str], prompt: str, extra_args: list[str] | None = None) -> str | list[str] | None:
+    """Run fzf selection without blocking the main thread."""
+    return asyncio.run(fzf_select_async(lines, prompt=prompt, extra_args=extra_args))
 
 
 def recent(
@@ -68,7 +73,7 @@ def recent(
     lines = [str(entry.path) for entry in entries]
 
     if use_fzf:
-        selection = fzf_select(lines, prompt="recent> ", extra_args=["--no-sort"])
+        selection = _fzf_select(lines, prompt="recent> ", extra_args=["--no-sort"])
         if isinstance(selection, str) and selection:
             typer.echo(selection)
         return
@@ -112,7 +117,7 @@ def proj(
     selection: str | None = None
 
     if use_fzf:
-        fzf_selection = fzf_select(paths, prompt="proj> ", extra_args=["--no-sort"])
+        fzf_selection = _fzf_select(paths, prompt="proj> ", extra_args=["--no-sort"])
         selection = fzf_selection if isinstance(fzf_selection, str) else None
     else:
         table = Table(title="Projects (zoxide)", box=box.SIMPLE_HEAVY, expand=True)

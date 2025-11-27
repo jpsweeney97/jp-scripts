@@ -148,7 +148,7 @@ def run_temp_server(directory: Path, port: int) -> None:
 # --- Async Homebrew Wrappers ---
 
 async def search_brew(query: str | None) -> list[str]:
-    """Async wrapper for `brew search`."""
+    """Async wrapper for `brew search`. Executes command without shell interpolation."""
     brew = shutil.which("brew")
     if not brew:
         raise RuntimeError("Homebrew is required.")
@@ -170,7 +170,7 @@ async def search_brew(query: str | None) -> list[str]:
     return [line.strip() for line in stdout.decode().splitlines() if line.strip()]
 
 async def get_brew_info(name: str) -> str:
-    """Async wrapper for `brew info`."""
+    """Async wrapper for `brew info`. Executes command without shell interpolation."""
     brew = shutil.which("brew")
     if not brew:
         raise RuntimeError("Homebrew is required.")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import shlex
 import sys
 from dataclasses import dataclass
 from functools import lru_cache
@@ -303,8 +304,10 @@ async def _collect_git_diff(root: Path, max_chars: int) -> str | None:
         return None
 
     try:
-        proc = await asyncio.create_subprocess_shell(
-            "git diff HEAD",
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            "diff",
+            "HEAD",
             cwd=root,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -428,9 +431,20 @@ def _build_repair_instruction(
 
 
 async def _run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
+    """Executes command without shell interpolation."""
     try:
-        proc = await asyncio.create_subprocess_shell(
-            command,
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        logger.warning("Failed to parse shell command: %s", exc)
+        return 1, "", f"Unable to parse command; simplify quoting. ({exc})"
+
+    if not tokens:
+        return 1, "", "Invalid command."
+
+    try:
+        logger.debug("Running safe command: %s", tokens)
+        proc = await asyncio.create_subprocess_exec(
+            *tokens,
             cwd=cwd,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,

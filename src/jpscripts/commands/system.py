@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import shutil
-import subprocess
 import sys
 import threading
 from pathlib import Path
@@ -15,7 +14,12 @@ from rich.table import Table
 from jpscripts.core import git as git_core
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
-from jpscripts.commands.ui import fzf_select
+from jpscripts.commands.ui import fzf_select_async
+
+
+def _fzf_select(lines: list[str], prompt: str) -> str | list[str] | None:
+    """Run fzf selection without blocking the main thread."""
+    return asyncio.run(fzf_select_async(lines, prompt=prompt))
 
 
 def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, prompt: str) -> int | None:
@@ -27,7 +31,7 @@ def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, promp
     if use_fzf:
         # Format for FZF: "PID\tUSER\tCMD"
         lines = [f"{p.pid}\t{p.username}\t{p.cmdline}" for p in matches]
-        selection = fzf_select(lines, prompt=prompt)
+        selection = _fzf_select(lines, prompt=prompt)
         if not isinstance(selection, str) or not selection:
             return None
         return int(selection.split("\t", 1)[0])
@@ -102,7 +106,7 @@ def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf e
         return
 
     use_fzf = shutil.which("fzf") and not no_fzf
-    selection = fzf_select(devices, prompt="audio> ") if use_fzf else devices[0]
+    selection = _fzf_select(devices, prompt="audio> ") if use_fzf else devices[0]
     target = selection if isinstance(selection, str) else None
 
     if not target:
@@ -133,20 +137,20 @@ def ssh_open(
     use_fzf = shutil.which("fzf") and not no_fzf
     target = host
     if not target:
-        selection = fzf_select(hosts, prompt="ssh> ") if use_fzf else hosts[0]
+        selection = _fzf_select(hosts, prompt="ssh> ") if use_fzf else hosts[0]
         target = selection if isinstance(selection, str) else None
 
     if not target:
         return
 
     console.print(f"[green]Connecting to[/green] {target} ...")
-    # NOTE: ssh must control the TTY for auth/IO; subprocess.run is intentional here.
-    # Async wrappers would detach stdio and break interactive shells.
     if not shutil.which("ssh"):
         console.print("[red]ssh binary not found on PATH.[/red]")
         raise typer.Exit(code=1)
     try:
-        subprocess.run(["ssh", target], check=False)
+        exit_code = asyncio.run(_run_ssh(target))
+        if exit_code != 0:
+            console.print(f"[red]ssh exited with code {exit_code}[/red]")
     except FileNotFoundError:
         console.print("[red]ssh binary not found on PATH.[/red]")
         raise typer.Exit(code=1)
@@ -198,7 +202,7 @@ def brew_explorer(
     use_fzf = shutil.which("fzf") and not no_fzf
     selection = None
     if use_fzf:
-        selection = fzf_select(items, prompt="brew> ")
+        selection = _fzf_select(items, prompt="brew> ")
     else:
         table = Table(title="brew search", box=box.SIMPLE_HEAVY, expand=True)
         table.add_column("Name", style="cyan")
@@ -259,3 +263,9 @@ def update() -> None:
         console.print("[green]Update complete.[/green]")
 
     asyncio.run(_run_update())
+
+
+async def _run_ssh(target: str) -> int:
+    """Run ssh while preserving TTY control using asyncio."""
+    proc = await asyncio.create_subprocess_exec("ssh", target)
+    return await proc.wait()

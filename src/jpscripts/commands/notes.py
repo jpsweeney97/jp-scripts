@@ -5,7 +5,6 @@ import datetime as dt
 import shlex
 import shutil
 import sqlite3
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -18,7 +17,7 @@ from jpscripts.core.console import console
 from jpscripts.core import git as git_core
 from jpscripts.core import notes_impl
 from jpscripts.core import search as search_core
-from jpscripts.commands.ui import fzf_stream
+from jpscripts.commands.ui import fzf_select_async, fzf_stream_with_command
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"
@@ -45,7 +44,9 @@ def note(
 
     editor_cmd = shlex.split(state.config.editor)
     try:
-        subprocess.run([*editor_cmd, str(note_path)], check=False)
+        exit_code = asyncio.run(_launch_editor(editor_cmd, note_path))
+        if exit_code != 0:
+            console.print(f"[red]Editor exited with code {exit_code}[/red]")
     except FileNotFoundError:
         console.print(f"[red]Editor not found:[/red] {state.config.editor}")
         raise typer.Exit(code=1)
@@ -66,27 +67,29 @@ def note_search(
 
     if use_fzf:
         cmd = search_core.get_ripgrep_cmd(query, notes_dir, line_number=True)
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
-            if proc_rg.stdout is None:
-                console.print("[red]Failed to start ripgrep.[/red]")
-                raise typer.Exit(code=1)
-            selection = fzf_stream(
-                proc_rg.stdout,
-                prompt="note-search> ",
-                ansi=True,
-                extra_args=["--delimiter", ":", "--nth", "3.."],
+        try:
+            selection = asyncio.run(
+                fzf_stream_with_command(
+                    cmd,
+                    prompt="note-search> ",
+                    ansi=True,
+                    extra_args=["--delimiter", ":", "--nth", "3.."],
+                )
             )
-            proc_rg.wait()
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(code=1)
 
-        if isinstance(selection, list):
-            for line in selection:
-                console.print(line)
-        elif isinstance(selection, str):
-            console.print(selection)
+        if selection:
+            if isinstance(selection, list):
+                for line in selection:
+                    console.print(line)
+            else:
+                console.print(selection)
         return
 
     try:
-        result = search_core.run_ripgrep(query, notes_dir, line_number=True)
+        result = asyncio.run(asyncio.to_thread(search_core.run_ripgrep, query, notes_dir, line_number=True))
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
@@ -307,12 +310,9 @@ def cliphist(
                 lines = [f"{when}\t{text}" for when, text in entries]
                 selection = None
                 if use_fzf:
-                    selection = subprocess.run(
-                        ["fzf", "--prompt", "clip> "],
-                        input="\n".join(lines),
-                        text=True,
-                        capture_output=True,
-                    ).stdout.strip()
+                    selection = asyncio.run(
+                        fzf_select_async(lines, prompt="clip> ", extra_args=["--with-nth", "2.."])
+                    )
                 else:
                     selection = lines[0]
 
@@ -326,3 +326,9 @@ def cliphist(
         raise typer.Exit(code=1)
 
     console.print("[red]Unknown action. Use add, pick, or show.[/red]")
+
+
+async def _launch_editor(editor_cmd: list[str], note_path: Path) -> int:
+    """Launch the configured editor asynchronously."""
+    proc = await asyncio.create_subprocess_exec(*editor_cmd, str(note_path))
+    return await proc.wait()

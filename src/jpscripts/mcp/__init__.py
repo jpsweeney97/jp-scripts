@@ -126,6 +126,7 @@ def tool_error_handler(fn: ToolAsyncCallable[P]) -> ToolAsyncCallable[P]:
                 _extract_error_path(exc, args, kwargs, fn),
             )
 
+    setattr(wrapper, "__tool_error_handler__", True)
     return wrapper
 
 
