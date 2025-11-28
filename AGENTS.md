@@ -14,6 +14,7 @@ Read this document before touching code. Violations halt work until corrected.
 - All I/O is asynchronous via `asyncio`; blocking calls must be wrapped in threads or replaced with async equivalents.
 - Core libraries: Typer/Rich for CLI, Pydantic for validation, SQLite for storage. No ad-hoc dependencies.
 - Commands are dynamically discovered. To add a new command, create a file in `src/jpscripts/commands/` and define a module-level `app = typer.Typer()` object.
+- **No Subprocess Inception**: Never shell out to the `jp` or `codex` CLI from within Python code. Use internal modules (`core`, `providers`) directly.
 
 ## 3) MCP Protocol
 
@@ -48,6 +49,7 @@ Read this document before touching code. Violations halt work until corrected.
 
 - All Agent interactions must be traceable.
 - `AgentEngine` MUST persist execution traces to `~/.jpscripts/traces`.
+- All agentic workflows must be inspectable via `jp trace`.
 
 ## Swarm Architecture
 

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
-import shutil
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -17,6 +15,13 @@ from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
 from jpscripts.core.engine import AgentEngine, Message, PreparedPrompt
 from jpscripts.core import security
+from jpscripts.providers import (
+    CompletionOptions,
+    LLMProvider,
+    Message as ProviderMessage,
+    StreamChunk,
+)
+from jpscripts.providers.factory import get_provider
 
 logger = get_logger(__name__)
 
@@ -100,25 +105,6 @@ class AgentUpdate:
     content: str
 
 
-def _codex_path() -> str:
-    path = shutil.which("codex")
-    if not path:
-        raise RuntimeError("codex binary not found. Install with `brew install codex` or `npm install -g @openai/codex`.")
-    return path
-
-
-def _build_env(config: AppConfig, safe_mode: bool) -> dict[str, str]:
-    env = os.environ.copy()
-    env["JP_NOTES_DIR"] = str(config.notes_dir.expanduser())
-    env["JP_WORKSPACE_ROOT"] = str(config.workspace_root.expanduser())
-    env["JP_LOG_LEVEL"] = str(config.log_level)
-    if config.worktree_root:
-        env["JP_WORKTREE_ROOT"] = str(config.worktree_root.expanduser())
-    if safe_mode:
-        env["JP_SAFE_MODE"] = "1"
-    return env
-
-
 def _render_config_context(config: AppConfig, safe_mode: bool) -> str:
     lines = [
         f"workspace_root: {config.workspace_root.expanduser()}",
@@ -189,22 +175,6 @@ def _render_swarm_prompt(
         "handoff_guidance": handoff_guidance,
     }
     return template.render(**render_context)
-
-
-def _parse_event_line(raw: str) -> str:
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError:
-        return raw
-
-    data = payload.get("data") or {}
-    for key in ("delta", "assistant_message", "message"):
-        value = data.get(key) or payload.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    event_type = payload.get("event") or payload.get("type") or ""
-    return f"{event_type}: {raw}"
 
 
 async def _collect_fallback_context(repo_root: Path, timeout: float) -> tuple[str, list[Path]]:
@@ -284,8 +254,7 @@ class SwarmController:
         self.safe_mode = safe_mode
         self.max_turns = max_turns
         self.queue: asyncio.Queue[AgentUpdate] = asyncio.Queue()
-        self.codex_bin = _codex_path()
-        self.env = _build_env(self.config, safe_mode)
+        self.provider: LLMProvider = get_provider(self.config, model_id=self.model)
         self.context_log: str = ""
         self.context_files: list[Path] = []
         self.swarm_state = SwarmState(
@@ -357,29 +326,18 @@ class SwarmController:
             return PreparedPrompt(prompt=prompt, attached_files=self.context_files)
 
         async def _fetch_response(prepared: PreparedPrompt) -> str:
-            cmd = [
-                self.codex_bin,
-                "exec",
-                prepared.prompt,
-                "--json",
-                "--model",
-                self.model,
-            ]
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=self.env,
+            messages = [ProviderMessage(role="user", content=prepared.prompt)]
+            options = CompletionOptions(
+                temperature=prepared.temperature,
+                reasoning_effort=prepared.reasoning_effort,
+                max_tokens=8192,
             )
-            stdout_bytes, stderr_bytes = await proc.communicate()
-            stdout = stdout_bytes.decode(errors="replace").strip()
-            stderr = stderr_bytes.decode(errors="replace").strip()
-            if stderr:
-                await self.queue.put(AgentUpdate(role, "stderr", stderr))
-            for line in stdout.splitlines():
-                parsed_line = _parse_event_line(line)
-                await self.queue.put(AgentUpdate(role, "stdout", parsed_line))
-            return stdout or ""
+            chunks: list[str] = []
+            async for chunk in self.provider.stream(messages, model=self.model, options=options):
+                if chunk.content:
+                    chunks.append(chunk.content)
+                    await self.queue.put(AgentUpdate(role, "stdout", chunk.content))
+            return "".join(chunks)
 
         engine = AgentEngine[AgentTurnResponse](
             persona=role.label,
