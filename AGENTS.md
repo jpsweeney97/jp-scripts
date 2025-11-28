@@ -60,3 +60,10 @@ Read this document before touching code. Violations halt work until corrected.
 - **Context Budgeting**: Never blindly truncate context. Use `TokenBudgetManager` to allocate tokens by priority (Diagnostics > Diffs > Files).
 - **Syntax Preservation**: When truncating source code, ALWAYS use `smart_read_context` (AST-aware) to prevent syntax corruption. Naive string slicing of `.py` or `.json` files is **STRICTLY FORBIDDEN**.
 - **Dynamic Discovery**: Do not maintain hardcoded lists of modules (e.g., for Tools or Commands). Use `pkgutil` or `importlib` to discover capabilities at runtime. The filesystem is the source of truth.
+
+## 7) Strict Invariants (Automated Enforcement)
+
+1.  **No Shell Injection**: Usage of `subprocess.run(shell=True)` or `os.system` is grounds for immediate termination. Use `jpscripts.core.system.run_safe_shell` or `asyncio.create_subprocess_exec`.
+2.  **Async Purity**: All I/O bound operations (Git, HTTP, File) MUST be `async def`. Blocking calls inside async functions must be wrapped in `asyncio.to_thread`.
+3.  **Type Rigidness**: All function signatures must be fully typed. `Any` is forbidden unless wrapping a third-party library that lacks stubs.
+4.  **Error Containment**: No raw stack traces in the CLI. All exceptions must be caught and wrapped in `jpscripts.core.result.Result` types or handled via `@handle_exceptions`.

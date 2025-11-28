@@ -9,7 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
-from jpscripts.core.memory import query_memory, reindex_memory, save_memory
+from jpscripts.core.memory import prune_memory, query_memory, reindex_memory, save_memory
 
 app = typer.Typer(help="Persistent memory store for ADRs and lessons learned.")
 
@@ -63,3 +63,11 @@ def reindex(
 
     rebuilt_path = reindex_memory(config=state.config, target_path=store_path)
     console.print(Panel(f"[green]Memory reindexed.[/green]\nStore: {rebuilt_path}", title="Memory"))
+
+
+@app.command("vacuum")
+def vacuum(ctx: typer.Context) -> None:
+    """Remove memory entries related to deleted files to maintain vector store hygiene."""
+    state = ctx.obj
+    count = prune_memory(state.config)
+    console.print(f"[green]Pruned {count} stale memory entries.[/green]")

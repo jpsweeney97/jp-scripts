@@ -121,6 +121,7 @@ async def prepare_agent_prompt(
     budget = TokenBudgetManager(
         total_budget=model_limit,
         reserved_budget=template_overhead,
+        model_context_limit=model_limit,
     )
 
     branch, commit, is_dirty = await _collect_git_context(root)

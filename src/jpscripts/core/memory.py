@@ -156,6 +156,7 @@ class MemoryEntry:
     tags: list[str]
     tokens: list[str]
     embedding: list[float] | None = None
+    source_path: str | None = None
 
 
 class VectorStore(Protocol):
@@ -397,6 +398,8 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                     tokens = _tokenize(token_source)
                 embedding = raw.get("embedding")
                 embedding_list = [float(val) for val in embedding] if isinstance(embedding, list) else None
+                raw_source_path = raw.get("source_path")
+                source_path = str(raw_source_path) if raw_source_path else None
                 entries.append(
                     MemoryEntry(
                         id=str(raw.get("id", uuid4().hex)),
@@ -405,6 +408,7 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                         tags=tags,
                         tokens=tokens,
                         embedding=embedding_list,
+                        source_path=source_path,
                     )
                 )
     except OSError as exc:
@@ -423,6 +427,7 @@ def _append_entry(path: Path, entry: MemoryEntry) -> None:
         "tags": entry.tags,
         "tokens": entry.tokens,
         "embedding": entry.embedding,
+        "source_path": entry.source_path,
     }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=True) + "\n")
@@ -439,6 +444,7 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
                 "tags": entry.tags,
                 "tokens": entry.tokens,
                 "embedding": entry.embedding,
+                "source_path": entry.source_path,
             }
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
 
@@ -461,6 +467,7 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
         content: str
         tags: list[str]
         embedding: list[float] | None
+        source_path: str | None
 
     return MemoryRecord
 
@@ -506,6 +513,7 @@ class LanceDBStore:
                 content=entry.content,
                 tags=entry.tags,
                 embedding=self._validate_embedding(entry.embedding),
+                source_path=entry.source_path,
             )
             for entry in entries
         ]
@@ -525,6 +533,7 @@ class LanceDBStore:
                     tags=tags,
                     tokens=_tokenize(token_source),
                     embedding=list(row.embedding) if row.embedding is not None else None,
+                    source_path=row.source_path,
                 )
             )
         return matches
@@ -585,8 +594,17 @@ def save_memory(
     *,
     config: AppConfig | None = None,
     store_path: Path | None = None,
+    source_path: str | None = None,
 ) -> MemoryEntry:
-    """Persist a memory entry for later recall."""
+    """Persist a memory entry for later recall.
+
+    Args:
+        content: Memory content or ADR/lesson learned.
+        tags: Tags to associate with the entry.
+        config: Application configuration.
+        store_path: Override store location.
+        source_path: Optional file path this memory is related to.
+    """
     resolved_store = _resolve_store(config, store_path)
     fallback_path = _fallback_path(resolved_store)
 
@@ -600,6 +618,7 @@ def save_memory(
         content=content_text,
         tags=normalized_tags,
         tokens=_tokenize(token_source),
+        source_path=source_path,
     )
 
     use_semantic, model_name, server_url = _embedding_settings(config)
@@ -732,3 +751,55 @@ def reindex_memory(
 
     _write_entries(fallback_target, entries)
     return target_store
+
+
+def prune_memory(config: AppConfig) -> int:
+    """Remove memory entries related to deleted files to maintain vector store hygiene.
+
+    Loads all entries, checks if source_path exists (relative to workspace_root or absolute),
+    and removes stale entries from JSONL. Triggers reindex afterward.
+
+    Args:
+        config: Application configuration with workspace_root.
+
+    Returns:
+        Count of pruned entries.
+    """
+    resolved_store = _resolve_store(config, None)
+    fallback_path = _fallback_path(resolved_store)
+    entries = _load_entries(fallback_path, MAX_ENTRIES)
+
+    if not entries:
+        return 0
+
+    workspace_root = Path(config.workspace_root).expanduser().resolve()
+    kept: list[MemoryEntry] = []
+    pruned_count = 0
+
+    for entry in entries:
+        if entry.source_path is None:
+            # Entries without source_path are always kept
+            kept.append(entry)
+            continue
+
+        # Check if path exists (relative to workspace_root or absolute)
+        source = Path(entry.source_path)
+        if not source.is_absolute():
+            source = workspace_root / source
+
+        try:
+            if source.exists():
+                kept.append(entry)
+            else:
+                pruned_count += 1
+                logger.debug("Pruning stale memory entry: %s (file missing: %s)", entry.id, entry.source_path)
+        except OSError:
+            # If we can't check, keep the entry
+            kept.append(entry)
+
+    if pruned_count > 0:
+        _write_entries(fallback_path, kept)
+        # Trigger reindex to sync LanceDB
+        reindex_memory(config=config, legacy_path=fallback_path, target_path=resolved_store)
+
+    return pruned_count

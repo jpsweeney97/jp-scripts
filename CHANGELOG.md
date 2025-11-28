@@ -1,6 +1,23 @@
 # Changelog
 
-# Changelog
+## [0.8.0] - The Architect Update
+
+### Architecture
+- Deleted redundant `src/jpscripts/mcp_server.py` entry point; unified server startup via `jpscripts.mcp.server`.
+
+### Core
+- Replaced hardcoded `HARD_CONTEXT_CAP` with dynamic, model-aware limits in `TokenBudgetManager`.
+- `DEFAULT_MODEL_CONTEXT_LIMIT` (200K) used as fallback; actual limit passed at initialization.
+
+### Memory
+- Added `source_path` tracking to `MemoryEntry` schema for file-based memories.
+- New `jp memory vacuum` command prunes stale embeddings when source files are deleted.
+
+### Governance
+- Codified strict invariants (No Shell Injection, Async Purity, Type Rigidness, Error Containment) in `AGENTS.md` Section 7.
+
+### Removed
+- Deleted legacy `mcp_server.py` wrapper.
 
 ## [0.7.0] - The Dynamic Update
 

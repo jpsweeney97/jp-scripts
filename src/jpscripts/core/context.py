@@ -19,8 +19,8 @@ from jpscripts.core.console import get_logger
 # Matches: (start of line or space) (relative path) (:line_number optional)
 FILE_PATTERN = re.compile(r"(?:^|\s)(?P<path>[\w./-]+)(?::\d+)?", re.MULTILINE | re.IGNORECASE)
 
-# Hard safety cap to prevent excessive memory usage when reading files for context.
-HARD_CONTEXT_CAP = 500_000
+# Default model context limit (can be overridden per-model at runtime)
+DEFAULT_MODEL_CONTEXT_LIMIT = 200_000
 STRUCTURED_EXTENSIONS = {".json", ".yml", ".yaml"}
 SYNTAX_WARNING = "# [WARN] Syntax error detected. AST features disabled.\n"
 SENSITIVE_PATTERNS = [".env", ".env.*", "*.pem", "*.key", "id_rsa"]
@@ -109,12 +109,19 @@ async def gather_context(command: str, root: Path) -> tuple[str, set[Path]]:
     return output, files
 
 
-def read_file_context(path: Path, max_chars: int) -> str | None:
+def read_file_context(
+    path: Path, max_chars: int, *, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
+) -> str | None:
     """
     Read file content safely and truncate to max_chars.
     Returns None on any read/encoding error.
+
+    Args:
+        path: File path to read.
+        max_chars: Maximum characters to return.
+        limit: Hard cap for safety (default: DEFAULT_MODEL_CONTEXT_LIMIT).
     """
-    limit = max(0, min(max_chars, HARD_CONTEXT_CAP))
+    effective_limit = max(0, min(max_chars, limit))
     for pattern in SENSITIVE_PATTERNS:
         if fnmatch.fnmatch(path.name, pattern):
             logger.warning("Blocked sensitive file read: %s", path)
@@ -131,19 +138,32 @@ def read_file_context(path: Path, max_chars: int) -> str | None:
         pass
     try:
         with path.open("r", encoding="utf-8") as fh:
-            text = fh.read(limit)
+            text = fh.read(effective_limit)
     except (OSError, UnicodeDecodeError):
         return None
     return text
 
 
-def smart_read_context(path: Path, max_chars: int, max_tokens: int | None = None) -> str:
-    """Read files with syntax-aware truncation to keep output parsable."""
-    limits: list[int] = [max_chars, HARD_CONTEXT_CAP]
+def smart_read_context(
+    path: Path,
+    max_chars: int,
+    max_tokens: int | None = None,
+    *,
+    limit: int = DEFAULT_MODEL_CONTEXT_LIMIT,
+) -> str:
+    """Read files with syntax-aware truncation to keep output parsable.
+
+    Args:
+        path: File path to read.
+        max_chars: Maximum characters to return.
+        max_tokens: Optional token limit (converted to chars at 4 chars/token).
+        limit: Hard cap for safety (default: DEFAULT_MODEL_CONTEXT_LIMIT).
+    """
+    limits: list[int] = [max_chars, limit]
     if max_tokens is not None:
         limits.append(max(0, max_tokens * 4))
-    limit = max(0, min(limits))
-    if limit == 0:
+    effective_limit = max(0, min(limits))
+    if effective_limit == 0:
         return ""
 
     text = _read_text_for_context(path)
@@ -152,24 +172,30 @@ def smart_read_context(path: Path, max_chars: int, max_tokens: int | None = None
 
     suffix = path.suffix.lower()
     if suffix == ".py":
-        skeleton = get_file_skeleton(path)
-        return skeleton[:limit]
-    if len(text) <= limit:
+        skeleton = get_file_skeleton(path, limit=effective_limit)
+        return skeleton[:effective_limit]
+    if len(text) <= effective_limit:
         return text
     if suffix == ".json":
-        return _truncate_json(text, limit)
+        return _truncate_json(text, effective_limit)
     if suffix in {".yaml", ".yml"}:
-        return _truncate_structured_text(text, limit, yaml.safe_load)
-    return text[:limit]
+        return _truncate_structured_text(text, effective_limit, yaml.safe_load)
+    return text[:effective_limit]
 
 
-def get_file_skeleton(path: Path) -> str:
+def get_file_skeleton(
+    path: Path, *, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
+) -> str:
     """Return a high-level AST skeleton of a Python file.
 
     The skeleton preserves imports, module-level assignments, class definitions,
     function signatures, and docstrings. Function and method bodies are replaced
     with ``pass`` (or ellipsis) when they span 5 or more lines; shorter bodies are
     preserved. Falls back to a line-based truncation on syntax errors.
+
+    Args:
+        path: File path to read.
+        limit: Hard cap for safety (default: DEFAULT_MODEL_CONTEXT_LIMIT).
     """
     try:
         source = path.read_text(encoding="utf-8")
@@ -237,7 +263,7 @@ def get_file_skeleton(path: Path) -> str:
         module = ast.parse(source)
     except SyntaxError as exc:
         offsets = _line_offsets(source)
-        limit_offset = min(HARD_CONTEXT_CAP, offsets[-1] if offsets else HARD_CONTEXT_CAP)
+        limit_offset = min(limit, offsets[-1] if offsets else limit)
         return _fallback_read(source, limit_offset, exc)
 
     new_body: list[ast.stmt] = []
@@ -254,7 +280,7 @@ def get_file_skeleton(path: Path) -> str:
             new_body.append(_skeletonize_class(stmt))
 
     if not new_body:
-        return source[:HARD_CONTEXT_CAP]
+        return source[:limit]
 
     lines: list[str] = []
     for stmt in new_body:
@@ -264,15 +290,17 @@ def get_file_skeleton(path: Path) -> str:
             continue
 
     if not lines:
-        return source[:HARD_CONTEXT_CAP]
+        return source[:limit]
 
-    return "\n\n".join(lines)[:HARD_CONTEXT_CAP]
+    return "\n\n".join(lines)[:limit]
 
 
-def _read_text_for_context(path: Path) -> str | None:
+def _read_text_for_context(
+    path: Path, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
+) -> str | None:
     try:
         with path.open("r", encoding="utf-8") as fh:
-            return fh.read(HARD_CONTEXT_CAP)
+            return fh.read(limit)
     except (OSError, UnicodeDecodeError):
         return None
 
@@ -521,10 +549,12 @@ class TokenBudgetManager:
     Attributes:
         total_budget: Maximum characters available for all content.
         reserved_budget: Characters reserved for system overhead (template, etc.).
+        model_context_limit: Hard cap for file reads, derived from model's context window.
     """
 
     total_budget: int
     reserved_budget: int = 0
+    model_context_limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
     _used: int = field(default=0, repr=False)
     _allocations: dict[Priority, int] = field(default_factory=dict, repr=False)
 

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.context import HARD_CONTEXT_CAP, read_file_context
+from jpscripts.core.context import DEFAULT_MODEL_CONTEXT_LIMIT, read_file_context
 from jpscripts.core.security import WorkspaceValidationError, validate_path, validate_workspace_root
 
 
@@ -65,8 +65,8 @@ def test_read_file_context_caps_output(tmp_path: Path) -> None:
         for _ in range(50):
             fh.write(chunk)
 
-    content = read_file_context(large_file, max_chars=HARD_CONTEXT_CAP * 10)
+    content = read_file_context(large_file, max_chars=DEFAULT_MODEL_CONTEXT_LIMIT * 10)
 
     assert content is not None
-    assert len(content) == HARD_CONTEXT_CAP
-    assert content == "x" * HARD_CONTEXT_CAP
+    assert len(content) == DEFAULT_MODEL_CONTEXT_LIMIT
+    assert content == "x" * DEFAULT_MODEL_CONTEXT_LIMIT
