@@ -5,7 +5,8 @@ from pathlib import Path
 
 from jpscripts.core import memory as memory_core
 from jpscripts.core import nav as nav_core
-from jpscripts.mcp import get_config, tool, tool_error_handler
+from jpscripts.core.runtime import get_runtime
+from jpscripts.mcp import tool, tool_error_handler
 
 
 @tool()
@@ -13,16 +14,14 @@ from jpscripts.mcp import get_config, tool, tool_error_handler
 async def list_recent_files(limit: int = 20) -> str:
     """List files modified recently in the current workspace root and surface related memories."""
     try:
-        cfg = get_config()
-        if cfg is None:
-            return "Config not loaded."
-        root = cfg.workspace_root.expanduser()
+        ctx = get_runtime()
+        root = ctx.workspace_root
 
         scan_task = nav_core.scan_recent(
             root,
             max_depth=3,
             include_dirs=False,
-            ignore_dirs=set(cfg.ignore_dirs),
+            ignore_dirs=set(ctx.config.ignore_dirs),
         )
 
         entries = await scan_task
@@ -34,7 +33,7 @@ async def list_recent_files(limit: int = 20) -> str:
             memory_core.query_memory,
             query_hint,
             limit=3,
-            config=cfg,
+            config=ctx.config,
         )
 
         mem_block = "\n".join(memories) if memories else "No related memories."

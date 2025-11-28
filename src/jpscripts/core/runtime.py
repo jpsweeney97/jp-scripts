@@ -214,31 +214,6 @@ def override_workspace(workspace: Path) -> Iterator[RuntimeContext]:
         _runtime_ctx.reset(token)
 
 
-# ---------------------------------------------------------------------------
-# Compatibility helpers for gradual migration
-# ---------------------------------------------------------------------------
-
-
-def get_config_from_runtime() -> AppConfig | None:
-    """Get config from runtime context, or None if not available.
-
-    This is a migration helper for code that previously used global state.
-    Prefer get_runtime().config in new code.
-    """
-    ctx = _runtime_ctx.get()
-    return ctx.config if ctx else None
-
-
-def get_workspace_from_runtime() -> Path | None:
-    """Get workspace from runtime context, or None if not available.
-
-    This is a migration helper for code that previously used global state.
-    Prefer get_runtime().workspace_root in new code.
-    """
-    ctx = _runtime_ctx.get()
-    return ctx.workspace_root if ctx else None
-
-
 __all__ = [
     # Core types
     "RuntimeContext",
@@ -252,7 +227,6 @@ __all__ = [
     "override_workspace",
     # Errors
     "NoRuntimeContextError",
-    # Migration helpers
-    "get_config_from_runtime",
-    "get_workspace_from_runtime",
+    # Internal (for MCP server startup)
+    "_runtime_ctx",
 ]

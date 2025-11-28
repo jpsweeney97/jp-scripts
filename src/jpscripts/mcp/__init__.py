@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
 import functools
 import inspect
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import strict_tool_validator
+from jpscripts.core.runtime import NoRuntimeContextError, get_runtime
 
 logger = get_logger("mcp")
-
-# Legacy module-level state (deprecated - use runtime context)
-# Kept for backward compatibility during migration
-_legacy_config: AppConfig | None = None
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -25,33 +22,25 @@ ToolAsyncCallable = Callable[P, Awaitable[str]]
 
 
 def set_config(value: AppConfig | None) -> None:
-    """Store the loaded configuration for use inside tool modules.
+    """DEPRECATED: No-op for backward compatibility.
 
-    DEPRECATED: Prefer establishing a runtime_context() at entry points.
-    This function maintains backward compatibility during migration.
+    Runtime context is now established at entry points via runtime_context().
+    This function does nothing but is kept to avoid import errors during migration.
     """
-    global _legacy_config
-    _legacy_config = value
+    # No-op: runtime context is the only source of truth
+    pass
 
 
-def get_config() -> AppConfig | None:
-    """Return the current configuration.
+def get_config() -> AppConfig:
+    """Return the current configuration from the runtime context.
 
-    This function first checks the runtime context (preferred), then
-    falls back to legacy module-level state for backward compatibility.
+    Raises:
+        NoRuntimeContextError: If called outside a runtime_context() block.
 
     Returns:
-        The current AppConfig, or None if not configured.
+        The current AppConfig.
     """
-    # Prefer runtime context if available
-    from jpscripts.core.runtime import get_runtime_or_none
-
-    ctx = get_runtime_or_none()
-    if ctx is not None:
-        return ctx.config
-
-    # Fall back to legacy module-level state
-    return _legacy_config
+    return get_runtime().config
 
 
 def tool(**metadata: Any) -> Callable[[Callable[P, R]], Callable[P, R]]:

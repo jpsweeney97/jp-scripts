@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import asyncio
-
 from pathlib import Path
 
+from jpscripts.core.runtime import get_runtime
 from jpscripts.core.security import validate_path
-from jpscripts.mcp import get_config, tool, tool_error_handler
+from jpscripts.mcp import tool, tool_error_handler
 
 
 @tool()
@@ -15,11 +15,8 @@ async def run_tests(target: str = ".", verbose: bool = False) -> str:
     Run pytest on a specific target (directory or file) and return the results.
     Use this to verify fixes.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
-
-    root = cfg.workspace_root.expanduser()
+    ctx = get_runtime()
+    root = ctx.workspace_root
     candidate = Path(target)
     resolved_target = candidate if candidate.is_absolute() else root / candidate
     try:

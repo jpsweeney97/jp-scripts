@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-
 from jpscripts.core import system as system_core
 from jpscripts.core.engine import AUDIT_PREFIX, run_safe_shell
-from jpscripts.mcp import get_config
+from jpscripts.core.runtime import get_runtime
 from jpscripts.mcp import tool, tool_error_handler
 
 
@@ -28,8 +27,8 @@ async def list_processes(name_filter: str | None = None, port_filter: int | None
 async def kill_process(pid: int, force: bool = False) -> str:
     """Kill a process by PID."""
     try:
-        cfg = get_config()
-        result = await system_core.kill_process_async(pid, force, cfg)
+        ctx = get_runtime()
+        result = await system_core.kill_process_async(pid, force, ctx.config)
         return f"Process {pid}: {result}"
     except Exception as e:
         return f"Error killing process {pid}: {str(e)}"
@@ -42,15 +41,13 @@ async def run_shell(command: str) -> str:
     Execute a safe, sandboxed command without shell interpolation.
     Only allows read-only inspection commands.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
 
     if not isinstance(command, str) or not command.strip():
         return "Invalid command argument."
 
     return await run_safe_shell(
         command=command,
-        root=cfg.workspace_root.expanduser(),
+        root=ctx.workspace_root,
         audit_prefix=AUDIT_PREFIX,
     )

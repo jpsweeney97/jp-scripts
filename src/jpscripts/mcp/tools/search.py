@@ -7,8 +7,9 @@ import re
 from pathlib import Path
 
 from jpscripts.core import search as search_core
+from jpscripts.core.runtime import get_runtime
 from jpscripts.core.security import validate_path
-from jpscripts.mcp import get_config, tool, tool_error_handler
+from jpscripts.mcp import tool, tool_error_handler
 
 
 @tool()
@@ -18,12 +19,10 @@ async def search_codebase(pattern: str, path: str = ".") -> str:
     Search the codebase using ripgrep (grep).
     Returns the raw text matches with line numbers.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
+    root = ctx.workspace_root
 
-    max_chars = getattr(cfg, "max_file_context_chars", 50000)
-    root = cfg.workspace_root.expanduser()
+    max_chars = getattr(ctx.config, "max_file_context_chars", 50000)
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
     search_root = validate_path(candidate, root)
@@ -50,13 +49,11 @@ async def find_todos(path: str = ".") -> str:
     Scan for TODO/FIXME/HACK comments in the codebase.
     Returns a JSON list of objects: {type, file, line, text}.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
+    root = ctx.workspace_root
 
     scan_root = Path.cwd() if path == "." else Path(path).expanduser()
-    sandbox_root = cfg.workspace_root.expanduser()
-    target = validate_path(scan_root, sandbox_root)
+    target = validate_path(scan_root, root)
 
     entries = await search_core.scan_todos(target)
 

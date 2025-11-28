@@ -5,7 +5,8 @@ from pathlib import Path
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops as git_ops_core
-from jpscripts.mcp import get_config, tool, tool_error_handler
+from jpscripts.core.runtime import get_runtime
+from jpscripts.mcp import tool, tool_error_handler
 
 
 @tool()
@@ -39,11 +40,8 @@ async def get_workspace_status(max_depth: int = 2) -> str:
     Returns:
         Formatted summary lines containing repo name, branch, and ahead/behind counts.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
-
-    root = cfg.workspace_root.expanduser()
+    ctx = get_runtime()
+    root = ctx.workspace_root
     repos = list(git_core.iter_git_repos(root, max_depth=max_depth))
     if not repos:
         return f"No git repositories found under {root}."

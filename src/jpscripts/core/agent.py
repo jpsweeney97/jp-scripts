@@ -27,7 +27,6 @@ from jpscripts.core.context import (
     smart_read_context,
 )
 from jpscripts.core.engine import (
-    ENGINE_CORE_TOOLS,
     AgentEngine,
     AgentResponse,
     Message,
@@ -35,12 +34,9 @@ from jpscripts.core.engine import (
     ToolCall,
     parse_agent_response,
 )
-from jpscripts.core.mcp_registry import import_tool_modules, iter_mcp_tools
 from jpscripts.core.memory import query_memory, save_memory
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.structure import generate_map, get_import_dependencies
-from jpscripts.mcp import get_tool_metadata
-from jpscripts.mcp.tools import TOOL_MODULES
 
 logger = get_logger(__name__)
 
@@ -87,21 +83,6 @@ def _render_prompt_from_template(context: dict[str, object], template_root: Path
         logger.error("Agent template %s missing in %s", AGENT_TEMPLATE_NAME, template_root)
         raise FileNotFoundError(f"Template {AGENT_TEMPLATE_NAME} not found in {template_root}") from exc
     return template.render(**context)
-
-
-def _load_agent_tools(skip: set[str]) -> dict[str, Callable[[dict[str, Any]], Awaitable[str]]]:
-    """Load MCP tools dynamically for AgentEngine, skipping core defaults."""
-    modules = import_tool_modules(TOOL_MODULES)
-    tools: dict[str, Callable[[dict[str, Any]], Awaitable[str]]] = {}
-    for name, func in iter_mcp_tools(modules, metadata_extractor=get_tool_metadata):
-        if name in skip or name in tools:
-            continue
-
-        async def _invoke(args: dict[str, Any], fn: Callable[..., Awaitable[str]] = func) -> str:
-            return await fn(**args)
-
-        tools[name] = _invoke
-    return tools
 
 
 async def prepare_agent_prompt(
@@ -786,8 +767,6 @@ async def run_repair_loop(
     previous_active_root = _ACTIVE_ROOT
     _ACTIVE_ROOT = root
 
-    agent_tools = _load_agent_tools(ENGINE_CORE_TOOLS)
-
     async def _prompt_builder(
         history_messages: Sequence[Message],
         iteration_prompt: str,
@@ -857,6 +836,7 @@ async def run_repair_loop(
                 )
 
                 # Lambda with default args from captured scope; mypy cannot infer types
+                # tools=None uses unified registry from get_tool_registry()
                 engine = AgentEngine[AgentResponse](
                     persona="Engineer",
                     model=model or config.default_model,
@@ -866,7 +846,6 @@ async def run_repair_loop(
                     fetch_response=_fetch,
                     parser=parse_agent_response,
                     template_root=root,
-                    tools=agent_tools,
                 )
 
                 try:

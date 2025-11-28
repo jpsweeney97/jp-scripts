@@ -1,53 +1,42 @@
 from __future__ import annotations
 
-import importlib
 import inspect
 from typing import Any
 
 import pytest
 
-from jpscripts.mcp.tools import TOOL_MODULES
-
-
-def _iter_tools():
-    for module_name in TOOL_MODULES:
-        module = importlib.import_module(module_name)
-        for obj in module.__dict__.values():
-            if getattr(obj, "__mcp_tool_metadata__", None) is None:
-                continue
-            if callable(obj):
-                yield module_name, obj
+from jpscripts.mcp.tools import discover_tools
 
 
 def test_all_mcp_tools_are_strictly_typed() -> None:
-    assert TOOL_MODULES, "TOOL_MODULES is empty; cannot perform compliance scan."
-
-    discovered = list(_iter_tools())
-    assert discovered, "No MCP tools discovered; ensure TOOL_MODULES lists tool modules."
+    """Ensure all tools in the unified registry have proper type annotations."""
+    tools = discover_tools()
+    assert tools, "discover_tools() returned empty; tool discovery failed."
 
     issues: list[str] = []
-    for module_name, func in discovered:
+    for tool_name, func in tools.items():
         sig = inspect.signature(func)
         for name, param in sig.parameters.items():
             if param.annotation is inspect.Parameter.empty:
-                issues.append(f"Tool '{func.__name__}' in '{module_name}' missing type hint for argument '{name}'.")
+                issues.append(f"Tool '{tool_name}' missing type hint for argument '{name}'.")
             elif param.annotation is Any:
-                issues.append(f"Tool '{func.__name__}' in '{module_name}' uses Any for argument '{name}'.")
+                issues.append(f"Tool '{tool_name}' uses Any for argument '{name}'.")
         if sig.return_annotation is inspect.Signature.empty:
-            issues.append(f"Tool '{func.__name__}' in '{module_name}' missing return type annotation.")
+            issues.append(f"Tool '{tool_name}' missing return type annotation.")
         elif sig.return_annotation is Any:
-            issues.append(f"Tool '{func.__name__}' in '{module_name}' uses Any as return type.")
+            issues.append(f"Tool '{tool_name}' uses Any as return type.")
         if not getattr(func, "__tool_error_handler__", False):
-            issues.append(f"Tool '{func.__name__}' in '{module_name}' is missing @tool_error_handler wrapping.")
+            issues.append(f"Tool '{tool_name}' is missing @tool_error_handler wrapping.")
 
     if issues:
         pytest.fail("\n".join(issues))
 
 
-def test_engine_core_tools_registered_in_mcp() -> None:
-    """Ensure AgentEngine core tools are present in MCP registry."""
-    from jpscripts.core.engine import ENGINE_CORE_TOOLS  # local import to avoid cycles
+def test_unified_registry_consistency() -> None:
+    """Ensure discover_tools() returns deterministic results."""
+    first_call = discover_tools()
+    second_call = discover_tools()
 
-    discovered = {func.__name__ for _, func in _iter_tools()}
-    missing = set(ENGINE_CORE_TOOLS) - discovered
-    assert not missing, f"MCP registry missing AgentEngine tools: {', '.join(sorted(missing))}"
+    assert set(first_call.keys()) == set(second_call.keys()), (
+        "discover_tools() returned different tool sets on consecutive calls"
+    )

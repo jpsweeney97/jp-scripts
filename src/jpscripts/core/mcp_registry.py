@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import functools
-import importlib
 import inspect
-from collections.abc import Callable, Iterable
-from types import ModuleType
-from typing import Any, ParamSpec, TypeVar
+import warnings
+from collections.abc import Awaitable, Callable
+from typing import ParamSpec, TypeVar
 
 from pydantic import ValidationError, validate_call
 
@@ -16,6 +15,9 @@ class ToolValidationError(RuntimeError):
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+# Type alias for tool functions (matches jpscripts.mcp.tools.ToolFunction)
+ToolFunction = Callable[..., Awaitable[str]]
 
 
 def strict_tool_validator(fn: Callable[P, R]) -> Callable[P, R]:
@@ -36,39 +38,53 @@ def strict_tool_validator(fn: Callable[P, R]) -> Callable[P, R]:
     return wrapper
 
 
-def import_tool_modules(module_names: Iterable[str]) -> list[ModuleType]:
-    """Import MCP tool modules, skipping failures gracefully."""
-    modules: list[ModuleType] = []
-    for module_name in module_names:
-        try:
-            modules.append(importlib.import_module(module_name))
-        except Exception:
-            # Errors are logged by callers using richer context; ignore here.
-            continue
-    return modules
+def get_tool_registry() -> dict[str, ToolFunction]:
+    """Get the unified tool registry.
+
+    This is the single source of truth for all MCP tools, used by both
+    AgentEngine and the MCP server.
+
+    Returns:
+        Dictionary mapping tool_name -> async tool function.
+    """
+    # Import here to avoid circular imports
+    from jpscripts.mcp.tools import discover_tools
+
+    return discover_tools()
+
+
+# ---------------------------------------------------------------------------
+# Deprecated functions - kept for backward compatibility during migration
+# ---------------------------------------------------------------------------
+
+
+def import_tool_modules(module_names: object) -> list[object]:
+    """DEPRECATED: Use get_tool_registry() instead.
+
+    This function is kept for backward compatibility but always returns
+    an empty list. Tool discovery is now handled by discover_tools().
+    """
+    warnings.warn(
+        "import_tool_modules is deprecated; use get_tool_registry() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return []
 
 
 def iter_mcp_tools(
-    modules: Iterable[ModuleType],
+    modules: object,
     *,
-    metadata_extractor: Callable[[object], dict[str, Any] | None],
-) -> Iterable[tuple[str, Callable[..., Any]]]:
-    """
-    Yield (name, callable) for decorated MCP tools within the provided modules.
+    metadata_extractor: object,
+) -> list[tuple[str, Callable[..., object]]]:
+    """DEPRECATED: Use get_tool_registry() instead.
 
-    Args:
-        modules: Iterable of imported modules to scan.
-        metadata_extractor: Callable that returns metadata for a candidate function
-            (typically jpscripts.mcp.get_tool_metadata).
+    This function is kept for backward compatibility but always returns
+    an empty list. Tool discovery is now handled by discover_tools().
     """
-    for module in modules:
-        for candidate in module.__dict__.values():
-            metadata = metadata_extractor(candidate)
-            if metadata is None:
-                continue
-            name = getattr(candidate, "__name__", None)
-            if not name:
-                continue
-            if not callable(candidate):
-                continue
-            yield name, candidate
+    warnings.warn(
+        "iter_mcp_tools is deprecated; use get_tool_registry() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return []

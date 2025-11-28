@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from types import ModuleType
-
 import pytest
 
 from jpscripts.core.mcp_registry import ToolValidationError, strict_tool_validator
@@ -20,16 +18,14 @@ def test_strict_tool_validator_raises_tool_error_on_invalid_input() -> None:
 
 
 def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
-    module = ModuleType("fake_mod")
+    """Ensure tools with missing type hints cause RuntimeError during registration."""
 
     @tool()
-    def bad(x):  # type: ignore[no-untyped-def]
+    async def bad(x) -> str:  # type: ignore[no-untyped-def]
         return str(x)
 
-    setattr(module, "bad", bad)
-
-    def fake_import(_names):
-        return [module]
+    def fake_discover_tools():
+        return {"bad": bad}
 
     class DummyMCP:
         def __init__(self) -> None:
@@ -38,10 +34,10 @@ def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatc
         def add_tool(self, func, **_metadata):
             self.called = True
 
-    monkeypatch.setattr("jpscripts.mcp.server.import_tool_modules", fake_import)
+    monkeypatch.setattr("jpscripts.mcp.server.discover_tools", fake_discover_tools)
     mcp = DummyMCP()
 
-    with pytest.raises(RuntimeError):
-        register_tools(mcp, module_names=["fake_mod"])  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="missing a type hint"):
+        register_tools(mcp)  # type: ignore[arg-type]
 
     assert mcp.called is False

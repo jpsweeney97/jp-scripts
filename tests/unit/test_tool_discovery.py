@@ -50,7 +50,7 @@ class TestToolDiscovery:
 
     def test_handles_missing_path_gracefully(self) -> None:
         """Should return empty list and warn when __path__ is None."""
-        from jpscripts.mcp.tools import _discover_tool_modules
+        from jpscripts.mcp.tools import _discover_tool_module_names
 
         mock_package = MagicMock()
         mock_package.__path__ = None
@@ -60,7 +60,7 @@ class TestToolDiscovery:
         ):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                result = _discover_tool_modules()
+                result = _discover_tool_module_names()
 
                 assert result == []
                 assert len(caught) == 1
@@ -68,7 +68,7 @@ class TestToolDiscovery:
 
     def test_handles_import_failure_gracefully(self) -> None:
         """Should return empty list and warn when import fails."""
-        from jpscripts.mcp.tools import _discover_tool_modules
+        from jpscripts.mcp.tools import _discover_tool_module_names
 
         with patch(
             "jpscripts.mcp.tools.import_module",
@@ -76,7 +76,7 @@ class TestToolDiscovery:
         ):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                result = _discover_tool_modules()
+                result = _discover_tool_module_names()
 
                 assert result == []
                 assert len(caught) == 1
@@ -84,7 +84,7 @@ class TestToolDiscovery:
 
     def test_handles_non_iterable_path(self) -> None:
         """Should return empty list and warn when __path__ is not iterable."""
-        from jpscripts.mcp.tools import _discover_tool_modules
+        from jpscripts.mcp.tools import _discover_tool_module_names
 
         mock_package = MagicMock()
         # Make __path__ raise TypeError when iterated
@@ -95,7 +95,7 @@ class TestToolDiscovery:
         ):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
-                result = _discover_tool_modules()
+                result = _discover_tool_module_names()
 
                 assert result == []
                 assert len(caught) == 1
@@ -103,7 +103,7 @@ class TestToolDiscovery:
 
     def test_handles_iter_modules_exception(self) -> None:
         """Should warn and return partial results on iter_modules failure."""
-        from jpscripts.mcp.tools import _discover_tool_modules
+        from jpscripts.mcp.tools import _discover_tool_module_names
 
         mock_package = MagicMock()
         mock_package.__path__ = ["/fake/path"]
@@ -115,7 +115,7 @@ class TestToolDiscovery:
             with patch("jpscripts.mcp.tools.pkgutil.iter_modules", failing_iter_modules):
                 with warnings.catch_warnings(record=True) as caught:
                     warnings.simplefilter("always")
-                    result = _discover_tool_modules()
+                    result = _discover_tool_module_names()
 
                     # Should return empty list (partial results)
                     assert result == []
@@ -124,7 +124,7 @@ class TestToolDiscovery:
 
     def test_handles_empty_path_list(self) -> None:
         """Should return empty list when __path__ is empty."""
-        from jpscripts.mcp.tools import _discover_tool_modules
+        from jpscripts.mcp.tools import _discover_tool_module_names
 
         mock_package = MagicMock()
         mock_package.__path__ = []
@@ -132,5 +132,5 @@ class TestToolDiscovery:
         with patch(
             "jpscripts.mcp.tools.import_module", return_value=mock_package
         ):
-            result = _discover_tool_modules()
+            result = _discover_tool_module_names()
             assert result == []

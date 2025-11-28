@@ -2,13 +2,19 @@ from __future__ import annotations
 
 import pkgutil
 import warnings
+from collections.abc import Awaitable, Callable
 from importlib import import_module
+from typing import Any
 
 _PACKAGE_NAME = "jpscripts.mcp.tools"
+_TOOL_METADATA_ATTR = "__mcp_tool_metadata__"
+
+# Type alias for tool functions
+ToolFunction = Callable[..., Awaitable[str]]
 
 
-def _discover_tool_modules() -> list[str]:
-    """Dynamically discover tool modules using pkgutil.
+def _discover_tool_module_names() -> list[str]:
+    """Dynamically discover tool module names using pkgutil.
 
     Handles both normal package installations and zipapp/compiled scenarios
     where __path__ may not exist or be empty.
@@ -70,7 +76,58 @@ def _discover_tool_modules() -> list[str]:
     return sorted(modules)
 
 
-# Eagerly discover at import time for backward compatibility
-TOOL_MODULES: list[str] = _discover_tool_modules()
+def _is_mcp_tool(obj: Any) -> bool:
+    """Check if an object is decorated with @tool."""
+    if not callable(obj):
+        return False
+    return hasattr(obj, _TOOL_METADATA_ATTR)
 
-__all__ = ["TOOL_MODULES"]
+
+def discover_tools() -> dict[str, ToolFunction]:
+    """Discover all MCP tools from tool modules.
+
+    Scans all tool modules in jpscripts.mcp.tools for functions decorated
+    with @tool and returns a dictionary mapping tool names to their callables.
+
+    Returns:
+        Dictionary mapping tool_name -> async tool function.
+    """
+    tools: dict[str, ToolFunction] = {}
+    module_names = _discover_tool_module_names()
+
+    for module_name in module_names:
+        try:
+            module = import_module(module_name)
+        except ImportError as exc:
+            warnings.warn(
+                f"Failed to import tool module {module_name}: {exc}",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            continue
+
+        # Scan module for @tool decorated functions
+        for attr_name in dir(module):
+            if attr_name.startswith("_"):
+                continue
+            obj = getattr(module, attr_name, None)
+            if _is_mcp_tool(obj):
+                # obj is guaranteed to be callable after _is_mcp_tool check
+                tool_func: ToolFunction = obj  # type: ignore[assignment]
+                tool_name = getattr(tool_func, "__name__", attr_name)
+                if tool_name in tools:
+                    warnings.warn(
+                        f"Duplicate tool name '{tool_name}' in {module_name}; "
+                        f"previous registration from {tools[tool_name].__module__} will be overwritten.",
+                        RuntimeWarning,
+                        stacklevel=2,
+                    )
+                tools[tool_name] = tool_func
+
+    return tools
+
+
+# Legacy export for backward compatibility during migration
+TOOL_MODULES: list[str] = _discover_tool_module_names()
+
+__all__ = ["discover_tools", "ToolFunction", "TOOL_MODULES"]

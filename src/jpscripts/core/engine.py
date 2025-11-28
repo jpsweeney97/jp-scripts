@@ -12,46 +12,13 @@ from typing import Any, Awaitable, Callable, Generic, Mapping, Protocol, Sequenc
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
-from jpscripts.core import security
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
-from jpscripts.core.context import smart_read_context
-from jpscripts.core.security import validate_path
+from jpscripts.core.mcp_registry import get_tool_registry
 
 logger = get_logger(__name__)
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
-ENGINE_CORE_TOOLS: set[str] = {
-    # Filesystem tools
-    "read_file",
-    "read_file_paged",
-    "write_file",
-    "list_directory",
-    "apply_patch",
-    # System tools
-    "run_shell",
-    "list_processes",
-    "kill_process",
-    # Git tools
-    "get_git_status",
-    "git_commit",
-    "get_workspace_status",
-    # Memory tools
-    "remember",
-    "recall",
-    # Navigation tools
-    "list_recent_files",
-    "list_projects",
-    # Search tools
-    "search_codebase",
-    "find_todos",
-    # Notes tools
-    "append_daily_note",
-    # Test tools
-    "run_tests",
-    # Web tools
-    "fetch_url_content",
-}
 AUDIT_PREFIX = "audit.shell"
 
 
@@ -170,7 +137,7 @@ class AgentEngine(Generic[ResponseT]):
         prompt_builder: Callable[[Sequence[Message]], Awaitable[PreparedPrompt]],
         fetch_response: Callable[[PreparedPrompt], Awaitable[str]],
         parser: Callable[[str], ResponseT],
-        tools: Mapping[str, Callable[[dict[str, Any]], Awaitable[str]]] | None = None,
+        tools: Mapping[str, Callable[..., Awaitable[str]]] | None = None,
         memory: MemoryProtocol | None = None,
         template_root: Path | None = None,
         trace_dir: Path | None = None,
@@ -180,7 +147,8 @@ class AgentEngine(Generic[ResponseT]):
         self._prompt_builder = prompt_builder
         self._fetch_response = fetch_response
         self._parser = parser
-        self._tools = tools or {}
+        # Use unified tool registry if no tools provided
+        self._tools: Mapping[str, Callable[..., Awaitable[str]]] = tools if tools is not None else get_tool_registry()
         self._memory = memory
         self._template_root = template_root
         self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
@@ -209,52 +177,23 @@ class AgentEngine(Generic[ResponseT]):
             logger.debug("Failed to record trace: %s", exc)
 
     async def execute_tool(self, call: ToolCall) -> str:
-        """
-        Execute a tool with security constraints. Defaults include read_file and run_shell.
+        """Execute a tool from the unified registry.
+
+        Tools are discovered from jpscripts.mcp.tools and called with
+        arguments unpacked as keyword arguments.
         """
         normalized = call.tool.strip().lower()
-        if normalized in self._tools:
-            try:
-                return await self._tools[normalized](call.arguments)
-            except Exception as exc:
-                return f"Tool '{call.tool}' failed: {exc}"
+        if normalized not in self._tools:
+            return f"Unknown tool: {call.tool}"
 
-        if normalized == "read_file":
-            return await self._read_file_tool(call.arguments)
-        if normalized == "run_shell":
-            return await self._run_shell_tool(call.arguments)
-        return f"Unknown tool: {call.tool}"
-
-    async def _read_file_tool(self, args: dict[str, Any]) -> str:
-        path_arg = args.get("path")
-        if not isinstance(path_arg, str):
-            return "Invalid path argument."
-        target = Path(path_arg)
-        root = self._template_root or Path.cwd()
-        candidate = target if target.is_absolute() else root / target
         try:
-            safe_target = security.validate_path(candidate, root)
+            # Call tool with unpacked kwargs (tools have proper signatures)
+            return await self._tools[normalized](**call.arguments)
+        except TypeError as exc:
+            # Handle argument mismatch errors gracefully
+            return f"Tool '{call.tool}' argument error: {exc}"
         except Exception as exc:
-            return f"Security error validating path: {exc}"
-
-        try:
-            # Use default max chars for file reads (50k characters)
-            return await asyncio.to_thread(smart_read_context, safe_target, 50000)
-        except FileNotFoundError:
-            return f"File not found: {safe_target}"
-        except Exception as exc:  # pragma: no cover - defensive
-            return f"Failed to read file {safe_target}: {exc}"
-
-    async def _run_shell_tool(self, args: dict[str, Any]) -> str:
-        """Executes command without shell interpolation."""
-        command = args.get("command")
-        if not isinstance(command, str) or not command.strip():
-            return "Invalid command argument."
-        return await run_safe_shell(
-            command=command,
-            root=self._template_root or Path.cwd(),
-            audit_prefix=AUDIT_PREFIX,
-        )
+            return f"Tool '{call.tool}' failed: {exc}"
 
 
 def load_template_environment(template_root: Path) -> Environment:

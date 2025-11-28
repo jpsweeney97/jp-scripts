@@ -6,8 +6,9 @@ import shutil
 from pathlib import Path
 
 from jpscripts.core.context import smart_read_context
+from jpscripts.core.runtime import get_runtime
 from jpscripts.core.security import is_git_workspace, validate_path
-from jpscripts.mcp import get_config, logger, tool, tool_error_handler
+from jpscripts.mcp import logger, tool, tool_error_handler
 
 
 class ToolExecutionError(RuntimeError):
@@ -21,11 +22,9 @@ async def read_file(path: str) -> str:
     Read the content of a file (truncated to JP_MAX_FILE_CONTEXT_CHARS).
     Use this to inspect code, config files, or logs.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
+    root = ctx.workspace_root
 
-    root = cfg.workspace_root.expanduser()
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
     target = validate_path(candidate, root)
@@ -34,7 +33,7 @@ async def read_file(path: str) -> str:
     if not target.is_file():
         return f"Error: {target} is not a file."
 
-    max_chars = getattr(cfg, "max_file_context_chars", 50000)
+    max_chars = getattr(ctx.config, "max_file_context_chars", 50000)
     total_size = target.stat().st_size
     content = await asyncio.to_thread(smart_read_context, target, max_chars)
     if content == "" and total_size > 0 and max_chars > 0:
@@ -53,11 +52,9 @@ async def read_file_paged(path: str, offset: int = 0, limit: int = 20000) -> str
     """
     Read a file segment starting at byte offset. Use this to read large files.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
+    root = ctx.workspace_root
 
-    root = cfg.workspace_root.expanduser()
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
     target = validate_path(candidate, root)
@@ -87,15 +84,13 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
     Create or overwrite a file with the given content.
     Enforces workspace sandbox. Requires overwrite=True to replace existing files.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
 
-    if cfg.dry_run:
+    if ctx.dry_run:
         target = Path(path).expanduser()
         return f"Simulated write to {target} (dry-run active). Content length: {len(content)}"
 
-    root = cfg.workspace_root.expanduser()
+    root = ctx.workspace_root
     target = validate_path(Path(path).expanduser(), root)
 
     if target.exists() and not overwrite:
@@ -119,11 +114,9 @@ async def list_directory(path: str) -> str:
     List contents of a directory (like ls).
     Returns a list of 'd: dir_name' and 'f: file_name'.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
+    root = ctx.workspace_root
 
-    root = cfg.workspace_root.expanduser()
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
     target = validate_path(candidate, root)
@@ -274,11 +267,9 @@ async def apply_patch(path: str, diff: str) -> str:
     Returns:
         Status message describing whether the patch was applied.
     """
-    cfg = get_config()
-    if cfg is None:
-        return "Config not loaded."
+    ctx = get_runtime()
+    root = ctx.workspace_root
 
-    root = cfg.workspace_root.expanduser()
     target = validate_path(Path(path).expanduser(), root)
     if target.is_dir():
         raise ToolExecutionError(f"Cannot apply a patch to directory {target}.")
@@ -287,7 +278,7 @@ async def apply_patch(path: str, diff: str) -> str:
         raise ToolExecutionError("Patch text is empty.")
 
     _validate_patch_targets(diff, target, root)
-    check_only = cfg.dry_run
+    check_only = ctx.dry_run
 
     if is_git_workspace(root):
         await _apply_patch_with_git(diff, root, check_only=check_only)

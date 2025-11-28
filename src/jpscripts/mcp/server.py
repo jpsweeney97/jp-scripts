@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import contextvars
-from collections.abc import Iterable
-from typing import Any
+import inspect
 
 from mcp.server.fastmcp import FastMCP
 
-import inspect
-from jpscripts.core.config import load_config, AppConfig
-from jpscripts.core.engine import ENGINE_CORE_TOOLS
-from jpscripts.core.mcp_registry import import_tool_modules, iter_mcp_tools
+from jpscripts.core.config import AppConfig, load_config
 from jpscripts.core.runtime import RuntimeContext, _runtime_ctx
 from jpscripts.mcp import get_tool_metadata, logger, set_config
-from jpscripts.mcp.tools import TOOL_MODULES
+from jpscripts.mcp.tools import discover_tools
 
 # Token for the long-running runtime context
 _runtime_token: contextvars.Token[RuntimeContext | None] | None = None
@@ -57,38 +53,39 @@ def _load_configuration() -> AppConfig | None:
         return cfg
 
 
-def register_tools(mcp: FastMCP, module_names: Iterable[str] | None = None, engine_tools: set[str] | None = None) -> None:
-    modules = import_tool_modules(module_names or TOOL_MODULES)
-    registered_names: set[str] = set()
-    for name, func in iter_mcp_tools(modules, metadata_extractor=get_tool_metadata):
+def register_tools(mcp: FastMCP) -> None:
+    """Register all discovered tools with the MCP server.
+
+    Uses the unified tool registry from discover_tools() to ensure
+    AgentEngine and MCP server use identical tool sets.
+    """
+    tools = discover_tools()
+    registered_count = 0
+
+    for tool_name, func in tools.items():
         metadata = get_tool_metadata(func) or {}
+
+        # Validate type hints
         signature = inspect.signature(func)
-        for name, param in signature.parameters.items():
+        for param_name, param in signature.parameters.items():
             if param.annotation is inspect.Parameter.empty:
                 raise RuntimeError(
-                    f"MCP tool '{getattr(func, '__name__', repr(func))}' argument '{name}' is missing a type hint."
+                    f"MCP tool '{tool_name}' argument '{param_name}' is missing a type hint."
                 )
-        registered_names.add(name)
+
         try:
             mcp.add_tool(func, **metadata)
+            registered_count += 1
         except Exception as exc:
-            logger.error("Failed to register tool %s", getattr(func, "__name__", repr(func)), exc_info=exc)
-    expected = engine_tools or ENGINE_CORE_TOOLS
-    missing_engine_tools = expected - registered_names
-    if missing_engine_tools:
-        logger.warning(
-            "MCP tool registry missing AgentEngine tools: %s",
-            ", ".join(sorted(missing_engine_tools)),
-        )
-    extra_tools = registered_names - expected
-    if extra_tools:
-        logger.warning("MCP registered tools not present in AgentEngine: %s", ", ".join(sorted(extra_tools)))
+            logger.error("Failed to register tool %s", tool_name, exc_info=exc)
+
+    logger.info("Registered %d MCP tools from unified registry", registered_count)
 
 
 def create_server() -> FastMCP:
     _load_configuration()
     server = FastMCP("jpscripts")
-    register_tools(server, engine_tools=ENGINE_CORE_TOOLS)
+    register_tools(server)
     return server
 
 
