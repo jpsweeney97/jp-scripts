@@ -81,7 +81,7 @@ def get_tool_metadata(obj: object) -> dict[str, Any] | None:
 
 
 def _extract_error_path(
-    exc: BaseException, args: tuple[Any, ...], kwargs: dict[str, Any], fn: ToolAsyncCallable
+    exc: BaseException, args: tuple[Any, ...], kwargs: dict[str, Any], fn: Callable[..., Awaitable[str]]
 ) -> str:
     candidate: str | Path | None = None
 

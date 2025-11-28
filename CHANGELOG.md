@@ -2,6 +2,16 @@
 
 # Changelog
 
+## [0.7.0] - The Dynamic Update
+
+### Core Architecture
+- **Token Budgeting**: Implemented `TokenBudgetManager` to enforce strict priority-based context allocation (Diagnostic > Diffs > Files).
+- **Smart Truncation**: Integrated `smart_read_context` into the budget manager to prevent syntax corruption when truncating files.
+- **Dynamic Registry**: `jpscripts.mcp.tools` now auto-discovers tool modules at runtime using `pkgutil`, removing the need for manual registration lists.
+
+### Changed
+- `prepare_agent_prompt` now strictly adheres to model context limits, dropping low-priority dependencies before truncating critical error logs.
+
 ## [0.5.0] - The God-Mode Update
 
 ### Changed

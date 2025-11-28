@@ -16,7 +16,7 @@ def test_strict_tool_validator_raises_tool_error_on_invalid_input() -> None:
     validated_add = strict_tool_validator(add)
 
     with pytest.raises(ToolValidationError):
-        _ = validated_add("1", "2")
+        _ = validated_add("1", "2")  # type: ignore[arg-type]
 
 
 def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -26,7 +26,7 @@ def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatc
     def bad(x):  # type: ignore[no-untyped-def]
         return str(x)
 
-    module.bad = bad
+    setattr(module, "bad", bad)
 
     def fake_import(_names):
         return [module]
@@ -42,6 +42,6 @@ def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatc
     mcp = DummyMCP()
 
     with pytest.raises(RuntimeError):
-        register_tools(mcp, module_names=["fake_mod"])
+        register_tools(mcp, module_names=["fake_mod"])  # type: ignore[arg-type]
 
     assert mcp.called is False

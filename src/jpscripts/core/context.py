@@ -6,10 +6,11 @@ import fnmatch
 import json
 import re
 import shlex
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
-import yaml  # type: ignore[import-untyped]
+import yaml
 from rich.console import Console
 
 from jpscripts.core.console import get_logger
@@ -185,7 +186,9 @@ def get_file_skeleton(path: Path) -> str:
             return None
         return ast.Expr(value=ast.Constant(value=raw))
 
-    def _skeletonize_function(node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
+    def _skeletonize_function(
+        node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> ast.FunctionDef | ast.AsyncFunctionDef:
         if _node_length(node) < 5:
             return node
         doc_expr = _doc_expr(ast.get_docstring(node, clean=False))
@@ -193,6 +196,7 @@ def get_file_skeleton(path: Path) -> str:
         if doc_expr:
             body.append(doc_expr)
         body.append(ast.Pass())
+        # Python 3.12+ requires type_params for FunctionDef/AsyncFunctionDef
         new_node = type(node)(
             name=node.name,
             args=node.args,
@@ -200,6 +204,7 @@ def get_file_skeleton(path: Path) -> str:
             decorator_list=node.decorator_list,
             returns=node.returns,
             type_comment=getattr(node, "type_comment", None),
+            type_params=getattr(node, "type_params", []),
         )
         return ast.copy_location(new_node, node)
 
@@ -217,12 +222,14 @@ def get_file_skeleton(path: Path) -> str:
                 new_body.append(child)
         if not new_body:
             new_body.append(ast.Pass())
+        # Python 3.12+ requires type_params for ClassDef
         new_node = ast.ClassDef(
             name=node.name,
             bases=node.bases,
             keywords=node.keywords,
             body=new_body,
             decorator_list=node.decorator_list,
+            type_params=getattr(node, "type_params", []),
         )
         return ast.copy_location(new_node, node)
 
@@ -493,3 +500,102 @@ def _truncate_structured_text(text: str, limit: int, loader: Callable[[str], obj
     candidate = "\n".join(snippet_lines)
     validated = _validate_structured_prefix(candidate, loader)
     return validated if validated is not None else ""
+
+
+# ---------------------------------------------------------------------------
+# Token Budget Manager
+# ---------------------------------------------------------------------------
+
+Priority = Literal[1, 2, 3]
+TRUNCATION_MARKER = "[...truncated]"
+
+
+@dataclass
+class TokenBudgetManager:
+    """Priority-based token/character budget allocation.
+
+    Manages allocation of content within a fixed character budget. Higher priority
+    content (lower number) is allocated first and protected from truncation by
+    lower priority allocations.
+
+    Attributes:
+        total_budget: Maximum characters available for all content.
+        reserved_budget: Characters reserved for system overhead (template, etc.).
+    """
+
+    total_budget: int
+    reserved_budget: int = 0
+    _used: int = field(default=0, repr=False)
+    _allocations: dict[Priority, int] = field(default_factory=dict, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.total_budget < 0:
+            raise ValueError("total_budget must be non-negative")
+        if self.reserved_budget < 0:
+            raise ValueError("reserved_budget must be non-negative")
+        if self.reserved_budget > self.total_budget:
+            raise ValueError("reserved_budget cannot exceed total_budget")
+        self._allocations = {1: 0, 2: 0, 3: 0}
+
+    def remaining(self) -> int:
+        """Return remaining budget available for allocation."""
+        return max(0, self.total_budget - self.reserved_budget - self._used)
+
+    def allocate(
+        self,
+        priority: Priority,
+        content: str,
+        source_path: Path | None = None,
+    ) -> str:
+        """Allocate content within budget, with optional syntax-aware truncation.
+
+        Args:
+            priority: 1 (highest), 2, or 3 (lowest). Higher priority content
+                     is allocated first and protected from truncation.
+            content: The content to allocate.
+            source_path: Optional path for syntax-aware truncation (Python/JSON/YAML).
+
+        Returns:
+            The content (possibly truncated with marker), or empty string if no budget.
+        """
+        if not content:
+            return ""
+
+        budget = self.remaining()
+        if budget <= 0:
+            return ""
+
+        if len(content) <= budget:
+            self._used += len(content)
+            self._allocations[priority] += len(content)
+            return content
+
+        # Must truncate - use smart_read_context if path provided
+        if source_path is not None:
+            truncated = smart_read_context(source_path, budget)
+        else:
+            truncated = self._truncate_content(content, budget)
+
+        self._used += len(truncated)
+        self._allocations[priority] += len(truncated)
+        return truncated
+
+    def _truncate_content(self, content: str, limit: int) -> str:
+        """Truncate content with marker, preferring line boundaries."""
+        marker_len = len(TRUNCATION_MARKER) + 1  # +1 for newline
+        if limit <= marker_len:
+            return ""
+
+        available = limit - marker_len
+        truncated = content[:available]
+
+        # Prefer line boundary if reasonable (more than halfway through)
+        last_newline = truncated.rfind("\n")
+        if last_newline > available // 2:
+            truncated = truncated[:last_newline]
+
+        return f"{truncated}\n{TRUNCATION_MARKER}"
+
+    def summary(self) -> dict[str, int]:
+        """Return allocation summary by priority."""
+        return {f"priority_{p}": chars for p, chars in self._allocations.items()}

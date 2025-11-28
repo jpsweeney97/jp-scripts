@@ -19,7 +19,13 @@ from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.context import gather_context, get_file_skeleton, read_file_context, smart_read_context
+from jpscripts.core.context import (
+    TokenBudgetManager,
+    gather_context,
+    get_file_skeleton,
+    read_file_context,
+    smart_read_context,
+)
 from jpscripts.core.engine import (
     ENGINE_CORE_TOOLS,
     AgentEngine,
@@ -117,10 +123,24 @@ async def prepare_agent_prompt(
 ) -> PreparedPrompt:
     """
     Builds a structured, JSON-oriented prompt for Codex.
+
+    Uses priority-based token budget allocation:
+    - Priority 1: Diagnostic output (command failures, stack traces)
+    - Priority 2: Git diff (current work in progress)
+    - Priority 3: File context and dependencies (supporting information)
     """
     active_model = model or config.default_model
-    model_limit = config.model_context_limits.get(active_model, config.model_context_limits.get("default", max_file_context_chars))
-    context_limit = min(max_file_context_chars, model_limit)
+    model_limit = config.model_context_limits.get(
+        active_model,
+        config.model_context_limits.get("default", max_file_context_chars),
+    )
+
+    # Reserve ~10% for template overhead (prompt structure, instructions, etc.)
+    template_overhead = min(50_000, int(model_limit * 0.1))
+    budget = TokenBudgetManager(
+        total_budget=model_limit,
+        reserved_budget=template_overhead,
+    )
 
     branch, commit, is_dirty = await _collect_git_context(root)
 
@@ -128,63 +148,90 @@ async def prepare_agent_prompt(
     constitution_text = await _load_constitution(root)
 
     attached: list[Path] = []
+    detected_paths: list[Path] = []
 
     diagnostic_section = ""
     file_context_section = ""
     dependency_section = ""
+    git_diff_section = ""
     relevant_memories: list[str] = []
     boosted_tags: list[str] = []
 
-    # 2. Command Output (Diagnostic)
+    # === Priority 1: Diagnostic Section (highest priority) ===
     if run_command:
         output, detected_files = await gather_context(run_command, root)
-        trimmed = output if len(output) <= max_command_output_chars else _summarize_stack_trace(output, max_command_output_chars)
-        diagnostic_section = (
+        trimmed = (
+            output
+            if len(output) <= max_command_output_chars
+            else _summarize_stack_trace(output, max_command_output_chars)
+        )
+        raw_diagnostic = (
             f"Command: {run_command}\n"
             f"Output (summary up to {max_command_output_chars} chars):\n"
             f"{trimmed}\n"
         )
+        diagnostic_section = budget.allocate(1, raw_diagnostic)
+
         diag_lines = diagnostic_section.splitlines()
         query = "\n".join(diag_lines[-3:]).strip()
         if query:
             try:
-                relevant_memories = await asyncio.to_thread(query_memory, query, 3, config)
+                relevant_memories = await asyncio.to_thread(
+                    lambda: query_memory(query, 3, config=config)
+                )
             except Exception as exc:
                 logger.debug("Memory query failed: %s", exc)
 
-        # Prioritize files detected in the stack trace
         detected_paths = list(sorted(detected_files))[:5]
-        file_context_section, attached = await _build_file_context_section(detected_paths, context_limit)
-        dependency_section = await _build_dependency_section(detected_paths, root, context_limit)
 
-    # 3. Recent Context (Ambient)
     elif attach_recent:
         recents = await scan_recent(root, 3, False, set(ignore_dirs))
-        recent_paths = [entry.path for entry in recents[:5]]
-        file_context_section, attached = await _build_file_context_section(recent_paths, context_limit)
-        dependency_section = await _build_dependency_section(recent_paths[:1], root, context_limit)
+        detected_paths = [entry.path for entry in recents[:5]]
 
+    # === Priority 2: Git Diff Section (medium priority) ===
+    if include_diff:
+        diff_text = await _collect_git_diff(root, 10_000)
+        if diff_text:
+            git_diff_section = budget.allocate(2, diff_text)
+        else:
+            git_diff_section = "NO CHANGES"
+
+    # === Priority 3: File Context + Dependencies (Sequential Greedy) ===
+    # Files get what they need first, dependencies get whatever remains
+    if budget.remaining() > 0 and detected_paths:
+        file_context_section, attached = await _build_file_context_section(
+            detected_paths, budget
+        )
+
+        # Dependencies only get leftover budget after files
+        if budget.remaining() > 0:
+            dependency_section = await _build_dependency_section(
+                detected_paths[:1], root, budget
+            )
+
+    # Memory query fallback
     if not relevant_memories:
         base_query = base_prompt.strip()
         lowered_prompt = base_query.lower()
         for tag in ("architecture", "security"):
             if tag in lowered_prompt:
                 boosted_tags.append(tag)
-        boosted_query = f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
+        boosted_query = (
+            f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
+        )
         if boosted_query:
             try:
-                relevant_memories = await asyncio.to_thread(query_memory, boosted_query, 3, config)
+                relevant_memories = await asyncio.to_thread(
+                    lambda: query_memory(boosted_query, 3, config=config)
+                )
             except Exception as exc:
                 logger.debug("Memory query from base prompt failed: %s", exc)
 
-    # 4. Git Diff (Work in Progress)
-    git_diff_section = ""
-    if include_diff:
-        diff_text = await _collect_git_diff(root, 10_000)
-        if diff_text:
-            git_diff_section = diff_text
-        else:
-            git_diff_section = "NO CHANGES"
+    logger.debug(
+        "Token budget allocation: %s, remaining: %d",
+        budget.summary(),
+        budget.remaining(),
+    )
 
     template_root = _resolve_template_root()
     response_schema = AgentResponse.model_json_schema()
@@ -203,12 +250,21 @@ async def prepare_agent_prompt(
         "tool_history": tool_history or "",
         "response_schema": response_schema,
         "relevant_memories": relevant_memories,
-        "web_tool": "Web search and page retrieval is available via fetch_page_content(url) returning markdown." if web_access else "",
+        "web_tool": (
+            "Web search and page retrieval is available via fetch_page_content(url) returning markdown."
+            if web_access
+            else ""
+        ),
     }
 
     prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
 
-    return PreparedPrompt(prompt=prompt, attached_files=attached, temperature=temperature, reasoning_effort=reasoning_effort)
+    return PreparedPrompt(
+        prompt=prompt,
+        attached_files=attached,
+        temperature=temperature,
+        reasoning_effort=reasoning_effort,
+    )
 
 
 def _safe_cdata(content: str) -> str:
@@ -276,7 +332,15 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
     return branch, commit, is_dirty
 
 
-async def _build_file_context_section(paths: Sequence[Path], max_file_context_chars: int) -> tuple[str, list[Path]]:
+async def _build_file_context_section(
+    paths: Sequence[Path],
+    budget: TokenBudgetManager,
+) -> tuple[str, list[Path]]:
+    """Build file context section using sequential greedy allocation.
+
+    Each file is read only if budget remains, and allocated individually
+    to preserve syntax boundaries per file.
+    """
     sections: list[str] = []
     attached: list[Path] = []
 
@@ -288,25 +352,46 @@ async def _build_file_context_section(paths: Sequence[Path], max_file_context_ch
             return 0
 
     for path in paths:
+        # Check budget before reading each file
+        remaining = budget.remaining()
+        if remaining <= 0:
+            break
+
         line_count = await asyncio.to_thread(_count_lines, path)
         use_skeleton = path.suffix.lower() == ".py" and line_count > 200
 
         if use_skeleton:
             snippet = await asyncio.to_thread(get_file_skeleton, path)
         else:
-            snippet = await asyncio.to_thread(smart_read_context, path, max_file_context_chars)
+            # Read file with syntax-aware truncation up to remaining budget
+            snippet = await asyncio.to_thread(smart_read_context, path, remaining)
 
         if not snippet:
             continue
+
         label = " (Skeleton - Request full content if needed)" if use_skeleton else ""
-        sections.append(f"Path: {path}{label}\n---\n{snippet}\n")
-        attached.append(path)
+        file_entry = f"Path: {path}{label}\n---\n{snippet}\n"
+
+        # Allocate this file's content - may be truncated if over budget
+        allocated = budget.allocate(3, file_entry, source_path=path)
+        if allocated:
+            sections.append(allocated)
+            attached.append(path)
+
     if not sections:
         return "", attached
     return "\n".join(sections), attached
 
 
-async def _build_dependency_section(paths: Sequence[Path], root: Path, max_file_context_chars: int) -> str:
+async def _build_dependency_section(
+    paths: Sequence[Path],
+    root: Path,
+    budget: TokenBudgetManager,
+) -> str:
+    """Build dependency section using sequential greedy allocation.
+
+    Dependencies are read only if budget remains after file context.
+    """
     dependencies: set[Path] = set()
     for path in paths:
         deps = await asyncio.to_thread(get_import_dependencies, path, root)
@@ -317,10 +402,21 @@ async def _build_dependency_section(paths: Sequence[Path], root: Path, max_file_
 
     sections: list[str] = []
     for dep in sorted(dependencies):
-        snippet = await asyncio.to_thread(smart_read_context, dep, max_file_context_chars)
+        # Check budget before reading each dependency
+        remaining = budget.remaining()
+        if remaining <= 0:
+            break
+
+        snippet = await asyncio.to_thread(smart_read_context, dep, remaining)
         if not snippet:
             continue
-        sections.append(f"Dependency: {dep}\n---\n{snippet}\n")
+
+        dep_entry = f"Dependency: {dep}\n---\n{snippet}\n"
+
+        # Allocate this dependency's content
+        allocated = budget.allocate(3, dep_entry, source_path=dep)
+        if allocated:
+            sections.append(allocated)
 
     return "\n".join(sections)
 
@@ -760,10 +856,11 @@ async def run_repair_loop(
                     reasoning_hint=reasoning_hint,
                 )
 
+                # Lambda with default args from captured scope; mypy cannot infer types
                 engine = AgentEngine[AgentResponse](
                     persona="Engineer",
                     model=model or config.default_model,
-                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override: _prompt_builder(
+                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override: _prompt_builder(  # type: ignore[misc]
                         msgs, ip, ld, temp
                     ),
                     fetch_response=_fetch,
@@ -902,3 +999,14 @@ async def run_repair_loop(
         return False
     finally:
         _ACTIVE_ROOT = previous_active_root
+
+
+# Re-export engine types for backwards compatibility
+__all__ = [
+    # Re-exported from engine
+    "PreparedPrompt",
+    "parse_agent_response",
+    # Locally defined
+    "prepare_agent_prompt",
+    "run_repair_loop",
+]

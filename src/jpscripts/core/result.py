@@ -24,7 +24,7 @@ Usage:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Generic, TypeVar, overload
+from typing import Any, Callable, Generic, NoReturn, TypeVar, overload
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -77,7 +77,7 @@ class Err(Generic[E]):
     def is_err(self) -> bool:
         return True
 
-    def unwrap(self) -> T:
+    def unwrap(self) -> NoReturn:
         """Raise the contained error."""
         raise self.error
 
@@ -114,7 +114,7 @@ class JPScriptsError(Exception):
     consistent error handling across the codebase.
     """
 
-    def __init__(self, message: str, *, context: dict | None = None) -> None:
+    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.context = context or {}
@@ -205,7 +205,9 @@ class WorkspaceError(JPScriptsError):
 # ---------------------------------------------------------------------------
 
 
-def try_result(fn: Callable[[], T], error_type: type[E] = JPScriptsError) -> Result[T, E]:
+def try_result(
+    fn: Callable[[], T], error_type: type[E] = JPScriptsError  # type: ignore[assignment]
+) -> Result[T, E]:
     """Execute a function and wrap the result in Ok/Err.
 
     Args:

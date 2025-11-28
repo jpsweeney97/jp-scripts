@@ -238,7 +238,8 @@ class AgentEngine(Generic[ResponseT]):
             return f"Security error validating path: {exc}"
 
         try:
-            return await asyncio.to_thread(smart_read_context, safe_target)
+            # Use default max chars for file reads (50k characters)
+            return await asyncio.to_thread(smart_read_context, safe_target, 50000)
         except FileNotFoundError:
             return f"File not found: {safe_target}"
         except Exception as exc:  # pragma: no cover - defensive

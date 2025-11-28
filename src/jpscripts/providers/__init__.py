@@ -206,7 +206,7 @@ class LLMProvider(Protocol):
         """
         ...
 
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         model: str | None = None,
@@ -283,7 +283,7 @@ class BaseLLMProvider(ABC):
         ...
 
     @abstractmethod
-    async def stream(
+    def stream(
         self,
         messages: list[Message],
         model: str | None = None,

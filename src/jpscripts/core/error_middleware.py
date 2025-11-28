@@ -186,7 +186,7 @@ def format_for_mcp(error: FormattedError) -> str:
 
     Returns a JSON string suitable for MCP tool responses.
     """
-    payload = {
+    payload: dict[str, Any] = {
         "error": error.code,
         "message": error.message,
     }
@@ -264,23 +264,23 @@ def format_exception_for_agent(exc: Exception) -> AgentErrorContext:
 # ---------------------------------------------------------------------------
 
 
-def result_to_cli(result: Result) -> str:
+def result_to_cli(result: Result[Any, Exception]) -> str:
     """Format a Result for CLI output."""
-    if result.is_ok():
-        return str(result.unwrap())
-    error = format_error(result.error)
-    return format_for_cli(error)
+    if isinstance(result, Err):
+        error = format_error(result.error)
+        return format_for_cli(error)
+    return str(result.unwrap())
 
 
-def result_to_mcp(result: Result) -> str:
+def result_to_mcp(result: Result[Any, Exception]) -> str:
     """Format a Result for MCP output."""
-    if result.is_ok():
-        value = result.unwrap()
-        if isinstance(value, str):
-            return value
-        return json.dumps(value)
-    error = format_error(result.error)
-    return format_for_mcp(error)
+    if isinstance(result, Err):
+        error = format_error(result.error)
+        return format_for_mcp(error)
+    value = result.unwrap()
+    if isinstance(value, str):
+        return value
+    return json.dumps(value)
 
 
 __all__ = [

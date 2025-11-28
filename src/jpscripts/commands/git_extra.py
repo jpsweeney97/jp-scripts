@@ -171,7 +171,7 @@ async def gpr(
         # Find the PR object to get the URL directly without another shell call
         target_pr = next((p for p in prs if p.number == number), None)
         if target_pr:
-            import pyperclip  # type: ignore[import-untyped]
+            import pyperclip
 
             pyperclip.copy(target_pr.url)
             console.print(f"[green]Copied[/green] {target_pr.url}")

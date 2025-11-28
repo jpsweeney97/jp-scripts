@@ -178,7 +178,7 @@ class AnthropicProvider(BaseLLMProvider):
             return self._client
 
         try:
-            import anthropic
+            import anthropic  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ProviderError(
                 "anthropic package not installed. Install with: pip install anthropic"

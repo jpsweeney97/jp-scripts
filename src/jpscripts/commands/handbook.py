@@ -72,7 +72,10 @@ async def _read_json(path: Path) -> dict[str, object] | None:
     def _load() -> dict[str, object] | None:
         try:
             with path.open("r", encoding="utf-8") as fh:
-                return json.load(fh)
+                data = json.load(fh)
+                if isinstance(data, dict):
+                    return data
+                return None
         except (OSError, json.JSONDecodeError):
             return None
 
@@ -280,7 +283,8 @@ async def _load_or_index_entries(
     if meta and meta.get("source_mtime_ns") == source_mtime_ns:
         cached_entries = await _read_entries(entries_path)
         if cached_entries:
-            cached_dim = int(meta.get("embedding_dim", 0))
+            dim_value = meta.get("embedding_dim", 0)
+            cached_dim = int(dim_value) if isinstance(dim_value, (int, float, str)) else 0
             if cached_dim == 0 and cached_entries[0].embedding:
                 cached_dim = len(cached_entries[0].embedding or [])
             return cached_entries, cached_dim

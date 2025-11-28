@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import typer
 from rich.layout import Layout
@@ -12,6 +12,9 @@ from rich.text import Text
 
 from jpscripts.core.console import console
 from jpscripts.core.team import Persona, get_default_swarm, swarm_chat
+
+if TYPE_CHECKING:
+    from jpscripts.main import AppState
 
 app = typer.Typer(help="Coordinate a swarm of specialized Codex agents.")
 
@@ -42,7 +45,7 @@ def _render_layout(objective: str, roles: Iterable[Persona], logs: dict[Persona,
     return layout
 
 
-async def _run_swarm(objective: str, roles: list[Persona], state, safe_mode: bool) -> None:
+async def _run_swarm(objective: str, roles: list[Persona], state: AppState, safe_mode: bool) -> None:
     logs: dict[Persona, list[str]] = {role: [] for role in roles}
     statuses: dict[Persona, str] = {role: "queued" for role in roles}
 

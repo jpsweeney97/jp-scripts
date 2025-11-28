@@ -206,7 +206,7 @@ class OpenAIProvider(BaseLLMProvider):
             return self._client
 
         try:
-            import openai
+            import openai  # type: ignore[import-not-found]
         except ImportError as exc:
             raise ProviderError(
                 "openai package not installed. Install with: pip install openai"

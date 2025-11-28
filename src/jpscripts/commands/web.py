@@ -7,10 +7,11 @@ from pathlib import Path
 from urllib.parse import urlparse
 import re
 from urllib.parse import unquote
+from collections.abc import Mapping
 from typing import TYPE_CHECKING
 
 import typer
-import yaml  # type: ignore[import-untyped]
+import yaml
 from rich import box
 from rich.table import Table
 
@@ -46,7 +47,7 @@ def _slugify_url(url: str, today: dt.date) -> str:
 
     return f"{safe_domain}-{path_slug}_{today.isoformat()}.yaml"
 
-def _write_yaml(metadata: dict, content: str, dest: Path) -> None:
+def _write_yaml(metadata: Mapping[str, object], content: str, dest: Path) -> None:
     docs = [
         metadata,
         {"content": content},

@@ -8,7 +8,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-import psutil  # type: ignore[import-untyped]
+import psutil
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 

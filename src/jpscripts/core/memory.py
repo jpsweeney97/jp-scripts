@@ -18,8 +18,8 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 
 if TYPE_CHECKING:
-    from lancedb.pydantic import LanceModel as LanceModelBase  # type: ignore[import-not-found]
-    from lancedb.table import LanceTable  # type: ignore[import-not-found]
+    from lancedb.pydantic import LanceModel as LanceModelBase  # type: ignore[import-untyped]
+    from lancedb.table import LanceTable  # type: ignore[import-untyped]
     from sentence_transformers import SentenceTransformer
 else:  # pragma: no cover - runtime fallbacks when optional deps are missing
     class LanceModelBase:  # type: ignore[misc]
@@ -345,7 +345,7 @@ def EmbeddingClient(model_name: str, *, enabled: bool, server_url: str | None = 
 
 def _load_sentence_transformer(model_name: str) -> tuple[SentenceTransformer | None, int | None]:
     try:
-        from sentence_transformers import SentenceTransformer as STModel  # type: ignore[import-not-found]
+        from sentence_transformers import SentenceTransformer as STModel
     except ImportError:
         _warn_semantic_unavailable()
         return None, None
@@ -455,7 +455,7 @@ def _load_lancedb_dependencies() -> tuple[Any, type[LanceModelBase]] | None:
 
 
 def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBase]:
-    class MemoryRecord(base):  # type: ignore[misc, valid-type]
+    class MemoryRecord(base):  # type: ignore[misc]
         id: str
         timestamp: str
         content: str
@@ -685,9 +685,9 @@ def query_memory(
             score += 1.0 / (k_const + v_rank)
         if k_rank is not None:
             score += 1.0 / (k_const + k_rank)
-        entry = entry_lookup.get(entry_id)
-        if entry is not None:
-            fused.append((score, entry))
+        found_entry = entry_lookup.get(entry_id)
+        if found_entry is not None:
+            fused.append((score, found_entry))
 
     if not fused:
         return []

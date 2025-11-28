@@ -52,7 +52,7 @@ def recent(
     state = ctx.obj
     ignore_dirs = set(state.config.ignore_dirs)
 
-    async def run_scan():
+    async def run_scan() -> list[nav_core.RecentEntry]:
         with console.status(f"Scanning {base_root}...", spinner="dots"):
             return await nav_core.scan_recent(
                 base_root,
@@ -98,7 +98,7 @@ def proj(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick a project using zoxide + fzf and print the path."""
-    async def run_query():
+    async def run_query() -> list[str]:
         try:
             return await nav_core.get_zoxide_projects()
         except RuntimeError as e:

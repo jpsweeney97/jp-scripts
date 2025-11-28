@@ -27,7 +27,7 @@ def handle_exceptions(func: F) -> F:
         @functools.wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
-                return await func(*args, **kwargs)  # type: ignore[misc]
+                return await func(*args, **kwargs)
             except (GitOperationError, ConfigError, PermissionError) as exc:
                 _handle_exception(exc)
 

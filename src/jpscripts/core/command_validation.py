@@ -288,9 +288,9 @@ def validate_command(
             return CommandVerdict.BLOCKED_PATH_ESCAPE, f"Path escapes workspace: {token}"
 
     # Final check for command substitution patterns in tokens
-    meta = _check_shell_metachars_in_tokens(tokens)
-    if meta:
-        return CommandVerdict.BLOCKED_METACHAR, f"Shell metacharacter in token: {meta!r}"
+    found_meta = _check_shell_metachars_in_tokens(tokens)
+    if found_meta:
+        return CommandVerdict.BLOCKED_METACHAR, f"Shell metacharacter in token: {found_meta!r}"
 
     return CommandVerdict.ALLOWED, "OK"
 

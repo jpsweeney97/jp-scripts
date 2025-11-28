@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
-from typing import Any, Awaitable, cast
+from typing import Any, Awaitable
 
 import typer
 from pydantic import ValidationError
@@ -35,7 +35,6 @@ from jpscripts.providers import (
     Message,
     ProviderError,
     ProviderType,
-    StreamChunk,
     infer_provider_type,
 )
 from jpscripts.providers.codex import is_codex_available
@@ -80,8 +79,7 @@ async def _fetch_response_from_provider(
         status.start()
 
         try:
-            async for _chunk in provider.stream(messages, model=model, options=options):  # type: ignore[attr-defined]
-                chunk = cast(StreamChunk, _chunk)
+            async for chunk in provider.stream(messages, model=model, options=options):
                 if chunk.content:
                     parts.append(chunk.content)
                     # Update status to show progress

@@ -185,7 +185,7 @@ def brew_explorer(
 ) -> None:
     """Search brew formulas/casks and show info."""
 
-    async def run_search():
+    async def run_search() -> list[str]:
         try:
             with console.status("Searching Homebrew...", spinner="dots"):
                 return await system_core.search_brew(query)
@@ -215,7 +215,7 @@ def brew_explorer(
     if not isinstance(selection, str) or not selection:
         return
 
-    async def run_info():
+    async def run_info() -> str | None:
         with console.status(f"Fetching info for {selection}...", spinner="dots"):
             return await system_core.get_brew_info(selection)
 

@@ -22,7 +22,11 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
+from collections.abc import Coroutine
 from dataclasses import dataclass, field
+from typing import Any, TypeVar
+
+_T = TypeVar("_T")
 from time import monotonic
 from typing import Deque
 
@@ -170,11 +174,11 @@ class RateLimitExceeded(Exception):
 
 async def rate_limited_call(
     limiter: RateLimiter,
-    coro,
+    coro: Coroutine[Any, Any, _T],
     *,
     timeout: float | None = None,
     block: bool = True,
-):
+) -> _T:
     """Execute a coroutine with rate limiting.
 
     Args:

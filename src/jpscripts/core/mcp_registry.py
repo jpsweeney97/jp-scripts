@@ -23,7 +23,7 @@ def strict_tool_validator(fn: Callable[P, R]) -> Callable[P, R]:
     Wrap a callable with pydantic runtime validation, re-raising validation errors
     as ToolValidationError to preserve the MCP error boundary.
     """
-    validated = validate_call(fn, config={"strict": True})
+    validated = validate_call(config={"strict": True})(fn)
 
     @functools.wraps(fn)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:

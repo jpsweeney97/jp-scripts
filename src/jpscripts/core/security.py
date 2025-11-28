@@ -29,6 +29,7 @@ from __future__ import annotations
 import getpass
 import os
 from pathlib import Path
+from typing import Any
 
 from git.exc import InvalidGitRepositoryError, NoSuchPathError
 
@@ -50,7 +51,7 @@ class WorkspaceValidationError(PermissionError, WorkspaceError):
     DEPRECATED: New code should catch WorkspaceError or SecurityError instead.
     """
 
-    def __init__(self, message: str, *, context: dict | None = None) -> None:
+    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
         PermissionError.__init__(self, message)
         WorkspaceError.__init__(self, message, context=context)
 
@@ -64,7 +65,7 @@ class PathValidationError(PermissionError, SecurityError):
     DEPRECATED: New code should catch SecurityError instead.
     """
 
-    def __init__(self, message: str, *, context: dict | None = None) -> None:
+    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
         PermissionError.__init__(self, message)
         SecurityError.__init__(self, message, context=context)
 
@@ -171,7 +172,7 @@ def validate_path_safe(
     """
     # First validate the workspace root
     root_result = validate_workspace_root_safe(root)
-    if root_result.is_err():
+    if isinstance(root_result, Err):
         # Convert WorkspaceError to SecurityError for consistent typing
         workspace_err = root_result.error
         return Err(
@@ -223,7 +224,7 @@ def validate_workspace_root(root: Path | str) -> Path:
         WorkspaceValidationError: If validation fails
     """
     result = validate_workspace_root_safe(root)
-    if result.is_err():
+    if isinstance(result, Err):
         raise WorkspaceValidationError(
             result.error.message,
             context=result.error.context,
@@ -249,7 +250,7 @@ def validate_path(path: str | Path, root: Path | str) -> Path:
         WorkspaceValidationError: If the workspace root is invalid
     """
     result = validate_path_safe(path, root)
-    if result.is_err():
+    if isinstance(result, Err):
         err = result.error
         # For backward compatibility, raise PermissionError for path escape
         # and WorkspaceValidationError for workspace issues
@@ -274,7 +275,7 @@ def is_git_workspace(root: Path | str) -> bool:
         True if the path is a valid workspace and a git repository
     """
     result = validate_workspace_root_safe(root)
-    if result.is_err():
+    if isinstance(result, Err):
         return False
     return _is_git_repo(result.value)
 

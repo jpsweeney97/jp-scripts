@@ -8,7 +8,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-import pyperclip  # type: ignore[import-untyped]
+import pyperclip
 import typer
 from rich import box
 from rich.table import Table
@@ -316,7 +316,7 @@ def cliphist(
                 else:
                     selection = lines[0]
 
-                if selection:
+                if selection and isinstance(selection, str):
                     _, _, text = selection.partition("\t")
                     pyperclip.copy(text)
                     console.print("[green]Copied selection to clipboard.[/green]")
