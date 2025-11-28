@@ -11,8 +11,9 @@ from typing import Iterable
 
 from pydantic import BaseModel, Field
 
+from jpscripts.core import memory as memory_core
 from jpscripts.core.config import AppConfig
-from jpscripts.core.memory import LanceDBStore
+from jpscripts.core.result import Err
 from jpscripts.core.security import WorkspaceValidationError, validate_workspace_root
 
 
@@ -96,11 +97,16 @@ class VectorDBCheck(DiagnosticCheck):
     async def run(self) -> tuple[str, str]:
         store_path = Path(self.config.memory_store).expanduser()
         try:
-            store = LanceDBStore(store_path, embedding_dim=1)
-            _ = store.search([0.0], limit=1)
+            deps = memory_core._load_lancedb_dependencies()
+            if deps is None:
+                return "warn", "lancedb not installed; vector memory unavailable."
+
+            lancedb_module, lance_model_base = deps
+            store = memory_core.LanceDBStore(store_path, lancedb_module, lance_model_base)
+            probe = store.search([0.0], limit=1)
+            if isinstance(probe, Err):
+                return "error", f"Vector DB check failed: {probe.error}"
             return "ok", f"LanceDB ready at {store_path}"
-        except ImportError:
-            return "warn", "lancedb not installed; vector memory unavailable."
         except Exception as exc:
             return "error", f"Vector DB check failed: {exc}"
 

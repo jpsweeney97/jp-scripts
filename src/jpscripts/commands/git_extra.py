@@ -5,6 +5,7 @@ import json
 import shutil
 import webbrowser
 from pathlib import Path
+from typing import TypeVar
 
 import typer
 from pydantic import BaseModel
@@ -16,9 +17,11 @@ from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core import security
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
+from jpscripts.core.result import Err, GitError, Ok, Result
 from jpscripts.commands.ui import fzf_select_async
 
 app = typer.Typer()
+T = TypeVar("T")
 
 
 def _pick_with_fzf(lines: list[str], prompt: str, extra_args: list[str] | None = None) -> str | list[str] | None:
@@ -42,9 +45,18 @@ def _git_extra_callback(ctx: typer.Context) -> None:
     """Entry point for git extra commands."""
 
 
+def _unwrap_result(result: Result[T, GitError]) -> T:
+    match result:
+        case Ok(value):
+            return value
+        case Err(err):
+            console.print(f"[red]{err.message}[/red]")
+            raise typer.Exit(code=1)
+
+
 def _ensure_repo(path: Path) -> git_core.AsyncRepo:
     repo_path = path.expanduser()
-    return asyncio.run(git_core.AsyncRepo.open(repo_path))
+    return _unwrap_result(asyncio.run(git_core.AsyncRepo.open(repo_path)))
 
 
 async def _run_passthrough_command(*args: str) -> None:
@@ -69,8 +81,8 @@ def gundo_last(
     _ = ctx
     repo_path = repo_path.expanduser()
 
-    repo = asyncio.run(git_core.AsyncRepo.open(repo_path))
-    message = asyncio.run(git_ops_core.undo_last_commit(repo, hard=hard))
+    repo = _ensure_repo(repo_path)
+    message = _unwrap_result(asyncio.run(git_ops_core.undo_last_commit(repo, hard=hard)))
 
     console.print(f"[green]{message}[/green]")
 
@@ -86,7 +98,7 @@ def gstage(
     """Interactively stage files."""
     _ = ctx
     repo = _ensure_repo(repo_path.expanduser())
-    status_entries = asyncio.run(repo.status_short())
+    status_entries = _unwrap_result(asyncio.run(repo.status_short()))
 
     if not status_entries:
         console.print("[green]Working tree clean.[/green]")
@@ -115,7 +127,7 @@ def gstage(
     target_path_str = target_str.split(" -> ", 1)[-1]
     target_path = security.validate_path(repo.path / target_path_str, repo.path)
 
-    asyncio.run(repo.add(paths=[target_path]))
+    _unwrap_result(asyncio.run(repo.add(paths=[target_path])))
     console.print(f"[green]Staged[/green] {target_path_str}")
 
 
@@ -224,7 +236,7 @@ def gbrowse(
 ) -> None:
     """Open the current repo/branch/commit on GitHub."""
     repo = _ensure_repo(repo_path.expanduser())
-    remote_url = asyncio.run(repo.get_remote_url())
+    remote_url = _unwrap_result(asyncio.run(repo.get_remote_url()))
 
     base_url = _repo_web_url(remote_url)
     if not base_url:
@@ -234,13 +246,13 @@ def gbrowse(
     if target == "repo":
         url = base_url
     elif target == "commit":
-        commit_sha = asyncio.run(repo.head(short=False))
+        commit_sha = _unwrap_result(asyncio.run(repo.head(short=False)))
         url = f"{base_url}/commit/{commit_sha}"
     else:
-        status = asyncio.run(repo.status())
+        status = _unwrap_result(asyncio.run(repo.status()))
         branch = status.branch
         if branch in {"(detached)", "(unknown)"}:
-            branch = asyncio.run(repo.head())
+            branch = _unwrap_result(asyncio.run(repo.head()))
         url = f"{base_url}/tree/{branch}"
 
     webbrowser.open(url)
@@ -255,11 +267,19 @@ def git_branchcheck(
     """List branches with upstream and ahead/behind counts."""
     repo_path = repo_path.expanduser()
 
-    async def _collect() -> list[git_ops_core.BranchSummary]:
-        repo = await git_core.AsyncRepo.open(repo_path)
-        return await git_ops_core.branch_statuses(repo)
+    async def _collect() -> Result[list[git_ops_core.BranchSummary], GitError]:
+        match await git_core.AsyncRepo.open(repo_path):
+            case Err(err):
+                return Err(err)
+            case Ok(repo):
+                return await git_ops_core.branch_statuses(repo)
 
-    summaries = asyncio.run(_collect())
+    match asyncio.run(_collect()):
+        case Err(err):
+            console.print(f"[red]{err.message}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(summaries):
+            pass
     table = Table(title="Branches", box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Branch", style="cyan", no_wrap=True)
     table.add_column("Upstream", style="white", no_wrap=True)
@@ -284,11 +304,7 @@ def stashview(
 ) -> None:
     """Browse stash entries and apply/pop/drop one."""
     repo = _ensure_repo(repo_path.expanduser())
-    try:
-        stash_list = asyncio.run(repo.stash_list())
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    stash_list = _unwrap_result(asyncio.run(repo.stash_list()))
 
     if not stash_list:
         console.print("[yellow]No stash entries.[/yellow]")
@@ -311,9 +327,5 @@ def stashview(
         console.print("[red]Unknown action. Use apply, pop, or drop.[/red]")
         return
 
-    try:
-        asyncio.run(op(ref))
-    except git_core.GitOperationError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
+    _unwrap_result(asyncio.run(op(ref)))
     console.print(f"[green]{action}[/green] {ref}")

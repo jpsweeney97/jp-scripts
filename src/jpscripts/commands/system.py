@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 import shutil
 import sys
-import threading
 from pathlib import Path
+from typing import TypeVar
 
 import typer
 from rich import box
@@ -14,7 +14,10 @@ from rich.table import Table
 from jpscripts.core import git as git_core
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
+from jpscripts.core.result import Err, Ok, Result
 from jpscripts.commands.ui import fzf_select_async
+
+T = TypeVar("T")
 
 
 def _fzf_select(lines: list[str], prompt: str) -> str | list[str] | None:
@@ -50,6 +53,16 @@ def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, promp
     return None
 
 
+def _unwrap_result(result: Result[T, Exception]) -> T:
+    match result:
+        case Ok(value):
+            return value
+        case Err(err):
+            message = err.message if hasattr(err, "message") else str(err)
+            console.print(f"[red]{message}[/red]")
+            raise typer.Exit(code=1)
+
+
 def process_kill(
     ctx: typer.Context,
     name: str = typer.Option("", "--name", "-n", help="Filter processes containing this substring."),
@@ -59,7 +72,7 @@ def process_kill(
 ) -> None:
     """Interactively select and kill a process."""
     # LOGIC: Delegate to core
-    matches = asyncio.run(system_core.find_processes(name_filter=name, port_filter=port))
+    matches = _unwrap_result(asyncio.run(system_core.find_processes(name_filter=name, port_filter=port)))
 
     use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt="kill> ")
@@ -67,7 +80,7 @@ def process_kill(
     if pid:
         # ACTION: Delegate to core
         state = ctx.obj
-        result = asyncio.run(system_core.kill_process_async(pid, force, config=state.config))
+        result = _unwrap_result(asyncio.run(system_core.kill_process_async(pid, force, config=state.config)))
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 
@@ -80,7 +93,7 @@ def port_kill(
 ) -> None:
     """Find processes bound to a port and kill one."""
     # LOGIC: Delegate to core
-    matches = asyncio.run(system_core.find_processes(port_filter=port))
+    matches = _unwrap_result(asyncio.run(system_core.find_processes(port_filter=port)))
 
     use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt=f"port-kill ({port})> ")
@@ -88,18 +101,14 @@ def port_kill(
     if pid:
         # ACTION: Delegate to core
         state = ctx.obj
-        result = asyncio.run(system_core.kill_process_async(pid, force, config=state.config))
+        result = _unwrap_result(asyncio.run(system_core.kill_process_async(pid, force, config=state.config)))
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 
 
 def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available.")) -> None:
     """Switch audio output device using SwitchAudioSource."""
-    try:
-        devices = system_core.get_audio_devices()
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
-        raise typer.Exit(code=1)
+    devices = _unwrap_result(asyncio.run(system_core.get_audio_devices()))
 
     if not devices:
         console.print("[yellow]No audio devices found.[/yellow]")
@@ -112,11 +121,8 @@ def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf e
     if not target:
         return
 
-    try:
-        system_core.set_audio_device(target)
-        console.print(f"[green]Switched to[/green] {target}")
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
+    _unwrap_result(asyncio.run(system_core.set_audio_device(target)))
+    console.print(f"[green]Switched to[/green] {target}")
 
 
 def ssh_open(
@@ -124,7 +130,7 @@ def ssh_open(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick an SSH host from ~/.ssh/config and connect."""
-    hosts = system_core.get_ssh_hosts()
+    hosts = _unwrap_result(asyncio.run(system_core.get_ssh_hosts()))
 
     if not hosts:
         console.print("[yellow]No host entries found in ~/.ssh/config.[/yellow]")
@@ -168,13 +174,8 @@ def tmpserver(
 
     console.print(f"[green]Serving {directory} on port {port}[/green]")
 
-    def serve_wrapper() -> None:
-        system_core.run_temp_server(directory, port)
-
-    thread = threading.Thread(target=serve_wrapper, daemon=True)
-    thread.start()
     try:
-        thread.join()
+        _unwrap_result(asyncio.run(system_core.run_temp_server(directory, port)))
     except KeyboardInterrupt:
         console.print("[yellow]Stopping server...[/yellow]")
 
@@ -186,12 +187,13 @@ def brew_explorer(
     """Search brew formulas/casks and show info."""
 
     async def run_search() -> list[str]:
-        try:
-            with console.status("Searching Homebrew...", spinner="dots"):
-                return await system_core.search_brew(query)
-        except RuntimeError as e:
-            console.print(f"[red]{e}[/red]")
-            raise typer.Exit(code=1)
+        with console.status("Searching Homebrew...", spinner="dots"):
+            match await system_core.search_brew(query):
+                case Err(err):
+                    console.print(f"[red]{err.message}[/red]")
+                    raise typer.Exit(code=1)
+                case Ok(items):
+                    return items
 
     items = asyncio.run(run_search())
 
@@ -217,14 +219,16 @@ def brew_explorer(
 
     async def run_info() -> str | None:
         with console.status(f"Fetching info for {selection}...", spinner="dots"):
-            return await system_core.get_brew_info(selection)
+            match await system_core.get_brew_info(selection):
+                case Err(err):
+                    console.print(f"[red]{err.message}[/red]")
+                    raise typer.Exit(code=1)
+                case Ok(info):
+                    return info
 
-    try:
-        info = asyncio.run(run_info())
-        if info:
-            console.print(Panel(info, title=f"brew info {selection}", box=box.SIMPLE))
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
+    info = asyncio.run(run_info())
+    if info:
+        console.print(Panel(info, title=f"brew info {selection}", box=box.SIMPLE))
 
 
 def update() -> None:
@@ -239,8 +243,15 @@ def update() -> None:
     async def _run_update() -> None:
         try:
             with console.status("Upgrading God-Mode...", spinner="dots"):
-                repo = await git_core.AsyncRepo.open(project_root)
-                await repo._run_git("pull")
+                match await git_core.AsyncRepo.open(project_root):
+                    case Err(err):
+                        raise RuntimeError(err.message)
+                    case Ok(repo):
+                        match await repo._run_git("pull"):
+                            case Err(err):
+                                raise RuntimeError(err.message)
+                            case Ok(_):
+                                pass
 
                 proc = await asyncio.create_subprocess_exec(
                     sys.executable,

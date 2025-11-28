@@ -33,7 +33,8 @@ def test_scan_recent_sorts_and_ignores(tmp_path):
     ignored_file.write_text("ignore")
 
     # FIX: Use public core function 'scan_recent'
-    entries = asyncio.run(scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"}))
+    entries_result = asyncio.run(scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"}))
+    entries = entries_result.unwrap()
     names = [entry.path.name for entry in entries]
 
     assert names[0] == "keep.txt"

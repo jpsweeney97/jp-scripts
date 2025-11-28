@@ -14,8 +14,9 @@ from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 from uuid import uuid4
 
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AppConfig, ConfigError
 from jpscripts.core.console import get_logger
+from jpscripts.core.result import CapabilityMissingError, ConfigurationError, Err, JPScriptsError, Ok, Result
 
 if TYPE_CHECKING:
     from lancedb.pydantic import LanceModel as LanceModelBase  # type: ignore[import-untyped]
@@ -63,7 +64,6 @@ MAX_ENTRIES = 5000
 DEFAULT_STORE = Path.home() / ".jp_memory.lance"
 FALLBACK_SUFFIX = ".jsonl"
 _SEMANTIC_WARNED = False
-_MEMORY_DEGRADED_WARNED = False
 
 
 def _run_coroutine(coro: Coroutine[Any, Any, T]) -> T | None:
@@ -159,14 +159,20 @@ class MemoryEntry:
     source_path: str | None = None
 
 
-class VectorStore(Protocol):
-    def insert(self, entries: Sequence[MemoryEntry]) -> None:
+class MemoryStore(Protocol):
+    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
         ...
 
-    def search(self, vector: list[float], limit: int) -> list[MemoryEntry]:
+    def search(
+        self,
+        query_vec: list[float] | None,
+        limit: int,
+        *,
+        query_tokens: list[str] | None = None,
+    ) -> Result[list[MemoryEntry], JPScriptsError]:
         ...
 
-    def available(self) -> bool:
+    def prune(self, root: Path) -> Result[int, JPScriptsError]:
         ...
 
 
@@ -225,14 +231,6 @@ def _warn_semantic_unavailable() -> None:
         return
     logger.warning("Semantic memory search unavailable. Install with `pip install jpscripts[ai]`.")
     _SEMANTIC_WARNED = True
-
-
-def _warn_memory_degraded() -> None:
-    global _MEMORY_DEGRADED_WARNED
-    if _MEMORY_DEGRADED_WARNED:
-        return
-    logger.warning("God-Mode Memory is degraded: vector store unavailable. Install with `pip install \"jpscripts[ai]\"`.")
-    _MEMORY_DEGRADED_WARNED = True
 
 
 class _GlobalEmbeddingClient(EmbeddingClientProtocol):
@@ -472,55 +470,71 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
     return MemoryRecord
 
 
-class LanceDBStore:
-    def __init__(self, db_path: Path, embedding_dim: int) -> None:
-        if embedding_dim <= 0:
-            raise ValueError("embedding_dim must be positive")
-
-        lance_imports = _load_lancedb_dependencies()
-        if lance_imports is None:
-            raise ImportError("lancedb is not installed")
-        lancedb_module, lance_model_base = lance_imports
-
+class LanceDBStore(MemoryStore):
+    def __init__(self, db_path: Path, lancedb_module: Any, lance_model_base: type[LanceModelBase]) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
         self._lancedb = lancedb_module
-        self._embedding_dim = embedding_dim
         self._model_cls: type[LanceModelBase] = _build_memory_record_model(lance_model_base)
-        self._table: LanceTable = self._ensure_table()
-        self._available = True
+        self._table: LanceTable | None = None
+        self._embedding_dim: int | None = None
 
-    def _ensure_table(self) -> LanceTable:
-        db = self._lancedb.connect(str(self._db_path))
-        model = self._model_cls
-        if "memory" not in db.table_names():
-            return db.create_table("memory", schema=model, exist_ok=True)
-        return db.open_table("memory")
+    def _ensure_table(self, embedding_dim: int) -> LanceTable:
+        if embedding_dim <= 0:
+            raise ValueError("embedding_dim must be positive")
+        if self._embedding_dim is not None and self._embedding_dim != embedding_dim:
+            raise ValueError(f"Embedding dimension mismatch: {self._embedding_dim} != {embedding_dim}")
 
-    def _validate_embedding(self, embedding: list[float] | None) -> list[float] | None:
-        if embedding is None:
-            return None
-        if len(embedding) != self._embedding_dim:
-            raise ValueError(f"Expected embedding dim {self._embedding_dim}, got {len(embedding)}")
-        return embedding
+        if self._table is None or self._embedding_dim is None:
+            db = self._lancedb.connect(str(self._db_path))
+            model = self._model_cls
+            if "memory" not in db.table_names():
+                self._table = db.create_table("memory", schema=model, exist_ok=True)
+            else:
+                self._table = db.open_table("memory")
+            self._embedding_dim = embedding_dim
+        return self._table
 
-    def insert(self, entries: Sequence[MemoryEntry]) -> None:
-        model = self._model_cls
-        payload = [
-            model(
+    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
+        if entry.embedding is None:
+            return Err(ConfigurationError("Embedding required for LanceDB insert", context={"id": entry.id}))
+
+        try:
+            table = self._ensure_table(len(entry.embedding))
+            model = self._model_cls(
                 id=entry.id,
                 timestamp=entry.ts,
                 content=entry.content,
                 tags=entry.tags,
-                embedding=self._validate_embedding(entry.embedding),
+                embedding=entry.embedding,
                 source_path=entry.source_path,
             )
-            for entry in entries
-        ]
-        self._table.add(payload)
+            table.add([model])
+        except Exception as exc:  # pragma: no cover - defensive
+            return Err(ConfigurationError("Failed to persist memory to LanceDB", context={"error": str(exc)}))
 
-    def search(self, vector: list[float], limit: int) -> list[MemoryEntry]:
-        results = self._table.search(vector).limit(limit).to_pydantic(self._model_cls)
+        return Ok(entry)
+
+    def search(
+        self,
+        query_vec: list[float] | None,
+        limit: int,
+        *,
+        query_tokens: list[str] | None = None,
+    ) -> Result[list[MemoryEntry], JPScriptsError]:
+        if query_vec is None:
+            return Ok([])
+
+        try:
+            table = self._ensure_table(len(query_vec))
+        except Exception as exc:
+            return Err(ConfigurationError("Failed to prepare LanceDB table", context={"error": str(exc)}))
+
+        try:
+            results = table.search(query_vec).limit(limit).to_pydantic(self._model_cls)
+        except Exception as exc:  # pragma: no cover - defensive
+            return Err(ConfigurationError("LanceDB search failed", context={"error": str(exc)}))
+
         matches: list[MemoryEntry] = []
         for row in results:
             tags = list(row.tags or [])
@@ -536,31 +550,168 @@ class LanceDBStore:
                     source_path=row.source_path,
                 )
             )
-        return matches
+        return Ok(matches)
 
-    def available(self) -> bool:
-        return self._available
-
-
-class NoOpStore:
-    def insert(self, entries: Sequence[MemoryEntry]) -> None:  # pragma: no cover - trivial
-        return
-
-    def search(self, vector: list[float], limit: int) -> list[MemoryEntry]:  # pragma: no cover - trivial
-        return []
-
-    def available(self) -> bool:
-        return False
+    def prune(self, root: Path) -> Result[int, JPScriptsError]:  # pragma: no cover - not required for LanceDB
+        _ = root
+        return Ok(0)
 
 
-def get_vector_store(db_path: Path, embedding_dim: int) -> VectorStore:
-    try:
-        return LanceDBStore(db_path, embedding_dim=embedding_dim)
-    except ImportError:
-        _warn_semantic_unavailable()
-    except Exception as exc:
-        logger.debug("Vector store unavailable at %s: %s", db_path, exc)
-    return NoOpStore()
+class JsonlArchiver(MemoryStore):
+    def __init__(self, path: Path, max_entries: int = MAX_ENTRIES) -> None:
+        self._path = path
+        self._max_entries = max_entries
+
+    @property
+    def path(self) -> Path:
+        return self._path
+
+    def load_entries(self) -> list[MemoryEntry]:
+        return _load_entries(self._path, self._max_entries)
+
+    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
+        try:
+            _append_entry(self._path, entry)
+        except OSError as exc:
+            return Err(
+                ConfigurationError(
+                    "Failed to append memory entry",
+                    context={"path": str(self._path), "error": str(exc)},
+                )
+            )
+        return Ok(entry)
+
+    def search(
+        self,
+        query_vec: list[float] | None,
+        limit: int,
+        *,
+        query_tokens: list[str] | None = None,
+    ) -> Result[list[MemoryEntry], JPScriptsError]:
+        _ = query_vec
+        entries = self.load_entries()
+        if not query_tokens:
+            return Ok([])
+        scored = [(entry, _score(query_tokens, entry)) for entry in entries]
+        scored = [item for item in scored if item[1] > 0]
+        scored.sort(key=lambda item: item[1], reverse=True)
+        return Ok([entry for entry, _score_val in scored[:limit]])
+
+    def prune(self, root: Path) -> Result[int, JPScriptsError]:
+        entries = self.load_entries()
+        if not entries:
+            return Ok(0)
+
+        workspace_root = Path(root).expanduser().resolve()
+        kept: list[MemoryEntry] = []
+        pruned_count = 0
+
+        for entry in entries:
+            if entry.source_path is None:
+                kept.append(entry)
+                continue
+
+            source = Path(entry.source_path)
+            if not source.is_absolute():
+                source = workspace_root / source
+
+            try:
+                if source.exists():
+                    kept.append(entry)
+                else:
+                    pruned_count += 1
+                    logger.debug("Pruning stale memory entry: %s (file missing: %s)", entry.id, entry.source_path)
+            except OSError:
+                kept.append(entry)
+
+        try:
+            _write_entries(self._path, kept)
+        except OSError as exc:
+            return Err(ConfigurationError("Failed to rewrite pruned memory archive", context={"error": str(exc)}))
+
+        return Ok(pruned_count)
+
+
+class HybridMemoryStore(MemoryStore):
+    def __init__(self, archiver: JsonlArchiver, vector_store: LanceDBStore | None) -> None:
+        self._archiver = archiver
+        self._vector_store = vector_store
+
+    @property
+    def archiver(self) -> JsonlArchiver:
+        return self._archiver
+
+    @property
+    def vector_store(self) -> LanceDBStore | None:
+        return self._vector_store
+
+    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
+        match self._archiver.add(entry):
+            case Err(err):
+                return Err(err)
+            case Ok(_):
+                pass
+
+        if self._vector_store and entry.embedding is not None:
+            vector_result = self._vector_store.add(entry)
+            if isinstance(vector_result, Err):
+                return vector_result
+
+        return Ok(entry)
+
+    def search(
+        self,
+        query_vec: list[float] | None,
+        limit: int,
+        *,
+        query_tokens: list[str] | None = None,
+    ) -> Result[list[MemoryEntry], JPScriptsError]:
+        entries = self._archiver.load_entries()
+        vector_results: list[MemoryEntry] = []
+        vector_ranks: dict[str, int] = {}
+
+        if self._vector_store and query_vec is not None:
+            match self._vector_store.search(query_vec, limit, query_tokens=query_tokens):
+                case Err(err):
+                    return Err(err)
+                case Ok(results):
+                    vector_results = results
+                    vector_ranks = {entry.id: idx + 1 for idx, entry in enumerate(results)}
+
+        keyword_ranks: dict[str, int] = {}
+        if query_tokens:
+            kw_scored = [(entry, _score(query_tokens, entry)) for entry in entries]
+            kw_scored = [item for item in kw_scored if item[1] > 0]
+            kw_scored.sort(key=lambda item: item[1], reverse=True)
+            keyword_ranks = {entry.id: idx + 1 for idx, (entry, _score_val) in enumerate(kw_scored)}
+
+        if not vector_ranks and not keyword_ranks:
+            return Ok([])
+
+        k_const = 60.0
+        entry_lookup: dict[str, MemoryEntry] = {entry.id: entry for entry in entries}
+        for entry in vector_results:
+            entry_lookup[entry.id] = entry
+
+        fused: list[tuple[float, MemoryEntry]] = []
+        seen_ids = set(vector_ranks) | set(keyword_ranks)
+        for entry_id in seen_ids:
+            v_rank = vector_ranks.get(entry_id)
+            k_rank = keyword_ranks.get(entry_id)
+            score = 0.0
+            if v_rank is not None:
+                score += 1.0 / (k_const + v_rank)
+            if k_rank is not None:
+                score += 1.0 / (k_const + k_rank)
+            found_entry = entry_lookup.get(entry_id)
+            if found_entry is not None:
+                fused.append((score, found_entry))
+
+        fused.sort(key=lambda item: item[0], reverse=True)
+        return Ok([entry for _, entry in fused[:limit]])
+
+    def prune(self, root: Path) -> Result[int, JPScriptsError]:
+        return self._archiver.prune(root)
 
 
 def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
@@ -588,6 +739,33 @@ def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
     return base_score * decay
 
 
+def get_memory_store(
+    config: AppConfig,
+    store_path: Path | None = None,
+) -> Result[MemoryStore, ConfigError | CapabilityMissingError]:
+    resolved_store = _resolve_store(config, store_path)
+    archiver = JsonlArchiver(_fallback_path(resolved_store))
+
+    use_semantic, _model_name, _server_url = _embedding_settings(config)
+    vector_store: LanceDBStore | None = None
+    if use_semantic:
+        deps = _load_lancedb_dependencies()
+        if deps is None:
+            return Err(
+                CapabilityMissingError(
+                    "LanceDB is required for semantic memory. Install with `pip install \"jpscripts[ai]\"`.",
+                    context={"path": str(resolved_store)},
+                )
+            )
+        lancedb_module, lance_model_base = deps
+        try:
+            vector_store = LanceDBStore(resolved_store, lancedb_module, lance_model_base)
+        except Exception as exc:  # pragma: no cover - defensive
+            return Err(ConfigError(f"Failed to initialize LanceDB store at {resolved_store}: {exc}"))
+
+    return Ok(HybridMemoryStore(archiver, vector_store))
+
+
 def save_memory(
     content: str,
     tags: Sequence[str] | None = None,
@@ -605,8 +783,10 @@ def save_memory(
         store_path: Override store location.
         source_path: Optional file path this memory is related to.
     """
+    if config is None:
+        raise ConfigError("AppConfig is required to save memory.")
+
     resolved_store = _resolve_store(config, store_path)
-    fallback_path = _fallback_path(resolved_store)
 
     normalized_tags = [t.strip() for t in (tags or []) if t.strip()]
     content_text = content.strip()
@@ -623,21 +803,17 @@ def save_memory(
 
     use_semantic, model_name, server_url = _embedding_settings(config)
     embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
-    vectors = embedding_client.embed([_compose_embedding_text(entry)])
+    vectors = embedding_client.embed([_compose_embedding_text(entry)]) if use_semantic else None
     if vectors:
         entry.embedding = vectors[0]
 
-    _append_entry(fallback_path, entry)
-
-    if entry.embedding and len(entry.embedding) > 0:
-        store = get_vector_store(resolved_store, embedding_dim=len(entry.embedding))
-        if store.available():
-            try:
-                store.insert([entry])
-            except Exception as exc:
-                logger.debug("Failed to persist memory to LanceDB at %s: %s", resolved_store, exc)
-        else:
-            _warn_memory_degraded()
+    match get_memory_store(config, store_path=resolved_store):
+        case Err(err):
+            raise err
+        case Ok(store):
+            add_result = store.add(entry)
+            if isinstance(add_result, Err):
+                raise add_result.error
 
     return entry
 
@@ -650,69 +826,24 @@ def query_memory(
     store_path: Path | None = None,
 ) -> list[str]:
     """Retrieve the most relevant memory snippets for a query using reciprocal rank fusion."""
-    resolved_store = _resolve_store(config, store_path)
-    fallback_path = _fallback_path(resolved_store)
-    entries = _load_entries(fallback_path, MAX_ENTRIES)
-    if not entries:
-        return []
+    if config is None:
+        raise ConfigError("AppConfig is required to query memory.")
 
-    use_semantic, model_name, server_url = _embedding_settings(config)
-    embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
+    match get_memory_store(config, store_path=store_path):
+        case Err(err):
+            raise err
+        case Ok(store):
+            use_semantic, model_name, server_url = _embedding_settings(config)
+            embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
+            query_vecs = embedding_client.embed([query]) if use_semantic else None
+            query_vec = query_vecs[0] if query_vecs else None
+            tokens = _tokenize(query)
 
-    vector_results: list[MemoryEntry] = []
-    vector_ranks: dict[str, int] = {}
-
-    query_vecs = embedding_client.embed([query]) if use_semantic else None
-    if query_vecs:
-        vector = query_vecs[0]
-        if vector:
-            store = get_vector_store(resolved_store, embedding_dim=len(vector))
-            if store.available():
-                try:
-                    vector_results = store.search(vector, limit)
-                except Exception as exc:
-                    logger.debug("Vector search failed, falling back to keywords: %s", exc)
-            else:
-                _warn_memory_degraded()
-        else:
-            _warn_semantic_unavailable()
-    elif use_semantic:
-        _warn_semantic_unavailable()
-
-    tokens = _tokenize(query)
-    kw_scored = [(entry, _score(tokens, entry)) for entry in entries]
-    kw_scored = [item for item in kw_scored if item[1] > 0]
-    kw_scored.sort(key=lambda x: x[1], reverse=True)
-    keyword_ranks: dict[str, int] = {entry.id: idx + 1 for idx, (entry, _score_val) in enumerate(kw_scored)}
-
-    k_const = 60.0
-    entry_lookup: dict[str, MemoryEntry] = {entry.id: entry for entry in entries}
-    for idx, entry in enumerate(vector_results, start=1):
-        entry_lookup[entry.id] = entry
-        vector_ranks[entry.id] = idx
-
-    fused: list[tuple[float, MemoryEntry]] = []
-    seen_ids = set(vector_ranks) | set(keyword_ranks)
-    if not seen_ids and kw_scored:
-        seen_ids = {entry.id for entry, _score_val in kw_scored[:limit]}
-
-    for entry_id in seen_ids:
-        v_rank = vector_ranks.get(entry_id)
-        k_rank = keyword_ranks.get(entry_id)
-        score = 0.0
-        if v_rank is not None:
-            score += 1.0 / (k_const + v_rank)
-        if k_rank is not None:
-            score += 1.0 / (k_const + k_rank)
-        found_entry = entry_lookup.get(entry_id)
-        if found_entry is not None:
-            fused.append((score, found_entry))
-
-    if not fused:
-        return []
-
-    fused.sort(key=lambda item: item[0], reverse=True)
-    return [_format_entry(entry) for _, entry in fused[:limit]]
+            search_result = store.search(query_vec, limit, query_tokens=tokens)
+            if isinstance(search_result, Err):
+                raise search_result.error
+            entries = search_result.value
+            return [_format_entry(entry) for entry in entries[:limit]] if entries else []
 
 
 def reindex_memory(
@@ -724,6 +855,9 @@ def reindex_memory(
     """
     Migrate existing JSONL memory data to the LanceDB store and refresh embeddings.
     """
+    if config is None:
+        raise ConfigError("AppConfig is required to reindex memory.")
+
     target_store = _resolve_store(config, target_path)
     fallback_target = _fallback_path(target_store)
     source = legacy_path or fallback_target
@@ -734,22 +868,22 @@ def reindex_memory(
     use_semantic, model_name, server_url = _embedding_settings(config)
     embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
     for entry in entries:
-        if entry.embedding is None:
+        if entry.embedding is None and use_semantic:
             vectors = embedding_client.embed([_compose_embedding_text(entry)])
             if vectors:
                 entry.embedding = vectors[0]
-    populated = [entry for entry in entries if entry.embedding and len(entry.embedding) > 0]
-    if populated:
-        embedding_dim = len(populated[0].embedding or [])
-        if embedding_dim > 0:
-            store = get_vector_store(target_store, embedding_dim=embedding_dim)
-            if store.available():
-                try:
-                    store.insert(populated)
-                except Exception as exc:
-                    logger.debug("Failed to populate LanceDB during reindex: %s", exc)
 
     _write_entries(fallback_target, entries)
+
+    match get_memory_store(config, store_path=target_store):
+        case Err(err):
+            raise err
+        case Ok(store):
+            if isinstance(store, HybridMemoryStore) and store.vector_store:
+                for entry in entries:
+                    if entry.embedding:
+                        _ = store.vector_store.add(entry)
+
     return target_store
 
 
@@ -765,41 +899,11 @@ def prune_memory(config: AppConfig) -> int:
     Returns:
         Count of pruned entries.
     """
-    resolved_store = _resolve_store(config, None)
-    fallback_path = _fallback_path(resolved_store)
-    entries = _load_entries(fallback_path, MAX_ENTRIES)
-
-    if not entries:
-        return 0
-
-    workspace_root = Path(config.workspace_root).expanduser().resolve()
-    kept: list[MemoryEntry] = []
-    pruned_count = 0
-
-    for entry in entries:
-        if entry.source_path is None:
-            # Entries without source_path are always kept
-            kept.append(entry)
-            continue
-
-        # Check if path exists (relative to workspace_root or absolute)
-        source = Path(entry.source_path)
-        if not source.is_absolute():
-            source = workspace_root / source
-
-        try:
-            if source.exists():
-                kept.append(entry)
-            else:
-                pruned_count += 1
-                logger.debug("Pruning stale memory entry: %s (file missing: %s)", entry.id, entry.source_path)
-        except OSError:
-            # If we can't check, keep the entry
-            kept.append(entry)
-
-    if pruned_count > 0:
-        _write_entries(fallback_path, kept)
-        # Trigger reindex to sync LanceDB
-        reindex_memory(config=config, legacy_path=fallback_path, target_path=resolved_store)
-
-    return pruned_count
+    match get_memory_store(config):
+        case Err(err):
+            raise err
+        case Ok(store):
+            result = store.prune(Path(config.workspace_root))
+            if isinstance(result, Err):
+                raise result.error
+            return result.value

@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from jpscripts.commands import git_ops as cmd_git_ops
 from jpscripts.core import git_ops as core_git_ops
+from jpscripts.core.result import Ok
 
 
 @pytest.mark.asyncio
@@ -53,8 +54,8 @@ class _FakeAsyncRepo:
     def __init__(self, output: str) -> None:
         self.output = output
 
-    async def _run_git(self, *args: str) -> str:  # noqa: ANN204
-        return self.output
+    async def _run_git(self, *args: str) -> Ok[str]:  # noqa: ANN204
+        return Ok(self.output)
 
 
 @pytest.mark.asyncio
@@ -62,7 +63,7 @@ async def test_branch_statuses_parses_ahead_behind() -> None:
     output = "main origin/main [ahead 2, behind 1]\nfeature  [ahead 1]\nlegacy origin/legacy [behind 3]\n"
     repo = _FakeAsyncRepo(output)
 
-    summaries = await core_git_ops.branch_statuses(repo)  # type: ignore[arg-type]
+    summaries = (await core_git_ops.branch_statuses(repo)).unwrap()  # type: ignore[arg-type]
 
     assert summaries[0] == core_git_ops.BranchSummary("main", "origin/main", 2, 1, None)
     assert summaries[1] == core_git_ops.BranchSummary("feature", None, 1, 0, None)

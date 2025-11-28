@@ -10,9 +10,10 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
-from jpscripts.core.console import console
 from jpscripts.core import git as git_core
 from jpscripts.core.decorators import handle_exceptions
+from jpscripts.core.console import console
+from jpscripts.core.result import Err, GitError, Ok, Result
 
 
 @dataclass
@@ -22,10 +23,7 @@ class _StatusContext:
 
 
 async def _describe_repo(path: Path) -> git_core.BranchStatus:
-    try:
-        repo = await git_core.AsyncRepo.open(path)
-        return await repo.status()
-    except Exception as exc:  # Git errors are reported per-repo
+    def _error_status(message: str) -> git_core.BranchStatus:
         return git_core.BranchStatus(
             path=path,
             branch="(error)",
@@ -36,8 +34,18 @@ async def _describe_repo(path: Path) -> git_core.BranchStatus:
             unstaged=0,
             untracked=0,
             dirty=False,
-            error=str(exc),
+            error=message,
         )
+
+    match await git_core.AsyncRepo.open(path):
+        case Err(err):
+            return _error_status(err.message)
+        case Ok(repo):
+            match await repo.status():
+                case Ok(status):
+                    return status
+                case Err(err):
+                    return _error_status(err.message)
 
 
 def _render_status_table(ctx: _StatusContext, statuses: list[git_core.BranchStatus]) -> Table:
@@ -103,7 +111,12 @@ def status_all(
         console.print(f"[red]Root {base_root} does not exist.[/red]")
         raise typer.Exit(code=1)
 
-    repo_paths = list(git_core.iter_git_repos(base_root, max_depth=max_depth))
+    match asyncio.run(git_core.iter_git_repos(base_root, max_depth=max_depth)):
+        case Err(err):
+            console.print(f"[red]Error scanning git repositories: {err.message}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(repo_paths):
+            pass
     if not repo_paths:
         console.print(f"[yellow]No git repositories found under {base_root} (max depth {max_depth}).[/yellow]")
         return
@@ -126,19 +139,43 @@ def whatpush(
     """Show what will be pushed to the upstream branch."""
     repo_path = repo_path.expanduser()
 
-    async def _collect() -> tuple[git_core.BranchStatus, list[git_core.GitCommit], str]:
-        repo = await git_core.AsyncRepo.open(repo_path)
-        status = await repo.status()
-        upstream = status.upstream
-        if not upstream:
-            raise git_core.GitOperationError(
-                "No upstream branch is configured. Set one with git push --set-upstream origin <branch>"
-            )
-        commits = await repo.get_commits(f"{upstream}..HEAD", max_commits)
-        diffstat = await repo.diff_stat(f"{upstream}..HEAD") if commits else ""
-        return status, commits, diffstat
+    async def _collect() -> Result[tuple[git_core.BranchStatus, list[git_core.GitCommit], str], GitError]:
+        match await git_core.AsyncRepo.open(repo_path):
+            case Err(err):
+                return Err(err)
+            case Ok(repo):
+                match await repo.status():
+                    case Err(err):
+                        return Err(err)
+                    case Ok(status):
+                        upstream = status.upstream
+                        if not upstream:
+                            return Err(
+                                GitError(
+                                    "No upstream branch is configured. Set one with git push --set-upstream origin <branch>",
+                                    context={"repo": str(repo_path)},
+                                )
+                            )
 
-    status, commits, diffstat = asyncio.run(_collect())
+                        match await repo.get_commits(f"{upstream}..HEAD", max_commits):
+                            case Err(err):
+                                return Err(err)
+                            case Ok(commits):
+                                diffstat = ""
+                                if commits:
+                                    match await repo.diff_stat(f"{upstream}..HEAD"):
+                                        case Err(err):
+                                            return Err(err)
+                                        case Ok(ds):
+                                            diffstat = ds
+                                return Ok((status, commits, diffstat))
+
+    match asyncio.run(_collect()):
+        case Err(err):
+            console.print(f"[red]Error: {err.message}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(payload):
+            status, commits, diffstat = payload
 
     upstream = status.upstream or "none"
 
@@ -233,6 +270,7 @@ def _has_remotes(path: Path) -> bool:
         return True
     return "[remote " in data
 
+
 def sync(
     ctx: typer.Context,
     root: Path | None = typer.Option(None, "--root", "-r"),
@@ -243,7 +281,12 @@ def sync(
     base_root = root or state.config.worktree_root or state.config.workspace_root
     base_root = base_root.expanduser()
 
-    repo_paths = list(git_core.iter_git_repos(base_root, max_depth=max_depth))
+    match asyncio.run(git_core.iter_git_repos(base_root, max_depth=max_depth)):
+        case Err(err):
+            console.print(f"[red]Error scanning git repositories: {err.message}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(repo_paths):
+            pass
 
     async def runner() -> list[tuple[Path, str]]:
         sem = asyncio.Semaphore(10)

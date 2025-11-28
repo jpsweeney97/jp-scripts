@@ -4,15 +4,17 @@ import asyncio
 import functools
 import http.server
 import shutil
-import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable
 
 import psutil
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
+from jpscripts.core.result import Err, Ok, Result, SystemResourceError
 
 logger = get_logger(__name__)
+
 
 @dataclass
 class ProcessInfo:
@@ -25,13 +27,15 @@ class ProcessInfo:
     def label(self) -> str:
         return f"{self.pid} - {self.name} ({self.username})"
 
+
 def _format_cmdline(proc: psutil.Process) -> str:
     try:
         return " ".join(proc.cmdline()) or proc.name()
     except (psutil.ZombieProcess, psutil.AccessDenied, psutil.NoSuchProcess):
         return proc.name()
 
-async def find_processes(name_filter: str | None = None, port_filter: int | None = None) -> list[ProcessInfo]:
+
+async def find_processes(name_filter: str | None = None, port_filter: int | None = None) -> Result[list[ProcessInfo], SystemResourceError]:
     def _collect() -> list[ProcessInfo]:
         matches: list[ProcessInfo] = []
         for proc in psutil.process_iter(["pid", "name", "username"]):
@@ -62,126 +66,195 @@ async def find_processes(name_filter: str | None = None, port_filter: int | None
 
         return sorted(matches, key=lambda p: p.pid)
 
-    return await asyncio.to_thread(_collect)
+    try:
+        matches = await asyncio.to_thread(_collect)
+    except Exception as exc:
+        return Err(SystemResourceError("Failed to enumerate processes", context={"error": str(exc)}))
+
+    return Ok(matches)
 
 
-async def kill_process_async(pid: int, force: bool = False, config: AppConfig | None = None) -> str:
+async def kill_process_async(pid: int, force: bool = False, config: AppConfig | None = None) -> Result[str, SystemResourceError]:
     dry_run = config.dry_run if config is not None else False
     if dry_run:
         logger.info("Did not kill PID %s (dry-run)", pid)
-        return "dry-run"
+        return Ok("dry-run")
 
-    def _terminate() -> str:
+    def _terminate() -> Result[str, SystemResourceError]:
         try:
-            p = psutil.Process(pid)
+            process = psutil.Process(pid)
             if force:
-                p.kill()
-                return "killed"
-            p.terminate()
-            return "terminated"
+                process.kill()
+                return Ok("killed")
+            process.terminate()
+            return Ok("terminated")
         except psutil.NoSuchProcess:
-            return "not found"
+            return Err(SystemResourceError("Process not found", context={"pid": pid}))
         except psutil.AccessDenied:
-            return "permission denied"
+            return Err(SystemResourceError("Permission denied to kill process", context={"pid": pid}))
+        except Exception as exc:
+            return Err(SystemResourceError("Failed to kill process", context={"pid": pid, "error": str(exc)}))
 
     return await asyncio.to_thread(_terminate)
 
 
-def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> str:
+def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> Result[str, SystemResourceError]:
     return asyncio.run(kill_process_async(pid, force, config))
 
 
-def get_audio_devices() -> list[str]:
-    # ... (Keep existing implementation) ...
+async def get_audio_devices() -> Result[list[str], SystemResourceError]:
     switch_cmd = shutil.which("SwitchAudioSource")
     if not switch_cmd:
-        raise RuntimeError("SwitchAudioSource binary not found")
+        return Err(SystemResourceError("SwitchAudioSource binary not found"))
 
-    proc = subprocess.run([switch_cmd, "-a"], capture_output=True, text=True)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            switch_cmd,
+            "-a",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return Err(SystemResourceError("SwitchAudioSource binary not found"))
+    except Exception as exc:
+        return Err(SystemResourceError("Failed to list audio devices", context={"error": str(exc)}))
+
+    stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"SwitchAudioSource failed: {proc.stderr}")
+        return Err(
+            SystemResourceError(
+                "SwitchAudioSource failed",
+                context={"stderr": stderr.decode().strip(), "returncode": proc.returncode},
+            )
+        )
 
-    return [line.strip() for line in proc.stdout.splitlines() if line.strip()]
+    return Ok([line.strip() for line in stdout.decode().splitlines() if line.strip()])
 
-def set_audio_device(device_name: str) -> None:
-    # ... (Keep existing implementation) ...
+
+async def set_audio_device(device_name: str) -> Result[None, SystemResourceError]:
     switch_cmd = shutil.which("SwitchAudioSource")
     if not switch_cmd:
-        raise RuntimeError("SwitchAudioSource binary not found")
+        return Err(SystemResourceError("SwitchAudioSource binary not found"))
 
-    proc = subprocess.run([switch_cmd, "-s", device_name], capture_output=True, text=True)
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            switch_cmd,
+            "-s",
+            device_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return Err(SystemResourceError("SwitchAudioSource binary not found"))
+    except Exception as exc:
+        return Err(SystemResourceError("Failed to switch audio device", context={"error": str(exc)}))
+
+    stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        raise RuntimeError(f"Failed to switch device: {proc.stderr}")
+        message = stderr.decode().strip() or stdout.decode().strip()
+        return Err(SystemResourceError("Failed to switch device", context={"stderr": message, "device": device_name}))
 
-def get_ssh_hosts(config_path: Path | None = None) -> list[str]:
-    # ... (Keep existing implementation) ...
+    return Ok(None)
+
+
+async def get_ssh_hosts(config_path: Path | None = None) -> Result[list[str], SystemResourceError]:
     target = config_path or Path.home() / ".ssh" / "config"
     if not target.exists():
-        return []
+        return Ok([])
 
-    hosts: list[str] = []
-    try:
+    def _read_hosts() -> list[str]:
+        hosts: list[str] = []
         content = target.read_text(encoding="utf-8")
-    except OSError:
-        return []
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.lower().startswith("host "):
+                entries = line.split()[1:]
+                hosts.extend([h for h in entries if h != "*"])
+        return sorted(hosts)
 
-    for line in content.splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.lower().startswith("host "):
-            entries = line.split()[1:]
-            hosts.extend([h for h in entries if h != "*"])
-
-    return sorted(hosts)
-
-def run_temp_server(directory: Path, port: int) -> None:
-    # ... (Keep existing implementation) ...
-    handler = functools.partial(http.server.SimpleHTTPRequestHandler, directory=str(directory))
-    httpd = http.server.ThreadingHTTPServer(("", port), handler)
     try:
-        httpd.serve_forever()
-    finally:
-        httpd.server_close()
+        hosts = await asyncio.to_thread(_read_hosts)
+    except OSError as exc:
+        return Err(SystemResourceError("Failed to read SSH config", context={"path": str(target), "error": str(exc)}))
 
-# --- Async Homebrew Wrappers ---
+    return Ok(hosts)
 
-async def search_brew(query: str | None) -> list[str]:
+
+async def run_temp_server(directory: Path, port: int) -> Result[None, SystemResourceError]:
+    if not directory.is_dir():
+        return Err(SystemResourceError("Serve directory is not a folder", context={"directory": str(directory)}))
+
+    def _serve() -> None:
+        handler: Callable[..., http.server.SimpleHTTPRequestHandler] = functools.partial(
+            http.server.SimpleHTTPRequestHandler, directory=str(directory)
+        )
+        httpd = http.server.ThreadingHTTPServer(("", port), handler)
+        try:
+            httpd.serve_forever()
+        finally:
+            httpd.server_close()
+
+    try:
+        await asyncio.to_thread(_serve)
+    except OSError as exc:
+        return Err(SystemResourceError("Failed to start HTTP server", context={"directory": str(directory), "error": str(exc)}))
+
+    return Ok(None)
+
+
+async def search_brew(query: str | None) -> Result[list[str], SystemResourceError]:
     """Async wrapper for `brew search`. Executes command without shell interpolation."""
     brew = shutil.which("brew")
     if not brew:
-        raise RuntimeError("Homebrew is required.")
+        return Err(SystemResourceError("Homebrew is required."))
 
     args = [brew, "search"]
     if query:
         args.append(query)
 
-    proc = await asyncio.create_subprocess_exec(
-        *args,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return Err(SystemResourceError("Homebrew is required."))
+    except Exception as exc:
+        return Err(SystemResourceError("Failed to start brew search", context={"error": str(exc)}))
+
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        raise RuntimeError(f"brew search failed: {stderr.decode().strip()}")
+        return Err(SystemResourceError("brew search failed", context={"stderr": stderr.decode().strip()}))
 
-    return [line.strip() for line in stdout.decode().splitlines() if line.strip()]
+    return Ok([line.strip() for line in stdout.decode().splitlines() if line.strip()])
 
-async def get_brew_info(name: str) -> str:
+
+async def get_brew_info(name: str) -> Result[str, SystemResourceError]:
     """Async wrapper for `brew info`. Executes command without shell interpolation."""
     brew = shutil.which("brew")
     if not brew:
-        raise RuntimeError("Homebrew is required.")
+        return Err(SystemResourceError("Homebrew is required."))
 
-    proc = await asyncio.create_subprocess_exec(
-        brew, "info", name,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            brew,
+            "info",
+            name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return Err(SystemResourceError("Homebrew is required."))
+    except Exception as exc:
+        return Err(SystemResourceError("Failed to start brew info", context={"error": str(exc)}))
+
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        raise RuntimeError(f"brew info failed: {stderr.decode().strip()}")
+        return Err(SystemResourceError("brew info failed", context={"stderr": stderr.decode().strip()}))
 
-    return stdout.decode().strip()
+    return Ok(stdout.decode().strip())

@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
+from jpscripts.core.result import JPScriptsError
 from jpscripts.core.memory import prune_memory, query_memory, reindex_memory, save_memory
 
 app = typer.Typer(help="Persistent memory store for ADRs and lessons learned.")
@@ -22,7 +23,11 @@ def add(
 ) -> None:
     """Add a memory entry."""
     state = ctx.obj
-    entry = save_memory(content, tags=tag, config=state.config)
+    try:
+        entry = save_memory(content, tags=tag, config=state.config)
+    except JPScriptsError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
     console.print(Panel(f"[green]Saved[/green] at {entry.ts}\nTags: {', '.join(entry.tags) if entry.tags else '—'}", title="Memory"))
 
 
@@ -34,7 +39,11 @@ def search(
 ) -> None:
     """Search memory for relevant entries."""
     state = ctx.obj
-    results = query_memory(query, limit=limit, config=state.config)
+    try:
+        results = query_memory(query, limit=limit, config=state.config)
+    except JPScriptsError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
 
     if not results:
         console.print(Panel("No matching memories.", style="yellow"))
@@ -61,7 +70,11 @@ def reindex(
         else:
             store_path.unlink(missing_ok=True)
 
-    rebuilt_path = reindex_memory(config=state.config, target_path=store_path)
+    try:
+        rebuilt_path = reindex_memory(config=state.config, target_path=store_path)
+    except JPScriptsError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
     console.print(Panel(f"[green]Memory reindexed.[/green]\nStore: {rebuilt_path}", title="Memory"))
 
 
@@ -69,5 +82,9 @@ def reindex(
 def vacuum(ctx: typer.Context) -> None:
     """Remove memory entries related to deleted files to maintain vector store hygiene."""
     state = ctx.obj
-    count = prune_memory(state.config)
+    try:
+        count = prune_memory(state.config)
+    except JPScriptsError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1)
     console.print(f"[green]Pruned {count} stale memory entries.[/green]")

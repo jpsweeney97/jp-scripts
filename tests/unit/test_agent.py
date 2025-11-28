@@ -9,6 +9,7 @@ import typer
 
 from jpscripts.commands.agent import codex_exec
 from jpscripts.core.agent import parse_agent_response
+from jpscripts.core.result import Ok
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
@@ -62,7 +63,7 @@ def test_codex_exec_attaches_recent_files(runner):
     captured: list[list[str]] = []
 
     async def fake_scan_recent(*_args, **_kwargs):
-        return [mock_entry]
+        return Ok([mock_entry])
 
     async def fake_execute(cmd, *, status_label):
         captured.append(cmd)

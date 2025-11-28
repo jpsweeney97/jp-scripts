@@ -25,6 +25,12 @@ Read this document before touching code. Violations halt work until corrected.
 - All MCP tools must rely on Pydantic runtime validation. Primitives must be fully type-hinted. The server will fail to start if untyped arguments are detected.
 - Tools exposed to MCP must be identical to the tools registered in `AgentEngine`. The engine is the single source of truth for tool definitions.
 
+## Error Handling Standards
+
+- Core layers return `Result[T, JPScriptsError]` for all I/O and external calls—no bare exceptions or print-based signalling.
+- Command and MCP layers must pattern-match on `Ok(...)` / `Err(...)` and exit cleanly on errors.
+- Core modules stay pure: render errors at the CLI layer only (no `console.print` inside `core/`).
+
 ## 4) Testing Standards
 
 - Async code requires `pytest-asyncio`; write tests that exercise awaitables directly.
@@ -38,6 +44,12 @@ Read this document before touching code. Violations halt work until corrected.
 ## Memory
 
 - Memory retrieval uses Reciprocal Rank Fusion (RRF). Do not modify the scoring constants `k=60` without empirical justification.
+
+## Capability Tiers
+
+- **Core Dependencies**: Git, navigation, filesystem, and process utilities must run with zero optional deps; failure should surface as `Err(GitError|NavigationError|SystemResourceError)`.
+- **AI Dependencies**: Embeddings, LanceDB, and agent scaffolding are optional; missing capabilities must raise `CapabilityMissingError` instead of silently downgrading.
+- CLI surfaces dependency gaps (e.g., LanceDB/embedding servers) while JSONL fallbacks remain deterministic.
 
 ## Security & Shell Execution
 
@@ -67,3 +79,9 @@ Read this document before touching code. Violations halt work until corrected.
 2.  **Async Purity**: All I/O bound operations (Git, HTTP, File) MUST be `async def`. Blocking calls inside async functions must be wrapped in `asyncio.to_thread`.
 3.  **Type Rigidness**: All function signatures must be fully typed. `Any` is forbidden unless wrapping a third-party library that lacks stubs.
 4.  **Error Containment**: No raw stack traces in the CLI. All exceptions must be caught and wrapped in `jpscripts.core.result.Result` types or handled via `@handle_exceptions`.
+
+## 8) Cognitive Standards
+
+- **Reflexion Required**: Agents must not simply loop on errors. If a tool fails twice, the next prompt must force a "Step Back" strategy (analyzing root cause) before a "Step Forward" (execution).
+- **Structured Thought**: We do not accept stream-of-consciousness logs. All agent thoughts must be structured: `Observation` -> `Critique` -> `Plan` -> `Action`.
+- **Tool Hygiene**: Agents must verify the existence of a file via `ls` or `list_directory` before attempting to `read_file` or `apply_patch`. Blind access is a violation of protocol.

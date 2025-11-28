@@ -99,7 +99,7 @@ def test_end_to_end_fix_and_nav(
             include_dirs=False,
             ignore_dirs={".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"},
         )
-    )
+    ).unwrap()
     assert entries and entries[0].path == buggy_file
     print("recent command complete", flush=True)
 

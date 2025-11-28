@@ -5,6 +5,7 @@ from pathlib import Path
 
 from jpscripts.core import memory as memory_core
 from jpscripts.core.config import AppConfig
+from jpscripts.core.result import Ok
 
 
 def _dummy_config(store: Path, use_semantic: bool = False) -> AppConfig:
@@ -60,28 +61,34 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
         def available(self) -> bool:
             return True
 
-        def embed(self, texts):
+        def embed(self, texts):  # type: ignore[override]
             self.called = True
             return [[0.1, 0.2] for _ in texts]
 
     class FakeStore:
-        def __init__(self, _path, embedding_dim: int) -> None:
-            self.embedding_dim = embedding_dim
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
 
-        def available(self) -> bool:
-            return True
+        def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
+            return Ok(entry)
 
-        def search(self, _vector, _limit: int):
-            return [
-                memory_core.MemoryEntry(
-                    id="hit",
-                    ts="later",
-                    content="vector match",
-                    tags=["hit"],
-                    tokens=["vector", "match"],
-                )
-            ]
+        def search(self, _vector, _limit: int, *, query_tokens=None):  # type: ignore[override]
+            return Ok(
+                [
+                    memory_core.MemoryEntry(
+                        id="hit",
+                        ts="later",
+                        content="vector match",
+                        tags=["hit"],
+                        tokens=["vector", "match"],
+                    )
+                ]
+            )
 
+        def prune(self, _root):
+            return Ok(0)
+
+    monkeypatch.setattr(memory_core, "_load_lancedb_dependencies", lambda: ("db", object))
     monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
     monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
 
@@ -124,19 +131,23 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch, tmp_path: Pat
         def available(self) -> bool:
             return True
 
-        def embed(self, texts):
+        def embed(self, texts):  # type: ignore[override]
             return [[0.5, 0.5] for _ in texts]
 
     class FakeStore:
-        def __init__(self, _path, embedding_dim: int) -> None:
-            self.embedding_dim = embedding_dim
+        def __init__(self, *_args, **_kwargs) -> None:
+            pass
 
-        def available(self) -> bool:
-            return True
+        def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
+            return Ok(entry)
 
-        def search(self, _vector, _limit: int):
-            return [vector_entry]
+        def search(self, _vector, _limit: int, *, query_tokens=None):  # type: ignore[override]
+            return Ok([vector_entry])
 
+        def prune(self, _root):
+            return Ok(0)
+
+    monkeypatch.setattr(memory_core, "_load_lancedb_dependencies", lambda: ("db", object))
     monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
     monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
 

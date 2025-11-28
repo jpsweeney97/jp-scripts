@@ -26,12 +26,11 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import getpass
 import os
 from pathlib import Path
 from typing import Any
-
-from git.exc import InvalidGitRepositoryError, NoSuchPathError
 
 from jpscripts.core import git as git_core
 from jpscripts.core.result import Err, Ok, Result, SecurityError, WorkspaceError
@@ -77,11 +76,17 @@ class PathValidationError(PermissionError, SecurityError):
 
 def _is_git_repo(path: Path) -> bool:
     """Check if path is a git repository."""
+    async def _probe() -> bool:
+        match await git_core.is_repo(path):
+            case Ok(flag):
+                return flag
+            case Err(_):
+                return False
+
     try:
-        return git_core.is_repo(path)
-    except (InvalidGitRepositoryError, NoSuchPathError):
-        return False
-    except Exception:
+        return asyncio.run(_probe())
+    except RuntimeError:
+        # Fallback when running inside an event loop; treat as not a repo to avoid blocking.
         return False
 
 

@@ -36,6 +36,7 @@ from jpscripts.core.engine import (
 )
 from jpscripts.core.memory import query_memory, save_memory
 from jpscripts.core.nav import scan_recent
+from jpscripts.core.result import Err, Ok
 from jpscripts.core.structure import generate_map, get_import_dependencies
 
 logger = get_logger(__name__)
@@ -167,8 +168,11 @@ async def prepare_agent_prompt(
         detected_paths = list(sorted(detected_files))[:5]
 
     elif attach_recent:
-        recents = await scan_recent(root, 3, False, set(ignore_dirs))
-        detected_paths = [entry.path for entry in recents[:5]]
+        match await scan_recent(root, 3, False, set(ignore_dirs)):
+            case Err(err):
+                logger.debug("Recent scan failed for %s: %s", root, err)
+            case Ok(recents):
+                detected_paths = [entry.path for entry in recents[:5]]
 
     # === Priority 2: Git Diff Section (medium priority) ===
     if include_diff:
@@ -283,33 +287,32 @@ async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
     if not root.exists() or not (root / ".git").exists():
         return "(no repo)", "(no repo)", False
 
-    try:
-        repo = await git_core.AsyncRepo.open(root)
-    except git_core.GitOperationError as exc:
-        logger.error("Failed to open git repo at %s: %s", root, exc)
-        return "(error)", "(error)", False
-    except Exception as exc:
-        logger.error("Failed to open git repo at %s: %s", root, exc)
-        return "(error)", "(error)", False
+    match await git_core.AsyncRepo.open(root):
+        case Err(err):
+            logger.error("Failed to open git repo at %s: %s", root, err)
+            return "(error)", "(error)", False
+        case Ok(repo):
+            pass
 
     branch = "(unknown)"
     commit = "(unknown)"
     is_dirty = False
 
-    try:
-        status = await repo.status()
-        branch = status.branch
-        is_dirty = status.dirty
-        _ = git_ops.format_status(status)
-    except Exception as exc:
-        logger.error("Failed to describe git status for %s: %s", root, exc)
-        return "(error)", "(error)", False
+    match await repo.status():
+        case Err(err):
+            logger.error("Failed to describe git status for %s: %s", root, err)
+            return "(error)", "(error)", False
+        case Ok(status):
+            branch = status.branch
+            is_dirty = status.dirty
+            _ = git_ops.format_status(status)
 
-    try:
-        commit = await repo.head(short=True)
-    except Exception as exc:
-        logger.error("Failed to resolve git head for %s: %s", root, exc)
-        commit = "(error)"
+    match await repo.head(short=True):
+        case Err(err):
+            logger.error("Failed to resolve git head for %s: %s", root, err)
+            commit = "(error)"
+        case Ok(head_ref):
+            commit = head_ref
 
     return branch, commit, is_dirty
 

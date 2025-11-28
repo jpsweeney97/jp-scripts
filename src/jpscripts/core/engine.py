@@ -53,6 +53,7 @@ class AgentResponse(BaseModel):
     """Structured response contract for agent outputs."""
 
     thought_process: str = Field(..., description="Deep analysis of the problem")
+    criticism: str | None = Field(..., description="Self-critique of previous failures")
     tool_call: ToolCall | None = Field(None, description="Tool invocation request")
     file_patch: str | None = Field(None, description="Unified diff to apply (optional)")
     final_message: str | None = Field(None, description="Response to user if no action needed")

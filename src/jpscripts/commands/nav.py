@@ -13,6 +13,7 @@ from rich.table import Table
 # Import core logic
 from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
+from jpscripts.core.result import Err, Ok, Result
 from jpscripts.commands.ui import fzf_select_async
 
 
@@ -52,7 +53,7 @@ def recent(
     state = ctx.obj
     ignore_dirs = set(state.config.ignore_dirs)
 
-    async def run_scan() -> list[nav_core.RecentEntry]:
+    async def run_scan() -> Result[list[nav_core.RecentEntry], nav_core.NavigationError]:
         with console.status(f"Scanning {base_root}...", spinner="dots"):
             return await nav_core.scan_recent(
                 base_root,
@@ -62,8 +63,12 @@ def recent(
             )
 
     # LOGIC: Delegate to async core
-    entries = asyncio.run(run_scan())
-    entries = entries[:limit]
+    match asyncio.run(run_scan()):
+        case Err(err):
+            console.print(f"[red]Error: {err.message}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(entries):
+            entries = entries[:limit]
 
     if not entries:
         console.print(f"[yellow]No recent files found under {base_root}.[/yellow]")
@@ -98,16 +103,17 @@ def proj(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick a project using zoxide + fzf and print the path."""
-    async def run_query() -> list[str]:
-        try:
-            return await nav_core.get_zoxide_projects()
-        except RuntimeError as e:
-            console.print(f"[red]{e}[/red]")
-            if "not found" in str(e):
-                 console.print("[red]Install with `brew install zoxide`.[/red]")
-            raise typer.Exit(code=1)
+    async def run_query() -> Result[list[str], nav_core.NavigationError]:
+        return await nav_core.get_zoxide_projects()
 
-    paths = asyncio.run(run_query())
+    match asyncio.run(run_query()):
+        case Err(err):
+            console.print(f"[red]{err.message}[/red]")
+            if "not found" in err.message:
+                console.print("[red]Install with `brew install zoxide`.[/red]")
+            raise typer.Exit(code=1)
+        case Ok(paths):
+            pass
 
     if not paths:
         console.print("[yellow]No zoxide entries found.[/yellow]")

@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import re
 
 from . import git as git_core
+from jpscripts.core.result import Err, GitError, Ok, Result
 
 GitOperationError = git_core.GitOperationError
 
@@ -27,35 +28,49 @@ def format_status(status: git_core.BranchStatus) -> str:
     return "\n".join(lines)
 
 
-async def commit_all(repo: git_core.AsyncRepo, message: str) -> str:
+async def commit_all(repo: git_core.AsyncRepo, message: str) -> Result[str, GitError]:
     """
     Stage all changes and create a commit. Returns the commit SHA.
-    Raises GitOperationError if there is nothing to commit or git fails.
     """
-    await repo.add(all=True, paths=[])
-    status = await repo.status()
-    if not status.dirty:
-        raise GitOperationError("No changes to commit.")
+    match await repo.add(all=True, paths=[]):
+        case Err(err):
+            return Err(err)
+
+    match await repo.status():
+        case Err(err):
+            return Err(err)
+        case Ok(status):
+            if not status.dirty:
+                return Err(GitError("No changes to commit."))
+
     return await repo.commit(message)
 
 
-async def undo_last_commit(repo: git_core.AsyncRepo, hard: bool = False) -> str:
+async def undo_last_commit(repo: git_core.AsyncRepo, hard: bool = False) -> Result[str, GitError]:
     """
     Reset the current branch back one commit.
     Refuses to operate if the branch is behind its upstream to avoid history rewrites.
     """
-    commits = await repo.get_commits("HEAD", 1)
-    if not commits:
-        raise GitOperationError("Repo has no commits to undo.")
+    match await repo.get_commits("HEAD", 1):
+        case Err(err):
+            return Err(err)
+        case Ok(commits):
+            if not commits:
+                return Err(GitError("Repo has no commits to undo."))
 
-    status = await repo.status()
-    if status.upstream and status.behind > 0:
-        raise GitOperationError("Refusing to undo: branch is behind upstream. Pull first.")
+    match await repo.status():
+        case Err(err):
+            return Err(err)
+        case Ok(status):
+            if status.upstream and status.behind > 0:
+                return Err(GitError("Refusing to undo: branch is behind upstream. Pull first."))
 
     mode = "--hard" if hard else "--soft"
-    await repo.reset(mode, "HEAD~1")
+    match await repo.reset(mode, "HEAD~1"):
+        case Err(err):
+            return Err(err)
 
-    return f"Reset {status.branch} one commit back ({mode})."
+    return Ok(f"Reset {status.branch} one commit back ({mode}).")
 
 
 @dataclass
@@ -92,13 +107,18 @@ def _parse_ref_line(line: str) -> tuple[str, str | None, int, int]:
     return name, upstream or None, ahead, behind
 
 
-async def branch_statuses(repo: git_core.AsyncRepo) -> list[BranchSummary]:
+async def branch_statuses(repo: git_core.AsyncRepo) -> Result[list[BranchSummary], GitError]:
     """Return ahead/behind information for all branches in a repo using async plumbing."""
-    output = await repo._run_git(
+    match await repo._run_git(
         "for-each-ref",
         "--format=%(refname:short) %(upstream:short) %(upstream:track)",
         "refs/heads",
-    )
+    ):
+        case Err(err):
+            return Err(err)
+        case Ok(output):
+            pass
+
     summaries: list[BranchSummary] = []
     for line in output.splitlines():
         if not line.strip():
@@ -108,4 +128,4 @@ async def branch_statuses(repo: git_core.AsyncRepo) -> list[BranchSummary]:
             summaries.append(BranchSummary(name, upstream, ahead, behind, None))
         except Exception as exc:
             summaries.append(BranchSummary(line.strip(), None, 0, 0, str(exc)))
-    return summaries
+    return Ok(summaries)

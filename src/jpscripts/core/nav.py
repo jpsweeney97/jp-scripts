@@ -7,6 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import AsyncIterator
 
+from jpscripts.core.result import Err, NavigationError, Ok, Result
+
+
 @dataclass
 class RecentEntry:
     path: Path
@@ -68,7 +71,12 @@ async def _iter_null_stream(stream: asyncio.StreamReader) -> AsyncIterator[str]:
         yield buffer.decode("utf-8", errors="replace")
 
 
-async def _scan_recent_with_rg(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
+async def _scan_recent_with_rg(
+    root: Path,
+    max_depth: int,
+    include_dirs: bool,
+    ignore_dirs: set[str],
+) -> Result[list[RecentEntry], NavigationError]:
     """Use ripgrep to enumerate recent files efficiently.
 
     Args:
@@ -79,13 +87,19 @@ async def _scan_recent_with_rg(root: Path, max_depth: int, include_dirs: bool, i
 
     Returns:
         Sorted recent entries from ripgrep output.
-
-    Raises:
-        RuntimeError: If ripgrep fails when available.
     """
     rg = shutil.which("rg")
     if not rg:
-        return await asyncio.to_thread(_scan_recent_sync, root, max_depth, include_dirs, ignore_dirs)
+        try:
+            scanned_entries = await asyncio.to_thread(_scan_recent_sync, root, max_depth, include_dirs, ignore_dirs)
+        except OSError as exc:
+            return Err(
+                NavigationError(
+                    "Failed to scan filesystem for recent entries",
+                    context={"root": str(root), "error": str(exc)},
+                )
+            )
+        return Ok(scanned_entries)
 
     cmd = [
         rg,
@@ -98,15 +112,20 @@ async def _scan_recent_with_rg(root: Path, max_depth: int, include_dirs: bool, i
     for entry in ignore_dirs:
         cmd.extend(["--glob", f"!{entry}/*"])
 
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        cwd=str(root),
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            cwd=str(root),
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return Err(NavigationError("ripgrep executable not found", context={"root": str(root)}))
+    except Exception as exc:
+        return Err(NavigationError("Failed to start ripgrep", context={"root": str(root), "error": str(exc)}))
 
     if proc.stdout is None:
-        raise RuntimeError("ripgrep did not provide stdout for scanning.")
+        return Err(NavigationError("ripgrep did not provide stdout", context={"root": str(root)}))
 
     entries: dict[Path, RecentEntry] = {}
 
@@ -143,31 +162,45 @@ async def _scan_recent_with_rg(root: Path, max_depth: int, include_dirs: bool, i
     await proc.wait()
     if proc.returncode not in (0, None):
         error_text = stderr.decode("utf-8", errors="replace").strip() or "ripgrep scan failed"
-        raise RuntimeError(error_text)
+        return Err(NavigationError(error_text, context={"root": str(root), "returncode": proc.returncode}))
 
-    return sorted(entries.values(), key=lambda e: e.mtime, reverse=True)
+    return Ok(sorted(entries.values(), key=lambda e: e.mtime, reverse=True))
 
 
-async def scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
+async def scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> Result[list[RecentEntry], NavigationError]:
     """
     Async wrapper for filesystem scanning using ripgrep when available.
     """
     return await _scan_recent_with_rg(root, max_depth, include_dirs, ignore_dirs)
 
-async def get_zoxide_projects() -> list[str]:
+
+async def get_zoxide_projects() -> Result[list[str], NavigationError]:
     """Async query to zoxide for frequent directories."""
     zoxide = shutil.which("zoxide")
     if not zoxide:
-        raise RuntimeError("zoxide binary not found")
+        return Err(NavigationError("zoxide binary not found"))
 
-    proc = await asyncio.create_subprocess_exec(
-        zoxide, "query", "-l",
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            zoxide,
+            "query",
+            "-l",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError:
+        return Err(NavigationError("zoxide binary not found"))
+    except Exception as exc:
+        return Err(NavigationError("Failed to start zoxide query", context={"error": str(exc)}))
+
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        raise RuntimeError(f"zoxide query failed: {stderr.decode().strip()}")
+        return Err(
+            NavigationError(
+                "zoxide query failed",
+                context={"stderr": stderr.decode().strip(), "returncode": proc.returncode},
+            )
+        )
 
-    return [line.strip() for line in stdout.decode().splitlines() if line.strip()]
+    return Ok([line.strip() for line in stdout.decode().splitlines() if line.strip()])

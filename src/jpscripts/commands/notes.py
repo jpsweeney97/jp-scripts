@@ -13,10 +13,11 @@ import typer
 from rich import box
 from rich.table import Table
 
-from jpscripts.core.console import console
 from jpscripts.core import git as git_core
 from jpscripts.core import notes_impl
 from jpscripts.core import search as search_core
+from jpscripts.core.console import console
+from jpscripts.core.result import Err, Ok, Result
 from jpscripts.commands.ui import fzf_select_async, fzf_stream_with_command
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
@@ -114,32 +115,33 @@ async def _collect_repo_commits(
     limit: int,
 ) -> RepoSummary:
     cutoff = int(since.timestamp())
-    try:
-        repo = await git_core.AsyncRepo.open(repo_path)
-        commits = await repo.get_commits("HEAD", limit)
-        filtered = [
-            commit
-            for commit in commits
-            if commit.committed_date >= cutoff and (author_email is None or commit.author_email == author_email)
-        ]
-        return RepoSummary(path=repo_path, commits=filtered)
-    except Exception as exc:
-        return RepoSummary(path=repo_path, commits=[], error=str(exc))
+    match await git_core.AsyncRepo.open(repo_path):
+        case Err(err):
+            return RepoSummary(path=repo_path, commits=[], error=err.message)
+        case Ok(repo):
+            match await repo.get_commits("HEAD", limit):
+                case Err(err):
+                    return RepoSummary(path=repo_path, commits=[], error=err.message)
+                case Ok(commits):
+                    filtered = [
+                        commit
+                        for commit in commits
+                        if commit.committed_date >= cutoff and (author_email is None or commit.author_email == author_email)
+                    ]
+                    return RepoSummary(path=repo_path, commits=filtered)
 
 
 async def _detect_user_email(root: Path) -> str | None:
-    try:
-        repo = await git_core.AsyncRepo.open(root)
-    except Exception:
-        return None
-
-    try:
-        email_raw = await repo._run_git("config", "user.email")
-    except Exception:
-        return None
-
-    email = email_raw.strip()
-    return email or None
+    match await git_core.AsyncRepo.open(root):
+        case Err(_):
+            return None
+        case Ok(repo):
+            match await repo._run_git("config", "user.email"):
+                case Err(_):
+                    return None
+                case Ok(email_raw):
+                    email = email_raw.strip()
+                    return email or None
 
 
 def standup(
@@ -154,7 +156,12 @@ def standup(
     since = dt.datetime.now() - dt.timedelta(days=days)
     commit_limit = min(1000, max(100, days * 100))
 
-    repos = list(git_core.iter_git_repos(root, max_depth=max_depth))
+    match asyncio.run(git_core.iter_git_repos(root, max_depth=max_depth)):
+        case Err(err):
+            console.print(f"[red]Error scanning git repositories: {err.message}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(repos):
+            pass
     if not repos:
         console.print(f"[yellow]No git repositories found under {root}.[/yellow]")
         return

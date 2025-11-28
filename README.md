@@ -122,3 +122,8 @@ max_command_output_chars = 20000
 | `jp init`    | Interactive setup wizard for `~/.jpconfig`.         |
 | `jp config`  | View active configuration and source (file vs env). |
 | `jp version` | Show version.                                       |
+
+## Troubleshooting
+
+- `jp doctor` shows LanceDB/embedding failures: install AI extras (`pip install "jpscripts[ai]"`) or set `use_semantic_search = false` in `~/.jpconfig` if you want JSONL-only mode. Capability errors surface as `CapabilityMissingError` rather than silent degradation.
+- `jp doctor` reports MCP config missing: ensure `~/.codex/config.toml` exists or pass `--tool mcp` after running `jp init` to regenerate the file; server discovery requires that config path.

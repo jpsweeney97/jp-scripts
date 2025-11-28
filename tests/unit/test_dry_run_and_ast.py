@@ -26,4 +26,5 @@ def test_kill_process_dry_run(tmp_path: Path) -> None:
         result = system.kill_process(1234, force=True, config=config)
 
     mock_process.assert_not_called()
-    assert "dry-run" in result
+    assert result.is_ok()
+    assert "dry-run" in result.unwrap()

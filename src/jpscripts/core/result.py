@@ -200,6 +200,30 @@ class WorkspaceError(JPScriptsError):
     pass
 
 
+class GitError(JPScriptsError):
+    """Raised for git operation failures."""
+
+    pass
+
+
+class SystemResourceError(JPScriptsError):
+    """Raised for system-level resource or process failures."""
+
+    pass
+
+
+class NavigationError(JPScriptsError):
+    """Raised for filesystem navigation or discovery failures."""
+
+    pass
+
+
+class CapabilityMissingError(JPScriptsError):
+    """Raised when an optional dependency or feature is unavailable."""
+
+    pass
+
+
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
@@ -249,6 +273,10 @@ __all__ = [
     "ModelProviderError",
     "ValidationError",
     "WorkspaceError",
+    "GitError",
+    "SystemResourceError",
+    "NavigationError",
+    "CapabilityMissingError",
     # Helpers
     "try_result",
     "collect_results",
