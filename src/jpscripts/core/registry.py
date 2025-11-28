@@ -4,7 +4,7 @@ import importlib
 import logging
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Protocol
 
 import typer
 

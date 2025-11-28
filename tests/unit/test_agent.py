@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -23,8 +22,9 @@ def main_callback(ctx: typer.Context):
     mock_state.config.ignore_dirs = [".git", "node_modules"]
     mock_state.config.max_file_context_chars = 50_000
     mock_state.config.max_command_output_chars = 20_000
-    mock_state.config.default_model = "test-model"
-    mock_state.config.model_context_limits = {"test-model": 10_000, "default": 50_000}
+    # Use a recognized OpenAI model so auto-detection triggers legacy Codex path
+    mock_state.config.default_model = "gpt-4o"
+    mock_state.config.model_context_limits = {"gpt-4o": 128_000, "default": 50_000}
     ctx.obj = mock_state
 
 agent_app.command(name="fix")(codex_exec)
@@ -38,7 +38,8 @@ def test_codex_exec_builds_command(runner):
         return ["done"], None
 
     with patch("jpscripts.commands.agent._execute_codex_prompt", side_effect=fake_execute), \
-         patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"):
+         patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"), \
+         patch("jpscripts.commands.agent.is_codex_available", return_value=True):
 
         result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
@@ -69,6 +70,7 @@ def test_codex_exec_attaches_recent_files(runner):
 
     with patch("jpscripts.commands.agent._execute_codex_prompt", side_effect=fake_execute), \
          patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"), \
+         patch("jpscripts.commands.agent.is_codex_available", return_value=True), \
          patch("jpscripts.core.agent.scan_recent", side_effect=fake_scan_recent):
 
         result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])

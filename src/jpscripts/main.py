@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
+from uuid import uuid4
 
 import click
 import typer
@@ -17,10 +19,14 @@ from typer.main import get_command
 from . import __version__
 from .core.config import AppConfig, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
-from .core.diagnostics import ExternalTool, ToolCheck, run_diagnostics_suite
-from .core.registry import CommandSpec, discover_commands
+from .core.diagnostics import run_diagnostics_suite
+from .core.registry import discover_commands
+from .core.runtime import RuntimeContext, _runtime_ctx
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
+
+# Token for CLI runtime context (established in callback, persists through command)
+_cli_runtime_token: contextvars.Token[RuntimeContext | None] | None = None
 
 
 @dataclass
@@ -28,6 +34,25 @@ class AppState:
     config: AppConfig
     config_meta: ConfigLoadResult
     logger: logging.Logger
+    runtime_ctx: RuntimeContext = field(default=None)  # type: ignore[assignment]
+
+
+def _establish_cli_runtime(config: AppConfig, dry_run: bool) -> RuntimeContext:
+    """Establish runtime context for CLI commands.
+
+    Since CLI commands run synchronously after the callback returns,
+    we establish the context and don't reset it during command execution.
+    """
+    global _cli_runtime_token
+
+    ctx = RuntimeContext(
+        config=config,
+        workspace_root=config.workspace_root.expanduser().resolve(),
+        trace_id=f"cli-{uuid4().hex[:8]}",
+        dry_run=dry_run,
+    )
+    _cli_runtime_token = _runtime_ctx.set(ctx)
+    return ctx
 
 
 @app.callback()
@@ -43,7 +68,16 @@ def main(
         loaded_config = loaded_config.model_copy(update={"dry_run": True})
 
     logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
-    ctx.obj = AppState(config=loaded_config, config_meta=meta, logger=logger)
+
+    # Establish runtime context for all subsequent operations
+    runtime = _establish_cli_runtime(loaded_config, dry_run)
+
+    ctx.obj = AppState(
+        config=loaded_config,
+        config_meta=meta,
+        logger=logger,
+        runtime_ctx=runtime,
+    )
 
     if meta.error:
         # Display "Safe Mode" Warning
@@ -56,7 +90,12 @@ def main(
             )
         )
     else:
-        logger.debug("Loaded configuration from %s (env overrides: %s)", meta.path, sorted(meta.env_overrides))
+        logger.debug(
+            "Loaded configuration from %s (env overrides: %s, trace: %s)",
+            meta.path,
+            sorted(meta.env_overrides),
+            runtime.trace_id,
+        )
 
 @app.command("com")
 def command_catalog() -> None:

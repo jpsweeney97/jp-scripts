@@ -6,7 +6,6 @@ import fnmatch
 import json
 import re
 import shlex
-import shutil
 from pathlib import Path
 from typing import Any, Callable
 

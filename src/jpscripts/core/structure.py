@@ -171,7 +171,6 @@ def _iter_imported_modules(tree: ast.AST, current: Path, root: Path) -> Iterable
     parts = list(rel.with_suffix("").parts)
     if parts and parts[-1] == "__init__":
         parts = parts[:-1]
-    base_module = ".".join(parts)
     base_pkg_parts = parts[:-1] if parts else []
 
     for node in ast.walk(tree):

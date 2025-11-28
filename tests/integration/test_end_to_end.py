@@ -25,7 +25,7 @@ def workspace_env(tmp_path: Path, isolate_config: Path) -> tuple[Path, dict[str,
 
     config_body = "\n".join(
         [
-            f'editor = "code -w"',
+            'editor = "code -w"',
             f'notes_dir = "{notes_dir}"',
             f'workspace_root = "{workspace}"',
             'ignore_dirs = [".git", "node_modules", ".venv", "__pycache__", "dist", "build", ".idea", ".vscode"]',
@@ -33,6 +33,8 @@ def workspace_env(tmp_path: Path, isolate_config: Path) -> tuple[Path, dict[str,
             'log_level = "INFO"',
             f'worktree_root = "{workspace}"',
             'focus_audio_device = ""',
+            # Use OpenAI model so auto-detection triggers legacy Codex path when mocked
+            'default_model = "gpt-4o"',
         ]
     )
     isolate_config.write_text(config_body + "\n", encoding="utf-8")
@@ -68,6 +70,7 @@ def test_end_to_end_fix_and_nav(
     print("workspace ready", buggy_file, flush=True)
 
     monkeypatch.setattr("jpscripts.commands.agent._ensure_codex", lambda: "/usr/bin/codex")
+    monkeypatch.setattr("jpscripts.commands.agent.is_codex_available", lambda: True)
     async def fake_execute(cmd, *, status_label):
         return ["fixed bug"], None
 

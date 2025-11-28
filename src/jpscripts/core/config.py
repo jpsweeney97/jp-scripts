@@ -41,13 +41,13 @@ class AppConfig(BaseSettings):
     editor: str = Field(default="code -w", description="Editor command used for interactive edits.")
     notes_dir: Path = Field(default_factory=lambda: Path.home() / "Notes" / "quick-notes")
     workspace_root: Path = Field(default_factory=lambda: Path.home() / "Projects")
-    default_model: str = Field(default="gpt-5.1-codex", description="Default Codex/LLM model.")
+    default_model: str = Field(default="claude-opus-4-5", description="Default Codex/LLM model.")
     memory_store: Path = Field(default_factory=lambda: Path.home() / ".jp_memory.sqlite", description="Path to the memory store file.")
     memory_model: str = Field(default="all-MiniLM-L6-v2", description="Embedding model for semantic memory search.")
     embedding_server_url: str | None = Field(default=None, description="Preferred local embedding HTTP endpoint, used before loading local weights.")
     use_semantic_search: bool = Field(default=True, description="Enable semantic search with embeddings.")
     model_context_limits: dict[str, int] = Field(
-        default_factory=lambda: {"gpt-5.1-codex": 128_000, "gpt-4-turbo": 32_000, "default": 50_000},
+        default_factory=lambda: {"claude-opus-4-5": 200_000, "gpt-4-turbo": 32_000, "default": 50_000},
         description="Per-model soft context limits used for prompt construction.",
     )
     max_file_context_chars: int = Field(default=50000, description="Maximum characters to read when attaching file context.")

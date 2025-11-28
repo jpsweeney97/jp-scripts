@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from jpscripts.core.team import Persona, get_default_swarm
+from jpscripts.core.team import get_default_swarm
 
 
 def test_default_swarm_contains_expected_personas() -> None:

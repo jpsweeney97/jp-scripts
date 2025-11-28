@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 import shlex
 import sys
 from dataclasses import dataclass
@@ -12,6 +11,7 @@ from typing import Any, Awaitable, Callable, Sequence
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import ValidationError
+from rich import box
 from rich.panel import Panel
 
 from jpscripts.core import git as git_core

@@ -5,7 +5,7 @@
 
 **The modern, typed, "God-Mode" CLI for macOS power users.**
 
-For detailed workflows and God-Mode configurations, see the [Handbook](https://www.google.com/search?q=HANDBOOK.md).
+For detailed workflows and God-Mode configurations, see the [Handbook](HANDBOOK.md).
 
 ## Installation
 

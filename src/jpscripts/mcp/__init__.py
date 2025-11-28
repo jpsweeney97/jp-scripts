@@ -13,7 +13,10 @@ from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import strict_tool_validator
 
 logger = get_logger("mcp")
-config: AppConfig | None = None
+
+# Legacy module-level state (deprecated - use runtime context)
+# Kept for backward compatibility during migration
+_legacy_config: AppConfig | None = None
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -22,14 +25,33 @@ ToolAsyncCallable = Callable[P, Awaitable[str]]
 
 
 def set_config(value: AppConfig | None) -> None:
-    """Store the loaded configuration for use inside tool modules."""
-    global config
-    config = value
+    """Store the loaded configuration for use inside tool modules.
+
+    DEPRECATED: Prefer establishing a runtime_context() at entry points.
+    This function maintains backward compatibility during migration.
+    """
+    global _legacy_config
+    _legacy_config = value
 
 
 def get_config() -> AppConfig | None:
-    """Return the current configuration."""
-    return config
+    """Return the current configuration.
+
+    This function first checks the runtime context (preferred), then
+    falls back to legacy module-level state for backward compatibility.
+
+    Returns:
+        The current AppConfig, or None if not configured.
+    """
+    # Prefer runtime context if available
+    from jpscripts.core.runtime import get_runtime_or_none
+
+    ctx = get_runtime_or_none()
+    if ctx is not None:
+        return ctx.config
+
+    # Fall back to legacy module-level state
+    return _legacy_config
 
 
 def tool(**metadata: Any) -> Callable[[Callable[P, R]], Callable[P, R]]:
@@ -131,7 +153,6 @@ def tool_error_handler(fn: ToolAsyncCallable[P]) -> ToolAsyncCallable[P]:
 
 
 __all__ = [
-    "config",
     "get_config",
     "get_tool_metadata",
     "logger",

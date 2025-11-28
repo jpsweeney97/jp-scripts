@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from collections.abc import Callable
 
 import typer
 from rich import box

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import shlex
 import uuid
@@ -10,10 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Generic, Mapping, Protocol, Sequence, TypeVar
 
-from jinja2 import Environment, FileSystemLoader, TemplateNotFound
-from pydantic import BaseModel, Field, ValidationError
+from jinja2 import Environment, FileSystemLoader
+from pydantic import BaseModel, Field
 
 from jpscripts.core import security
+from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import smart_read_context
 from jpscripts.core.security import validate_path
@@ -21,7 +21,37 @@ from jpscripts.core.security import validate_path
 logger = get_logger(__name__)
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
-ENGINE_CORE_TOOLS: set[str] = {"read_file", "run_shell"}
+ENGINE_CORE_TOOLS: set[str] = {
+    # Filesystem tools
+    "read_file",
+    "read_file_paged",
+    "write_file",
+    "list_directory",
+    "apply_patch",
+    # System tools
+    "run_shell",
+    "list_processes",
+    "kill_process",
+    # Git tools
+    "get_git_status",
+    "git_commit",
+    "get_workspace_status",
+    # Memory tools
+    "remember",
+    "recall",
+    # Navigation tools
+    "list_recent_files",
+    "list_projects",
+    # Search tools
+    "search_codebase",
+    "find_todos",
+    # Notes tools
+    "append_daily_note",
+    # Test tools
+    "run_tests",
+    # Web tools
+    "fetch_url_content",
+}
 AUDIT_PREFIX = "audit.shell"
 
 
@@ -230,35 +260,51 @@ def load_template_environment(template_root: Path) -> Environment:
     return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
 
 
-def _validate_paths_in_args(args: list[str], root: Path) -> None:
-    """Validate any path-like tokens under the workspace root, raising on escape."""
-    for token in args:
-        if token.startswith("-"):
-            continue
-        candidate = Path(token)
-        target = candidate if candidate.is_absolute() else (root / candidate)
-        try:
-            validate_path(target, root)
-        except PermissionError as exc:
-            raise
-        except Exception:
-            continue
-
-
 async def run_safe_shell(command: str, root: Path, audit_prefix: str) -> str:
     """
     Shared safe shell runner for AgentEngine and MCP.
-    Enforces readonly allowlist, path validation, and audit logging.
-    """
-    forbidden = re.compile(r"(rm|mv|cp|>|\\||sudo|chmod|-exec)", flags=re.IGNORECASE)
-    if forbidden.search(command):
-        logger.warning("%s.reject forbidden command=%r", audit_prefix, command)
-        return "SecurityError: Command contains forbidden operations."
-    allowed = re.compile(r"^(ls|grep|find|cat|git status|git diff|git log)\\b")
-    if not allowed.match(command.strip()):
-        logger.warning("%s.reject disallowed command=%r", audit_prefix, command)
-        return "SecurityError: Command not permitted by policy."
 
+    Uses tokenized command validation to enforce:
+    - Allowlisted binaries only (read-only operations)
+    - No shell metacharacters (pipes, redirects, etc.)
+    - Path validation (no workspace escape)
+    - Forbidden flag detection
+
+    Args:
+        command: The shell command to execute
+        root: Workspace root directory (commands must stay within)
+        audit_prefix: Prefix for audit log entries
+
+    Returns:
+        Command output on success, error message on failure
+    """
+    # Use tokenized validation instead of regex
+    verdict, reason = validate_command(command, root)
+
+    if verdict != CommandVerdict.ALLOWED:
+        logger.warning(
+            "%s.reject verdict=%s reason=%r command=%r",
+            audit_prefix,
+            verdict.name,
+            reason,
+            command,
+        )
+        # Map verdict to user-friendly error message
+        if verdict == CommandVerdict.BLOCKED_FORBIDDEN:
+            return f"SecurityError: {reason}"
+        if verdict == CommandVerdict.BLOCKED_NOT_ALLOWLISTED:
+            return f"SecurityError: Command not permitted by policy. {reason}"
+        if verdict == CommandVerdict.BLOCKED_PATH_ESCAPE:
+            return f"SecurityError: {reason}"
+        if verdict == CommandVerdict.BLOCKED_DANGEROUS_FLAG:
+            return f"SecurityError: {reason}"
+        if verdict == CommandVerdict.BLOCKED_METACHAR:
+            return f"SecurityError: {reason}"
+        if verdict == CommandVerdict.BLOCKED_UNPARSEABLE:
+            return f"Unable to parse command; simplify quoting. ({reason})"
+        return f"SecurityError: {reason}"
+
+    # Parse command for execution
     try:
         tokens = shlex.split(command)
     except ValueError as exc:
@@ -268,13 +314,7 @@ async def run_safe_shell(command: str, root: Path, audit_prefix: str) -> str:
     if not tokens:
         return "Invalid command argument."
 
-    # Validate any path-like tokens stay under root
-    try:
-        _validate_paths_in_args(tokens[1:], root)
-    except PermissionError as exc:
-        logger.warning("%s.reject path_escape=%s cmd=%r", audit_prefix, exc, command)
-        return f"SecurityError: {exc}"
-
+    # Execute the validated command
     try:
         proc = await asyncio.create_subprocess_exec(
             *tokens,
@@ -288,7 +328,9 @@ async def run_safe_shell(command: str, root: Path, audit_prefix: str) -> str:
     stdout_bytes, stderr_bytes = await proc.communicate()
     stdout = stdout_bytes.decode(errors="replace")
     stderr = stderr_bytes.decode(errors="replace")
+
     if proc.returncode != 0:
         logger.warning("%s.fail code=%s cmd=%r", audit_prefix, proc.returncode, command)
         return f"Command failed with exit code {proc.returncode}"
+
     return (stdout + stderr).strip() or "Command produced no output."

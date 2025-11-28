@@ -8,7 +8,6 @@ from jpscripts.core.team import (
     AgentTurnResponse,
     Objective,
     PlanStep,
-    Persona,
     SwarmState,
     _render_swarm_prompt,
     _parse_agent_turn,

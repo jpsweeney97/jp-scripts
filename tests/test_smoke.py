@@ -7,7 +7,6 @@ from typer.main import get_command
 
 from jpscripts import __version__
 import jpscripts.commands.handbook as handbook_cmd
-import jpscripts.main as jp_main
 import jpscripts.core.diagnostics as diagnostics
 from jpscripts.main import app
 
@@ -78,3 +77,13 @@ def test_handbook_semantic_query(monkeypatch):
         assert entries_path.exists()
     finally:
         shutil.rmtree(cache_root, ignore_errors=True)
+
+
+def test_mcp_server_imports():
+    """
+    Critical Test: Ensure MCP server module can be imported without errors.
+    This catches missing imports (like the Iterable bug) that would crash the server.
+    """
+    from jpscripts.mcp.server import create_server
+    server = create_server()
+    assert server is not None

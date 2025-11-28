@@ -3,7 +3,6 @@ from __future__ import annotations
 from git import Repo
 
 from jpscripts.commands import git_extra
-from jpscripts.core import git as git_core
 
 def test_gundo_last_local_only(runner, tmp_path, monkeypatch):
     """Verify undo works on a local branch with no upstream (the fix)."""
