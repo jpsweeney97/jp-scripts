@@ -5,6 +5,7 @@ import os
 import re
 from pathlib import Path
 from typing import Iterable
+from functools import lru_cache
 
 from pathspec import PathSpec
 
@@ -199,22 +200,21 @@ def _iter_imported_modules(tree: ast.AST, current: Path, root: Path) -> Iterable
                     yield f"{prefix}.{target}"
 
 
-def get_import_dependencies(path: Path, root: Path) -> set[Path]:
-    """
-    Return resolved dependency file paths for imports within `path` under `root`.
-    Only returns paths that exist.
-    """
+@lru_cache(maxsize=2048)
+def _cached_import_dependencies(path_str: str, root_str: str) -> tuple[str, ...]:
+    path = Path(path_str)
+    root = Path(root_str)
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
-        return set()
+        return tuple()
 
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return set()
+        return tuple()
 
-    dependencies: set[Path] = set()
+    dependencies: set[str] = set()
     for module in _iter_imported_modules(tree, path, root):
         resolved = _resolve_module_to_path(module, root)
         if resolved and resolved.exists():
@@ -222,5 +222,16 @@ def get_import_dependencies(path: Path, root: Path) -> set[Path]:
                 resolved.relative_to(root.resolve())
             except ValueError:
                 continue
-            dependencies.add(resolved)
-    return dependencies
+            dependencies.add(str(resolved.resolve()))
+    return tuple(sorted(dependencies))
+
+
+def get_import_dependencies(path: Path, root: Path) -> set[Path]:
+    """
+    Return resolved dependency file paths for imports within `path` under `root`.
+    Only returns paths that exist. Cached for efficiency across repeated calls.
+    """
+    resolved_path = path.resolve()
+    resolved_root = root.resolve()
+    cached = _cached_import_dependencies(str(resolved_path), str(resolved_root))
+    return {Path(item) for item in cached}

@@ -4,7 +4,7 @@ import pkgutil
 import warnings
 from collections.abc import Awaitable, Callable
 from importlib import import_module
-from typing import Any
+from typing import Any, TypeGuard
 
 _PACKAGE_NAME = "jpscripts.mcp.tools"
 _TOOL_METADATA_ATTR = "__mcp_tool_metadata__"
@@ -76,7 +76,7 @@ def _discover_tool_module_names() -> list[str]:
     return sorted(modules)
 
 
-def _is_mcp_tool(obj: Any) -> bool:
+def _is_mcp_tool(obj: Any) -> TypeGuard[ToolFunction]:
     """Check if an object is decorated with @tool."""
     if not callable(obj):
         return False
@@ -112,8 +112,7 @@ def discover_tools() -> dict[str, ToolFunction]:
                 continue
             obj = getattr(module, attr_name, None)
             if _is_mcp_tool(obj):
-                # obj is guaranteed to be callable after _is_mcp_tool check
-                tool_func: ToolFunction = obj  # type: ignore[assignment]
+                tool_func = obj
                 tool_name = getattr(tool_func, "__name__", attr_name)
                 if tool_name in tools:
                     warnings.warn(

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import time
+import difflib
+import asyncio
 import json
 from datetime import datetime
-import time
 from pathlib import Path
+from typing import Sequence
 
 import typer
 from rich import box
@@ -16,9 +19,15 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.tree import Tree
 
+from jpscripts.core.engine import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
-from jpscripts.core.engine import AgentTraceStep
+from jpscripts.core.replay import (
+    RecordedAgentResponse,
+    ReplayDivergenceError,
+    ReplayProvider,
+)
+from jpscripts.providers import Message as ProviderMessage
 
 app = typer.Typer(help="Inspect agentic execution traces.")
 
@@ -28,6 +37,21 @@ def _get_trace_dir() -> Path:
     return Path.home() / ".jpscripts" / "traces"
 
 
+def _find_trace_file(trace_dir: Path, trace_id: str) -> Path | None:
+    """Locate a trace file by full or partial ID."""
+    matching_files = list(trace_dir.glob(f"{trace_id}*.jsonl"))
+    if not matching_files:
+        matching_files = [f for f in trace_dir.glob("*.jsonl") if trace_id in f.stem]
+    if len(matching_files) == 1:
+        return matching_files[0]
+    if len(matching_files) > 1:
+        console.print(f"[yellow]Multiple traces match '{trace_id}':[/yellow]")
+        for f in matching_files[:5]:
+            console.print(f"  - {f.stem}")
+        console.print("[dim]Please provide a more specific ID.[/dim]")
+    return None
+
+
 def _parse_trace_line(line: str) -> AgentTraceStep | None:
     """Parse a single JSONL line into an AgentTraceStep."""
     try:
@@ -35,6 +59,19 @@ def _parse_trace_line(line: str) -> AgentTraceStep | None:
         return AgentTraceStep.model_validate(data)
     except (json.JSONDecodeError, Exception):
         return None
+
+
+async def _load_trace_steps(trace_file: Path) -> list[AgentTraceStep]:
+    def _read() -> list[AgentTraceStep]:
+        lines = trace_file.read_text(encoding="utf-8").strip().split("\n")
+        steps: list[AgentTraceStep] = []
+        for line in lines:
+            step = _parse_trace_line(line)
+            if step:
+                steps.append(step)
+        return steps
+
+    return await asyncio.to_thread(_read)
 
 
 def _truncate(text: str, max_len: int = 50) -> str:
@@ -61,6 +98,19 @@ def _get_persona_color(persona: str) -> str:
         "qa": "yellow",
     }
     return colors.get(persona.lower(), "white")
+
+
+def _diff_states(expected: dict[str, object], actual: dict[str, object]) -> str:
+    expected_lines = json.dumps(expected, indent=2, sort_keys=True).splitlines()
+    actual_lines = json.dumps(actual, indent=2, sort_keys=True).splitlines()
+    diff = difflib.unified_diff(
+        expected_lines,
+        actual_lines,
+        fromfile="trace_response",
+        tofile="replay_response",
+        lineterm="",
+    )
+    return "\n".join(diff)
 
 
 def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
@@ -218,24 +268,11 @@ def show_trace(
         console.print("[red]Trace directory not found.[/red]")
         raise typer.Exit(1)
 
-    # Find matching trace file (support partial ID matching)
-    matching_files = list(trace_dir.glob(f"{trace_id}*.jsonl"))
-    if not matching_files:
-        # Try broader match
-        matching_files = [f for f in trace_dir.glob("*.jsonl") if trace_id in f.stem]
-
-    if not matching_files:
+    trace_file = _find_trace_file(trace_dir, trace_id)
+    if trace_file is None:
         console.print(f"[red]No trace found matching '{trace_id}'[/red]")
         raise typer.Exit(1)
 
-    if len(matching_files) > 1:
-        console.print(f"[yellow]Multiple traces match '{trace_id}':[/yellow]")
-        for f in matching_files[:5]:
-            console.print(f"  - {f.stem}")
-        console.print("[dim]Please provide a more specific ID.[/dim]")
-        raise typer.Exit(1)
-
-    trace_file = matching_files[0]
     console.print(f"[dim]Trace: {trace_file.stem}[/dim]\n")
 
     def _load_steps() -> list[AgentTraceStep]:
@@ -269,3 +306,88 @@ def show_trace(
         return
 
     console.print(_render_current())
+
+
+@app.command("replay")
+@handle_exceptions
+def replay_trace(
+    ctx: typer.Context,
+    trace_id: str = typer.Argument(..., help="Trace ID (full or partial)"),
+) -> None:
+    """Replay a recorded trace deterministically without external API calls."""
+    _ = ctx
+    trace_dir = _get_trace_dir()
+    if not trace_dir.exists():
+        console.print("[red]Trace directory not found.[/red]")
+        raise typer.Exit(1)
+
+    trace_file = _find_trace_file(trace_dir, trace_id)
+    if trace_file is None:
+        console.print(f"[red]No trace found matching '{trace_id}'[/red]")
+        raise typer.Exit(1)
+
+    def _parse_response(raw: str) -> RecordedAgentResponse:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ReplayDivergenceError("Recorded response is not a JSON object.")
+        return RecordedAgentResponse(payload=data)
+
+    async def _replay() -> None:
+        steps = await _load_trace_steps(trace_file)
+        if not steps:
+            console.print("[red]Trace file is empty or unreadable.[/red]")
+            raise ReplayDivergenceError("Trace contains no steps.")
+
+        provider = ReplayProvider(steps)
+        latest_history: list[ProviderMessage] = []
+        persona = steps[0].agent_persona
+
+        async def _prompt_builder(history_messages: Sequence[Message]) -> PreparedPrompt:
+            nonlocal latest_history
+            latest_history = [
+                ProviderMessage(role=msg.role, content=msg.content) for msg in history_messages
+            ]
+            return PreparedPrompt(prompt="", attached_files=[])
+
+        async def _fetch_response(_: PreparedPrompt) -> str:
+            completion = await provider.complete(list(latest_history))
+            return completion.content
+
+        engine = AgentEngine[RecordedAgentResponse](
+            persona=persona,
+            model="replay",
+            prompt_builder=_prompt_builder,
+            fetch_response=_fetch_response,
+            parser=_parse_response,
+            tools={},
+            template_root=trace_dir,
+            trace_dir=trace_dir,
+            workspace_root=None,
+            governance_enabled=False,
+        )
+
+        final_response: RecordedAgentResponse | None = None
+        for step in steps:
+            history = [
+                Message(role=entry.get("role", "user"), content=entry.get("content", ""))
+                for entry in step.input_history
+            ]
+            final_response = await engine.step(history)
+
+        if final_response is None:
+            raise ReplayDivergenceError("Replay produced no responses.")
+
+        expected_final = steps[-1].response
+        if final_response.payload != expected_final:
+            diff = _diff_states(expected_final, final_response.payload)
+            raise ReplayDivergenceError("Final state mismatch.", diff=diff)
+
+        console.print("[green]Replay successful; final state matches the trace.[/green]")
+
+    try:
+        asyncio.run(_replay())
+    except ReplayDivergenceError as exc:
+        console.print(f"[red]Replay divergence:[/red] {exc}")
+        if getattr(exc, "diff", None):
+            console.print(Syntax(exc.diff or "", "diff", line_numbers=False))
+        raise typer.Exit(1)

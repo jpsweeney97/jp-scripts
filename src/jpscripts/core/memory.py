@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib import import_module
 from math import sqrt
@@ -16,6 +16,7 @@ from urllib import parse as urllib_parse
 from urllib import request as urllib_request
 from uuid import uuid4
 
+from jpscripts.core import structure
 from jpscripts.core.config import AppConfig, ConfigError
 from jpscripts.core.console import get_logger
 from jpscripts.core.result import CapabilityMissingError, ConfigurationError, Err, JPScriptsError, Ok, Result
@@ -162,6 +163,7 @@ class MemoryEntry:
     embedding: list[float] | None = None
     source_path: str | None = None
     content_hash: str | None = None
+    related_files: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -266,6 +268,54 @@ def _warn_semantic_unavailable() -> None:
         return
     logger.warning("Semantic memory search unavailable. Install with `pip install jpscripts[ai]`.")
     _SEMANTIC_WARNED = True
+
+
+def _normalize_related_path(path: Path, root: Path) -> str:
+    resolved_root = root.resolve()
+    resolved_path = path.resolve()
+    try:
+        return str(resolved_path.relative_to(resolved_root))
+    except ValueError:
+        return str(resolved_path)
+
+
+def _is_ignored_path(path: Path, root: Path, ignore_dirs: Sequence[str]) -> bool:
+    try:
+        rel_parts = path.resolve().relative_to(root.resolve()).parts
+    except ValueError:
+        return True
+    ignore_set = {ignore.strip("/").strip() for ignore in ignore_dirs if ignore.strip()}
+    return any(part in ignore_set for part in rel_parts)
+
+
+def _collect_related_files(source_path: Path, root: Path, ignore_dirs: Sequence[str]) -> list[str]:
+    if not source_path.exists():
+        return []
+
+    resolved_root = root.resolve()
+    resolved_source = source_path.resolve()
+    related: set[str] = set()
+
+    for dep in structure.get_import_dependencies(resolved_source, resolved_root):
+        if _is_ignored_path(dep, resolved_root, ignore_dirs):
+            continue
+        related.add(_normalize_related_path(dep, resolved_root))
+
+    try:
+        candidates = list(resolved_root.rglob("*.py"))
+    except OSError:
+        candidates = []
+
+    for candidate in candidates:
+        if candidate.resolve() == resolved_source:
+            continue
+        if _is_ignored_path(candidate, resolved_root, ignore_dirs):
+            continue
+        dependencies = structure.get_import_dependencies(candidate, resolved_root)
+        if any(dep.resolve() == resolved_source for dep in dependencies):
+            related.add(_normalize_related_path(candidate, resolved_root))
+
+    return sorted(related)
 
 
 class _GlobalEmbeddingClient(EmbeddingClientProtocol):
@@ -435,6 +485,8 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                 source_path = str(raw_source_path) if raw_source_path else None
                 raw_content_hash = raw.get("content_hash")
                 content_hash = str(raw_content_hash) if raw_content_hash else None
+                raw_related = raw.get("related_files") or []
+                related_files = [str(path) for path in raw_related if str(path).strip()]
                 entries.append(
                     MemoryEntry(
                         id=str(raw.get("id", uuid4().hex)),
@@ -445,6 +497,7 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                         embedding=embedding_list,
                         source_path=source_path,
                         content_hash=content_hash,
+                        related_files=related_files,
                     )
                 )
     except OSError as exc:
@@ -465,6 +518,7 @@ def _append_entry(path: Path, entry: MemoryEntry) -> None:
         "embedding": entry.embedding,
         "source_path": entry.source_path,
         "content_hash": entry.content_hash,
+        "related_files": entry.related_files,
     }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=True) + "\n")
@@ -483,6 +537,7 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
                 "embedding": entry.embedding,
                 "source_path": entry.source_path,
                 "content_hash": entry.content_hash,
+                "related_files": entry.related_files,
             }
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
 
@@ -506,6 +561,7 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
         tags: list[str]
         embedding: list[float] | None
         source_path: str | None
+        related_files: list[str] | None
 
     return MemoryRecord
 
@@ -532,6 +588,14 @@ class LanceDBStore(MemoryStore):
                 self._table = db.create_table("memory", schema=model, exist_ok=True)
             else:
                 self._table = db.open_table("memory")
+                try:
+                    if "related_files" not in getattr(self._table, "schema", {}).names:  # type: ignore[union-attr]
+                        try:
+                            self._table.add_column("related_files", list[str])  # type: ignore[call-arg]
+                        except Exception:
+                            logger.debug("Unable to add related_files column to LanceDB table; proceeding without schema update.")
+                except Exception:
+                    logger.debug("Skipping related_files schema check; proceeding with existing LanceDB schema.")
             self._embedding_dim = embedding_dim
         return self._table
 
@@ -548,6 +612,7 @@ class LanceDBStore(MemoryStore):
                 tags=entry.tags,
                 embedding=entry.embedding,
                 source_path=entry.source_path,
+                related_files=entry.related_files or None,
             )
             table.add([model])
         except Exception as exc:  # pragma: no cover - defensive
@@ -588,6 +653,7 @@ class LanceDBStore(MemoryStore):
                     tokens=_tokenize(token_source),
                     embedding=list(row.embedding) if row.embedding is not None else None,
                     source_path=row.source_path,
+                    related_files=list(row.related_files or []),
                 )
             )
         return Ok(matches)
@@ -826,6 +892,38 @@ def get_memory_store(
     return Ok(HybridMemoryStore(archiver, vector_store))
 
 
+def _graph_expand(entries: Sequence[MemoryEntry]) -> list[MemoryEntry]:
+    if not entries:
+        return []
+
+    top = entries[0]
+    top_related = set(top.related_files)
+    related_union: set[str] = set()
+    for entry in entries:
+        related_union.update(entry.related_files)
+
+    def _rank_score(index: int, entry: MemoryEntry) -> float:
+        base = 1.0 / float(index + 1)
+        entry_related = set(entry.related_files)
+        score = base
+        if top_related and entry_related & top_related:
+            score += 0.75
+        if top.source_path and entry.source_path and top.source_path == entry.source_path:
+            score += 0.5
+        if top.source_path and top.source_path in entry_related:
+            score += 0.5
+        if entry.source_path and entry.source_path in related_union:
+            score += 0.25
+        return score
+
+    ranked = sorted(
+        enumerate(entries),
+        key=lambda item: (_rank_score(item[0], item[1]), -item[0]),
+        reverse=True,
+    )
+    return [entries[idx] for idx, _ in ranked]
+
+
 async def cluster_memories(
     config: AppConfig,
     similarity_threshold: float = 0.85,
@@ -955,6 +1053,7 @@ def save_memory(
         raise ConfigError("AppConfig is required to save memory.")
 
     resolved_store = _resolve_store(config, store_path)
+    root = Path(getattr(config, "workspace_root", Path.cwd())).expanduser().resolve()
 
     normalized_tags = [t.strip() for t in (tags or []) if t.strip()]
     content_text = content.strip()
@@ -962,11 +1061,15 @@ def save_memory(
 
     # Compute content hash if source_path provided
     computed_hash: str | None = None
+    related_files: list[str] = []
+    normalized_source: str | None = None
     if source_path:
-        source = Path(source_path)
+        source = Path(source_path).expanduser()
         if not source.is_absolute():
-            source = Path.cwd() / source
+            source = root / source
         computed_hash = _compute_file_hash(source)
+        normalized_source = _normalize_related_path(source, root)
+        related_files = _collect_related_files(source, root, getattr(config, "ignore_dirs", []))
 
     entry = MemoryEntry(
         id=uuid4().hex,
@@ -974,8 +1077,9 @@ def save_memory(
         content=content_text,
         tags=normalized_tags,
         tokens=_tokenize(token_source),
-        source_path=source_path,
+        source_path=normalized_source,
         content_hash=computed_hash,
+        related_files=related_files,
     )
 
     use_semantic, model_name, server_url = _embedding_settings(config)
@@ -1020,7 +1124,10 @@ def query_memory(
             if isinstance(search_result, Err):
                 raise search_result.error
             entries = search_result.value
-            return [_format_entry(entry) for entry in entries[:limit]] if entries else []
+            if not entries:
+                return []
+            ranked_entries = _graph_expand(entries)
+            return [_format_entry(entry) for entry in ranked_entries[:limit]]
 
 
 def reindex_memory(

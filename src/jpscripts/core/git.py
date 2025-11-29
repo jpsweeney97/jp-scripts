@@ -293,6 +293,22 @@ class AsyncRepo:
             case Err(err):
                 return Err(err)
 
+    async def get_file_churn(self, path: Path) -> Result[int, GitError]:
+        """Return the number of commits touching a path using git log --follow."""
+        target = path
+        if path.is_absolute():
+            try:
+                target = path.resolve().relative_to(self._root)
+            except ValueError:
+                target = path
+
+        match await _run_git(self._root, "log", "--oneline", "--follow", "--", str(target)):
+            case Err(err):
+                return Err(err)
+            case Ok(output):
+                churn = sum(1 for line in output.splitlines() if line.strip())
+                return Ok(churn)
+
     async def _run_git(self, *args: str) -> Result[str, GitError]:
         """Internal helper to run git commands for higher-level ops."""
         return await _run_git(self._root, *args)

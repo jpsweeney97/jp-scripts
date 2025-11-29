@@ -64,6 +64,14 @@ class AttemptContext:
 RepairStrategy = Literal["fast", "deep", "step_back"]
 
 
+@dataclass(frozen=True)
+class StrategyConfig:
+    name: RepairStrategy
+    label: str
+    description: str
+    system_notice: str = ""
+
+
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
 ResponseFetcher = Callable[[PreparedPrompt], Awaitable[str]]
 
@@ -566,6 +574,34 @@ def _detect_repeated_failure(history: Sequence[AttemptContext], current_error: s
     return occurrences + 1 >= 2
 
 
+def _build_strategy_plan(attempt_cap: int) -> list[StrategyConfig]:
+    base: list[StrategyConfig] = [
+        StrategyConfig(
+            name="fast",
+            label="FAST - Immediate Context",
+            description="Focus on the specific error line and immediate file context.",
+        ),
+        StrategyConfig(
+            name="deep",
+            label="DEEP - Cross-Module Analysis",
+            description="Analyze imported dependencies and cross-module interactions. The error may be non-local.",
+            system_notice="Context has been expanded to include imported dependencies and referenced modules.",
+        ),
+        StrategyConfig(
+            name="step_back",
+            label="STEP_BACK - Root Cause Analysis",
+            description="Disregard previous assumptions. Formulate a Root Cause Analysis before writing code.",
+            system_notice="Tool use is disabled for this turn. Perform Root Cause Analysis and propose a brief plan before patching.",
+        ),
+    ]
+
+    if attempt_cap <= len(base):
+        return base[:attempt_cap]
+
+    tail_fill = [base[-1]] * (attempt_cap - len(base))
+    return base + tail_fill
+
+
 def _build_repair_instruction(
     base_prompt: str,
     current_error: str,
@@ -574,27 +610,23 @@ def _build_repair_instruction(
     *,
     strategy_override: str | None = None,
     reasoning_hint: str | None = None,
-    strategy: Literal["fast", "deep", "step_back"] = "fast",
+    strategy: StrategyConfig,
 ) -> str:
     history_block = _build_history_summary(history, root)
     override_block = f"\n\nStrategy Override:\n{strategy_override}" if strategy_override else ""
     reasoning_block = f"\n\nHigh reasoning effort requested: {reasoning_hint}" if reasoning_hint else ""
-    strategy_block = ""
-    if strategy == "deep":
-        strategy_block = (
-            "\n\nSystem Notice: Attempt 1 failed. Context has been expanded to include imported "
-            "dependencies and referenced modules. Analyze interactions across modules."
-        )
-    elif strategy == "step_back":
-        strategy_block = (
-            "\n\nSystem Notice: Attempt 2 failed. Tool use is disabled for this turn. "
-            "Perform Root Cause Analysis and propose a brief plan before patching."
-        )
+    strategy_block = (
+        f"\n\n[Current Strategy: {strategy.label}]\n"
+        f"{strategy.description}"
+    )
+    if strategy.system_notice:
+        strategy_block += f"\n{strategy.system_notice}"
     return (
+        f"{strategy_block}\n\n"
         f"{base_prompt.strip()}\n\n"
         "Autonomous repair loop in progress. Use the failure details to craft a minimal fix.\n"
         f"Current error:\n{current_error.strip()}\n\n"
-        f"Previous attempts:\n{history_block}{override_block}{reasoning_block}{strategy_block}\n\n"
+        f"Previous attempts:\n{history_block}{override_block}{reasoning_block}\n\n"
         "Respond with a single JSON object that matches the AgentResponse schema. "
         "Place the unified diff in `file_patch`. Do not return Markdown or prose."
     )
@@ -857,6 +889,7 @@ async def run_repair_loop(
     global _ACTIVE_ROOT
     root = security.validate_workspace_root(config.workspace_root or config.notes_dir)
     attempt_cap = max(1, max_retries)
+    strategies = _build_strategy_plan(attempt_cap)
     changed_files: set[Path] = set()
     attempt_history: list[AttemptContext] = []
     history: list[Message] = []
@@ -868,15 +901,15 @@ async def run_repair_loop(
         iteration_prompt: str,
         loop_detected_flag: bool,
         temp_override: float | None,
-        strategy: RepairStrategy,
+        strategy: StrategyConfig,
         extra_paths: Sequence[Path],
     ) -> PreparedPrompt:
         history_text = "\n".join(msg.content for msg in history_messages)
         instruction = iteration_prompt
         if history_text:
             instruction = f"{instruction}\n\nPrevious tool interactions:\n{history_text}"
-        reasoning = "high" if loop_detected_flag or strategy == "step_back" else None
-        run_cmd = command if strategy in {"fast", "deep"} else None
+        reasoning = "high" if loop_detected_flag or strategy.name == "step_back" else None
+        run_cmd = command if strategy.name in {"fast", "deep"} else None
         return await prepare_agent_prompt(
             instruction,
             root=root,
@@ -900,9 +933,9 @@ async def run_repair_loop(
 
     try:
         for attempt in range(attempt_cap):
-            strategy: RepairStrategy = "fast" if attempt == 0 else "deep" if attempt == 1 else "step_back"
+            strategy_cfg = strategies[min(attempt, len(strategies) - 1)]
             console.print(
-                f"[cyan]Attempt {attempt + 1}/{attempt_cap} ({strategy} strategy): running `{command}`[/cyan]"
+                f"[cyan]Attempt {attempt + 1}/{attempt_cap} ({strategy_cfg.label}): running `{command}`[/cyan]"
             )
             exit_code, stdout, stderr = await _run_shell_command(command, root)
             if exit_code == 0:
@@ -930,9 +963,9 @@ async def run_repair_loop(
                 console.print("[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]")
 
             dynamic_paths: set[Path] = set(changed_files)
-            if strategy == "deep":
+            if strategy_cfg.name == "deep":
                 dynamic_paths = await _expand_context_paths(current_error, root, changed_files, config.ignore_dirs)
-            elif strategy == "step_back":
+            elif strategy_cfg.name == "step_back":
                 dynamic_paths = set(changed_files)
 
             applied_paths: list[Path] = []
@@ -944,7 +977,7 @@ async def run_repair_loop(
                     root,
                     strategy_override=strategy_override,
                     reasoning_hint=reasoning_hint,
-                    strategy=strategy,
+                    strategy=strategy_cfg,
                 )
 
                 # Lambda with default args from captured scope; mypy cannot infer types
@@ -953,12 +986,12 @@ async def run_repair_loop(
                 engine = AgentEngine[AgentResponse](
                     persona="Engineer",
                     model=model or config.default_model,
-                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override, strat=strategy, paths=list(dynamic_paths): _prompt_builder(  # type: ignore[misc]
+                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override, strat=strategy_cfg, paths=list(dynamic_paths): _prompt_builder(  # type: ignore[misc]
                         msgs, ip, ld, temp, strat, paths
                     ),
                     fetch_response=_fetch,
                     parser=parse_agent_response,
-                    tools={} if strategy == "step_back" else None,
+                    tools={} if strategy_cfg.name == "step_back" else None,
                     template_root=root,
                     workspace_root=root,
                     governance_enabled=True,
@@ -1070,7 +1103,7 @@ async def run_repair_loop(
                     iteration=attempt + 1,
                     last_error=failure_msg,
                     files_changed=list(changed_files),
-                    strategy=strategy,
+                    strategy=strategy_cfg.name,
                 )
             )
             _append_history(history, Message(role="system", content=f"Verification failure (attempt {attempt + 1}): {failure_msg}"))

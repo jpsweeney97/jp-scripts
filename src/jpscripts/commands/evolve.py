@@ -52,6 +52,7 @@ def _build_optimizer_prompt(target: TechnicalDebtScore) -> str:
 Target file: {target.path}
 Current complexity score: {target.complexity_score:.1f}
 Historical fix frequency: {target.fix_frequency}
+Git churn (commit count): {target.churn}
 Identified issues:
 {reasons_text}
 
@@ -100,6 +101,7 @@ async def _create_evolution_pr(
 **Debt Score:** {target.debt_score:.1f}
 **Complexity Score:** {target.complexity_score:.1f}
 **Fix Frequency:** {target.fix_frequency}
+**Churn:** {target.churn}
 
 ### Reasons for Selection
 {chr(10).join('- ' + r for r in target.reasons) if target.reasons else '- High complexity'}
@@ -321,7 +323,7 @@ def evolve_run(
     Process:
     1. Analyze all Python files for cyclomatic complexity
     2. Query memory for fix frequency (files with frequent fixes)
-    3. Calculate debt score = complexity x (1 + fix_frequency)
+    3. Calculate debt score = complexity x (1 + fix_frequency) x log(1 + churn)
     4. Select highest-scoring file above threshold
     5. Create branch, optimize via LLM, create PR
 
@@ -344,7 +346,7 @@ def evolve_report(
     state: AppState = ctx.obj
     root = Path(state.config.workspace_root).expanduser().resolve()
 
-    async def _report() -> None:
+async def _report() -> None:
         match await analyze_directory_complexity(root, state.config.ignore_dirs):
             case Err(err):
                 console.print(f"[red]Analysis failed: {err}[/red]")
@@ -359,12 +361,30 @@ def evolve_report(
         # Sort by max complexity
         sorted_files = sorted(complexities, key=lambda c: -c.max_cyclomatic)[:limit]
 
+        churn_by_path: dict[Path, int] = {fc.path: 0 for fc in sorted_files}
+        match await git_core.AsyncRepo.open(root):
+            case Ok(repo):
+                churn_results = await asyncio.gather(
+                    *(repo.get_file_churn(fc.path) for fc in sorted_files)
+                )
+                for fc, result in zip(sorted_files, churn_results):
+                    match result:
+                        case Ok(value):
+                            churn_by_path[fc.path] = value
+                        case Err(err):
+                            logger.debug("Churn lookup failed for %s: %s", fc.path, err)
+                        case _:
+                            logger.debug("Unexpected churn result for %s: %s", fc.path, result)
+            case Err(err):
+                logger.debug("Skipping churn lookup; git repo unavailable: %s", err)
+
         table = Table(title="Complexity Report", box=box.ROUNDED)
         table.add_column("File", style="cyan")
         table.add_column("Max CC", justify="right", style="yellow")
         table.add_column("Avg CC", justify="right")
         table.add_column("Total CC", justify="right")
         table.add_column("Functions", justify="right")
+        table.add_column("Churn", justify="right")
 
         for fc in sorted_files:
             table.add_row(
@@ -373,6 +393,7 @@ def evolve_report(
                 f"{fc.average_cyclomatic:.1f}",
                 str(fc.total_cyclomatic),
                 str(len(fc.functions)),
+                str(churn_by_path.get(fc.path, 0)),
             )
 
         console.print(table)
@@ -413,7 +434,7 @@ def evolve_debt(
     limit: int = typer.Option(20, "--limit", "-n", help="Maximum files to show."),
 ) -> None:
     """
-    Show technical debt scores combining complexity and fix frequency.
+    Show technical debt scores combining complexity, fix frequency, and git churn.
 
     Higher scores indicate files that are both complex AND frequently
     need fixes, making them prime candidates for refactoring.
@@ -439,6 +460,7 @@ def evolve_debt(
         table.add_column("File", style="cyan")
         table.add_column("Complexity", justify="right")
         table.add_column("Fix Freq", justify="right")
+        table.add_column("Churn", justify="right")
         table.add_column("Debt Score", justify="right", style="yellow")
 
         for idx, score in enumerate(scores[:limit], 1):
@@ -447,6 +469,7 @@ def evolve_debt(
                 score.path.name,
                 f"{score.complexity_score:.0f}",
                 str(score.fix_frequency),
+                str(score.churn),
                 f"{score.debt_score:.1f}",
             )
 

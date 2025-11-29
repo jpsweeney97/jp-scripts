@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import functools
-import inspect
 import warnings
 from collections.abc import Awaitable, Callable
-from typing import ParamSpec, TypeVar
+from typing import ParamSpec, TypeVar, cast
 
 from pydantic import ValidationError, validate_call
 
@@ -34,7 +33,6 @@ def strict_tool_validator(fn: Callable[P, R]) -> Callable[P, R]:
         except ValidationError as exc:
             raise ToolValidationError(str(exc)) from exc
 
-    wrapper.__signature__ = inspect.signature(fn)  # type: ignore[attr-defined]
     return wrapper
 
 

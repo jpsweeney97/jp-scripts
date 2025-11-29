@@ -15,12 +15,14 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
+from jpscripts.core.git import AsyncRepo
 from jpscripts.core.memory import query_memory
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result
 
@@ -59,16 +61,17 @@ class FileComplexity:
 class TechnicalDebtScore:
     """Technical debt score for a file.
 
-    Debt Score = Complexity Score x Fix Frequency
+    Debt Score = Complexity Score x (1 + Fix Frequency) x log(1 + Git Churn)
 
-    Higher scores indicate files that are both complex AND frequently
-    need fixes, making them prime candidates for refactoring.
+    Higher scores indicate files that are complex, frequently changed,
+    and often fixed, making them prime candidates for refactoring.
     """
 
     path: Path
     complexity_score: float  # Normalized complexity (max function complexity)
     fix_frequency: int  # Number of times this file appears in fix-related memories
-    debt_score: float  # complexity_score * fix_frequency
+    churn: int  # Number of commits touching the file
+    debt_score: float  # complexity_score * (1 + fix_frequency) * log(1 + churn)
     reasons: tuple[str, ...]  # Human-readable reasons for the score
 
 
@@ -320,6 +323,13 @@ async def calculate_debt_scores(
     Returns:
         List of TechnicalDebtScore sorted by debt_score descending
     """
+    repo: AsyncRepo | None = None
+    match await AsyncRepo.open(root):
+        case Ok(open_repo):
+            repo = open_repo
+        case Err(err):
+            logger.debug("Git repository unavailable for churn calculation: %s", err)
+
     match await analyze_directory_complexity(root, config.ignore_dirs):
         case Err(err):
             return Err(err)
@@ -340,9 +350,17 @@ async def calculate_debt_scores(
             _query_fix_frequency, file_complexity.path, config
         )
 
+        churn = 0
+        if repo is not None:
+            match await repo.get_file_churn(file_complexity.path):
+                case Ok(value):
+                    churn = value
+                case Err(err):
+                    logger.debug("Failed to calculate churn for %s: %s", file_complexity.path, err)
+
         # Compute debt score
         complexity_score = float(file_complexity.max_cyclomatic)
-        debt_score = complexity_score * (1 + fix_frequency)
+        debt_score = complexity_score * (1 + fix_frequency) * math.log(1 + churn)
 
         # Generate reasons
         reasons: list[str] = []
@@ -354,6 +372,8 @@ async def calculate_debt_scores(
             )
         if fix_frequency > 0:
             reasons.append(f"Fix frequency: {fix_frequency} related memory entries")
+        if churn > 0:
+            reasons.append(f"Churn: {churn} commits touch this file")
         if file_complexity.average_cyclomatic > 5:
             reasons.append(
                 f"High average complexity: {file_complexity.average_cyclomatic:.1f}"
@@ -364,6 +384,7 @@ async def calculate_debt_scores(
                 path=file_complexity.path,
                 complexity_score=complexity_score,
                 fix_frequency=fix_frequency,
+                churn=churn,
                 debt_score=debt_score,
                 reasons=tuple(reasons),
             )
