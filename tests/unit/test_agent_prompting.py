@@ -78,7 +78,10 @@ async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path:
 
 @pytest.mark.asyncio
 async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -> None:
-    (tmp_path / "AGENTS.md").write_text("Rule 1: Be helpful.", encoding="utf-8")
+    (tmp_path / "AGENTS.md").write_text(
+        "<constitution>Rule 1: Be helpful.</constitution>",
+        encoding="utf-8",
+    )
 
     with patch(
         "jpscripts.core.agent._collect_git_context",

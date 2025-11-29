@@ -298,7 +298,7 @@ async def write_manifest_yaml(
     safe_output = output_result.value
 
     def _write() -> Result[Path, SerializationError]:
-        yaml = YAML(typ="safe")
+        yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
         yaml.default_flow_style = False
         yaml.width = 4096

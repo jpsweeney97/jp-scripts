@@ -15,6 +15,17 @@ from jpscripts.core.context import (
 )
 
 
+class MockTokenCounter:
+    def count_tokens(self, text: str, model: str | None = None) -> int:
+        return len(text)
+
+    def tokens_to_characters(self, tokens: int) -> int:
+        return tokens
+
+    def trim_to_fit(self, text: str, max_tokens: int, model: str | None = None) -> str:
+        return text[:max_tokens]
+
+
 def test_read_file_context_truncates(tmp_path: Path) -> None:
     path = tmp_path / "file.txt"
     path.write_text("abcd" * 100, encoding="utf-8")
@@ -118,31 +129,31 @@ class TestTokenBudgetManagerAllocate:
     """Tests for TokenBudgetManager.allocate method."""
 
     def test_allocate_within_budget_returns_full_content(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100)
+        mgr = TokenBudgetManager(total_budget=100, token_counter=MockTokenCounter())
         result = mgr.allocate(1, "hello")
         assert result == "hello"
         assert mgr.remaining() == 95
 
     def test_allocate_exceeding_budget_truncates(self) -> None:
-        mgr = TokenBudgetManager(total_budget=50)
+        mgr = TokenBudgetManager(total_budget=50, token_counter=MockTokenCounter())
         content = "a" * 100
         result = mgr.allocate(1, content)
         assert len(result) <= 50
         assert TRUNCATION_MARKER in result
 
     def test_allocate_empty_content_returns_empty(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100)
+        mgr = TokenBudgetManager(total_budget=100, token_counter=MockTokenCounter())
         result = mgr.allocate(1, "")
         assert result == ""
         assert mgr.remaining() == 100
 
     def test_allocate_zero_budget_returns_empty(self) -> None:
-        mgr = TokenBudgetManager(total_budget=0)
+        mgr = TokenBudgetManager(total_budget=0, token_counter=MockTokenCounter())
         result = mgr.allocate(1, "content")
         assert result == ""
 
     def test_allocate_exhausted_budget_returns_empty(self) -> None:
-        mgr = TokenBudgetManager(total_budget=10)
+        mgr = TokenBudgetManager(total_budget=10, token_counter=MockTokenCounter())
         mgr.allocate(1, "0123456789")  # Consume all budget
         result = mgr.allocate(2, "more content")
         assert result == ""
@@ -152,7 +163,7 @@ class TestTokenBudgetManagerAllocate:
         py_file = tmp_path / "sample.py"
         py_file.write_text("def foo():\n    return 1\n", encoding="utf-8")
 
-        mgr = TokenBudgetManager(total_budget=1000)
+        mgr = TokenBudgetManager(total_budget=1000, token_counter=MockTokenCounter())
         content = py_file.read_text()
         result = mgr.allocate(1, content, source_path=py_file)
         assert "def foo" in result
@@ -162,20 +173,20 @@ class TestTokenBudgetManagerTruncation:
     """Tests for content truncation behavior."""
 
     def test_truncate_adds_marker(self) -> None:
-        mgr = TokenBudgetManager(total_budget=25)  # Less than content length
+        mgr = TokenBudgetManager(total_budget=25, token_counter=MockTokenCounter())  # Less than content length
         content = "line1\nline2\nline3\nline4\nline5\n"  # 30 chars
         result = mgr.allocate(1, content)
         assert TRUNCATION_MARKER in result
 
     def test_truncate_prefers_line_boundary(self) -> None:
-        mgr = TokenBudgetManager(total_budget=40)
+        mgr = TokenBudgetManager(total_budget=40, token_counter=MockTokenCounter())
         content = "short\n" + "x" * 50
         result = mgr.allocate(1, content)
         # Should truncate at the newline boundary if reasonable
         assert result.startswith("short")
 
     def test_truncate_too_small_returns_empty(self) -> None:
-        mgr = TokenBudgetManager(total_budget=5)  # Less than marker length
+        mgr = TokenBudgetManager(total_budget=5, token_counter=MockTokenCounter())  # Less than marker length
         result = mgr.allocate(1, "some content")
         assert result == ""
 
@@ -184,7 +195,7 @@ class TestTokenBudgetManagerTracking:
     """Tests for budget tracking and summary."""
 
     def test_remaining_decreases_after_allocation(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100)
+        mgr = TokenBudgetManager(total_budget=100, token_counter=MockTokenCounter())
         assert mgr.remaining() == 100
         mgr.allocate(1, "12345")
         assert mgr.remaining() == 95
@@ -192,11 +203,11 @@ class TestTokenBudgetManagerTracking:
         assert mgr.remaining() == 90
 
     def test_reserved_reduces_available(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100, reserved_budget=30)
+        mgr = TokenBudgetManager(total_budget=100, reserved_budget=30, token_counter=MockTokenCounter())
         assert mgr.remaining() == 70
 
     def test_summary_tracks_by_priority(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100)
+        mgr = TokenBudgetManager(total_budget=100, token_counter=MockTokenCounter())
         mgr.allocate(1, "first")
         mgr.allocate(3, "third")
         mgr.allocate(2, "second")
@@ -207,7 +218,7 @@ class TestTokenBudgetManagerTracking:
         assert summary["priority_3"] == 5
 
     def test_summary_starts_at_zero(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100)
+        mgr = TokenBudgetManager(total_budget=100, token_counter=MockTokenCounter())
         summary = mgr.summary()
         assert summary == {"priority_1": 0, "priority_2": 0, "priority_3": 0}
 
@@ -217,7 +228,7 @@ class TestTokenBudgetManagerPriority:
 
     def test_priority_allocations_are_independent(self) -> None:
         """Each priority can receive allocations independently."""
-        mgr = TokenBudgetManager(total_budget=100)
+        mgr = TokenBudgetManager(total_budget=100, token_counter=MockTokenCounter())
 
         mgr.allocate(1, "high")
         mgr.allocate(2, "medium")
@@ -230,7 +241,7 @@ class TestTokenBudgetManagerPriority:
 
     def test_budget_shared_across_priorities(self) -> None:
         """All priorities share the same total budget."""
-        mgr = TokenBudgetManager(total_budget=20)
+        mgr = TokenBudgetManager(total_budget=20, token_counter=MockTokenCounter())
 
         mgr.allocate(1, "0123456789")  # 10 chars
         assert mgr.remaining() == 10

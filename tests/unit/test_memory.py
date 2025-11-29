@@ -53,8 +53,11 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
     memory_core._write_entries(fallback, [base_entry])
 
     class FakeEmbeddingClient:
-        def __init__(self) -> None:
+        def __init__(self, model_name: str, *, enabled: bool = True, server_url: str | None = None) -> None:
             self.called = False
+            self.model_name = model_name
+            self.enabled = enabled
+            self.server_url = server_url
 
         @property
         def dimension(self) -> int | None:
@@ -68,8 +71,8 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
             return [[0.1, 0.2] for _ in texts]
 
     class FakeStore:
-        def __init__(self) -> None:
-            pass
+        def __init__(self, db_path: Path, lancedb_module: object, lance_model_base: object) -> None:
+            _ = (db_path, lancedb_module, lance_model_base)
 
         def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
             return Ok(entry)
@@ -123,8 +126,10 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
     memory_core._write_entries(fallback, [vector_entry, keyword_entry])
 
     class FakeEmbeddingClient:
-        def __init__(self) -> None:
-            pass
+        def __init__(self, model_name: str, *, enabled: bool = True, server_url: str | None = None) -> None:
+            self.model_name = model_name
+            self.enabled = enabled
+            self.server_url = server_url
 
         @property
         def dimension(self) -> int | None:
@@ -137,8 +142,8 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
             return [[0.5, 0.5] for _ in texts]
 
     class FakeStore:
-        def __init__(self) -> None:
-            pass
+        def __init__(self, db_path: Path, lancedb_module: object, lance_model_base: object) -> None:
+            _ = (db_path, lancedb_module, lance_model_base)
 
         def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
             return Ok(entry)
