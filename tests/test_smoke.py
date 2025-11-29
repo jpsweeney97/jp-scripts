@@ -88,6 +88,13 @@ def test_serialize_snapshot_smoke(tmp_path: Path):
     assert output_path.exists()
 
 
+def test_watch_help():
+    """Smoke test for watch command help."""
+    result = runner.invoke(app, ["watch", "--help"])
+    assert result.exit_code == 0
+    assert "God-Mode" in result.stdout or "watch" in result.stdout.lower()
+
+
 def test_mcp_server_imports():
     """
     Critical Test: Ensure MCP server module can be imported without errors.

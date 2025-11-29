@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import importlib
 import fnmatch
 import json
 import re
 import shlex
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Literal, Protocol, Sequence, cast
 
 import yaml
 from rich.console import Console
@@ -28,10 +29,91 @@ SENSITIVE_PATTERNS = [".env", ".env.*", "*.pem", "*.key", "id_rsa"]
 
 logger = get_logger(__name__)
 
+class _EncoderProtocol(Protocol):
+    def encode(self, text: str, *, disallowed_special: Sequence[str] | set[str] | tuple[str, ...] = ()) -> list[int]:
+        ...
 
-def estimate_tokens(text: str) -> int:
-    """Heuristic token estimator using ~4 characters per token."""
-    return max(0, int(len(text) / 4))
+    def decode(self, tokens: Sequence[int]) -> str:
+        ...
+
+
+class TokenCounter:
+    """Token counter backed by tiktoken with heuristic fallback."""
+
+    def __init__(self, default_model: str = "gpt-4o") -> None:
+        self.default_model = default_model
+        self._encoders: dict[str, _EncoderProtocol | None] = {}
+        self._warned_missing = False
+
+    def count_tokens(self, text: str, model: str | None = None) -> int:
+        target_model = model or self.default_model
+        encoder = self._get_encoder(target_model)
+        if encoder is None:
+            return self._heuristic_tokens(text)
+        try:
+            return len(encoder.encode(text, disallowed_special=()))
+        except Exception as exc:
+            logger.warning("Token counting failed for model %s: %s", target_model, exc)
+            return self._heuristic_tokens(text)
+
+    def trim_to_fit(self, text: str, max_tokens: int, model: str | None = None) -> str:
+        """Trim text to fit within max_tokens."""
+        if max_tokens <= 0:
+            return ""
+
+        target_model = model or self.default_model
+        encoder = self._get_encoder(target_model)
+        if encoder is None:
+            return text[: self.tokens_to_characters(max_tokens)]
+
+        try:
+            encoded = encoder.encode(text, disallowed_special=())
+            if len(encoded) <= max_tokens:
+                return text
+            return encoder.decode(encoded[:max_tokens])
+        except Exception as exc:
+            logger.warning("Token trim failed for model %s: %s", target_model, exc)
+            return text[: self.tokens_to_characters(max_tokens)]
+
+    def tokens_to_characters(self, tokens: int) -> int:
+        """Coarse conversion from tokens to characters (upper bound)."""
+        if tokens <= 0:
+            return 0
+        return tokens * 4
+
+    def _heuristic_tokens(self, text: str) -> int:
+        return max(0, len(text) // 4)
+
+    def _get_encoder(self, model: str) -> _EncoderProtocol | None:
+        if model in self._encoders:
+            return self._encoders[model]
+
+        try:
+            tiktoken_module = importlib.import_module("tiktoken")
+        except ImportError:
+            if not self._warned_missing:
+                logger.warning("tiktoken is not installed; falling back to heuristic token estimates.")
+                self._warned_missing = True
+            self._encoders[model] = None
+            return None
+        except Exception as exc:  # pragma: no cover - defensive import guard
+            logger.warning("Failed to import tiktoken: %s", exc)
+            self._encoders[model] = None
+            return None
+
+        try:
+            encoding_for_model = getattr(tiktoken_module, "encoding_for_model", None)
+            if not callable(encoding_for_model):
+                raise AttributeError("encoding_for_model is unavailable on tiktoken module")
+            encoder = encoding_for_model(model)
+        except Exception as exc:
+            logger.warning("Failed to load encoding for model %s: %s", model, exc)
+            self._encoders[model] = None
+            return None
+
+        cached = cast(_EncoderProtocol, encoder)
+        self._encoders[model] = cached
+        return cached
 
 
 async def run_and_capture(command: str, cwd: Path) -> str:
@@ -547,22 +629,14 @@ TRUNCATION_MARKER = "[...truncated]"
 
 @dataclass
 class TokenBudgetManager:
-    """Priority-based token/character budget allocation.
-
-    Manages allocation of content within a fixed character budget. Higher priority
-    content (lower number) is allocated first and protected from truncation by
-    lower priority allocations.
-
-    Attributes:
-        total_budget: Maximum characters available for all content.
-        reserved_budget: Characters reserved for system overhead (template, etc.).
-        model_context_limit: Hard cap for file reads, derived from model's context window.
-    """
+    """Priority-based token budget allocation using precise token counts."""
 
     total_budget: int
     reserved_budget: int = 0
     model_context_limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
-    _used: int = field(default=0, repr=False)
+    model: str = "gpt-4o"
+    token_counter: TokenCounter = field(default_factory=TokenCounter)
+    _used_tokens: int = field(default=0, repr=False)
     _allocations: dict[Priority, int] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
@@ -572,11 +646,18 @@ class TokenBudgetManager:
             raise ValueError("reserved_budget must be non-negative")
         if self.reserved_budget > self.total_budget:
             raise ValueError("reserved_budget cannot exceed total_budget")
+        if self.model_context_limit <= 0:
+            raise ValueError("model_context_limit must be positive")
         self._allocations = {1: 0, 2: 0, 3: 0}
 
     def remaining(self) -> int:
-        """Return remaining budget available for allocation."""
-        return max(0, self.total_budget - self.reserved_budget - self._used)
+        """Return remaining token budget available for allocation."""
+        return max(0, self.total_budget - self.reserved_budget - self._used_tokens)
+
+    def tokens_to_characters(self, tokens: int) -> int:
+        """Convert token budget to a conservative character budget."""
+        char_budget = self.token_counter.tokens_to_characters(tokens)
+        return min(char_budget, self.token_counter.tokens_to_characters(self.model_context_limit))
 
     def allocate(
         self,
@@ -584,41 +665,57 @@ class TokenBudgetManager:
         content: str,
         source_path: Path | None = None,
     ) -> str:
-        """Allocate content within budget, with optional syntax-aware truncation.
-
-        Args:
-            priority: 1 (highest), 2, or 3 (lowest). Higher priority content
-                     is allocated first and protected from truncation.
-            content: The content to allocate.
-            source_path: Optional path for syntax-aware truncation (Python/JSON/YAML).
-
-        Returns:
-            The content (possibly truncated with marker), or empty string if no budget.
-        """
+        """Allocate content within token budget, with optional syntax-aware truncation."""
         if not content:
             return ""
 
-        budget = self.remaining()
-        if budget <= 0:
+        token_budget = self.remaining()
+        if token_budget <= 0:
             return ""
 
-        if len(content) <= budget:
-            self._used += len(content)
-            self._allocations[priority] += len(content)
+        token_count = self.token_counter.count_tokens(content, model=self.model)
+        if token_count <= token_budget:
+            self._track_allocation(priority, token_count)
             return content
 
-        # Must truncate - use smart_read_context if path provided
-        if source_path is not None:
-            truncated = smart_read_context(source_path, budget)
-        else:
-            truncated = self._truncate_content(content, budget)
+        truncated = self._truncate_content(content, token_budget, source_path)
+        if not truncated:
+            return ""
 
-        self._used += len(truncated)
-        self._allocations[priority] += len(truncated)
+        final_tokens = self.token_counter.count_tokens(truncated, model=self.model)
+        if final_tokens > token_budget:
+            truncated = self.token_counter.trim_to_fit(truncated, token_budget, model=self.model)
+            final_tokens = self.token_counter.count_tokens(truncated, model=self.model)
+
+        self._track_allocation(priority, final_tokens)
         return truncated
 
-    def _truncate_content(self, content: str, limit: int) -> str:
-        """Truncate content with marker, preferring line boundaries."""
+    def _track_allocation(self, priority: Priority, tokens: int) -> None:
+        self._used_tokens += tokens
+        self._allocations[priority] += tokens
+
+    def _truncate_content(self, content: str, token_budget: int, source_path: Path | None) -> str:
+        """Truncate content using syntax-aware readers when paths are provided."""
+        char_budget = self.tokens_to_characters(token_budget)
+        if char_budget <= 0:
+            return ""
+
+        truncated = (
+            smart_read_context(
+                source_path,
+                char_budget,
+                max_tokens=token_budget,
+                limit=self.tokens_to_characters(self.model_context_limit),
+            )
+            if source_path
+            else self._truncate_plain(content, char_budget)
+        )
+        if not truncated:
+            return ""
+        return truncated
+
+    def _truncate_plain(self, content: str, limit: int) -> str:
+        """Truncate plain content with marker, preferring line boundaries."""
         marker_len = len(TRUNCATION_MARKER) + 1  # +1 for newline
         if limit <= marker_len:
             return ""
@@ -626,7 +723,6 @@ class TokenBudgetManager:
         available = limit - marker_len
         truncated = content[:available]
 
-        # Prefer line boundary if reasonable (more than halfway through)
         last_newline = truncated.rfind("\n")
         if last_newline > available // 2:
             truncated = truncated[:last_newline]
@@ -634,5 +730,5 @@ class TokenBudgetManager:
         return f"{truncated}\n{TRUNCATION_MARKER}"
 
     def summary(self) -> dict[str, int]:
-        """Return allocation summary by priority."""
-        return {f"priority_{p}": chars for p, chars in self._allocations.items()}
+        """Return allocation summary by priority (tokens)."""
+        return {f"priority_{p}": tokens for p, tokens in self._allocations.items()}

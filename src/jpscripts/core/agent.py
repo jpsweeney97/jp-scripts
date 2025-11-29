@@ -7,7 +7,8 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Sequence
+from typing import Any, Awaitable, Callable, Literal, Sequence
+import xml.etree.ElementTree as ET
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import ValidationError
@@ -23,7 +24,7 @@ from jpscripts.core.context import (
     TokenBudgetManager,
     gather_context,
     get_file_skeleton,
-    read_file_context,
+    resolve_files_from_output,
     smart_read_context,
 )
 from jpscripts.core.engine import (
@@ -58,6 +59,10 @@ class AttemptContext:
     iteration: int
     last_error: str
     files_changed: list[Path]
+    strategy: Literal["fast", "deep", "step_back"]
+
+
+RepairStrategy = Literal["fast", "deep", "step_back"]
 
 
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
@@ -102,6 +107,7 @@ async def prepare_agent_prompt(
     temperature: float | None = None,
     reasoning_effort: str | None = None,
     tool_history: str | None = None,
+    extra_paths: Sequence[Path] | None = None,
 ) -> PreparedPrompt:
     """
     Builds a structured, JSON-oriented prompt for Codex.
@@ -123,6 +129,7 @@ async def prepare_agent_prompt(
         total_budget=model_limit,
         reserved_budget=template_overhead,
         model_context_limit=model_limit,
+        model=active_model,
     )
 
     branch, commit, is_dirty = await _collect_git_context(root)
@@ -132,6 +139,7 @@ async def prepare_agent_prompt(
 
     attached: list[Path] = []
     detected_paths: list[Path] = []
+    extra_detected = list(extra_paths) if extra_paths else []
 
     diagnostic_section = ""
     file_context_section = ""
@@ -184,15 +192,16 @@ async def prepare_agent_prompt(
 
     # === Priority 3: File Context + Dependencies (Sequential Greedy) ===
     # Files get what they need first, dependencies get whatever remains
-    if budget.remaining() > 0 and detected_paths:
+    combined_paths: list[Path] = detected_paths + extra_detected
+    if budget.remaining() > 0 and combined_paths:
         file_context_section, attached = await _build_file_context_section(
-            detected_paths, budget
+            combined_paths, budget
         )
 
         # Dependencies only get leftover budget after files
         if budget.remaining() > 0:
             dependency_section = await _build_dependency_section(
-                detected_paths[:1], root, budget
+                combined_paths[:1], root, budget
             )
 
     # Memory query fallback
@@ -259,28 +268,34 @@ def _safe_cdata(content: str) -> str:
 
 
 async def _load_constitution(root: Path) -> str:
-    """Read AGENTS.md content under the workspace root.
-
-    Args:
-        root: Workspace root for validation and lookup.
-
-    Returns:
-        Constitution text or a fallback message when unavailable.
-    """
+    """Load and validate the constitutional XML from AGENTS.md."""
     try:
         candidate = security.validate_path(root / "AGENTS.md", root)
     except Exception as exc:
         logger.debug("Unable to resolve AGENTS.md under %s: %s", root, exc)
-        return "AGENTS.md not accessible."
+        return '<constitution status="unavailable">AGENTS.md not accessible.</constitution>'
 
-    if not candidate.exists():
-        return "AGENTS.md not found."
+    exists = await asyncio.to_thread(candidate.exists)
+    if not exists:
+        return '<constitution status="missing">AGENTS.md not found.</constitution>'
 
-    content = await asyncio.to_thread(read_file_context, candidate, 5000)
-    if not content:
-        return "AGENTS.md is empty or unreadable."
+    try:
+        content = await asyncio.to_thread(candidate.read_text, encoding="utf-8")
+    except OSError as exc:
+        logger.debug("Failed to read AGENTS.md: %s", exc)
+        return '<constitution status="unreadable">AGENTS.md unreadable.</constitution>'
 
-    return content
+    try:
+        document = ET.fromstring(content)
+    except ET.ParseError as exc:
+        logger.warning("Failed to parse AGENTS.md as XML: %s", exc)
+        return f'<constitution status="parse_error">{exc}</constitution>'
+
+    constitution = document if document.tag == "constitution" else document.find("constitution")
+    if constitution is None:
+        return '<constitution status="invalid">No <constitution> root found.</constitution>'
+
+    return ET.tostring(constitution, encoding="unicode")
 
 
 async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
@@ -338,9 +353,10 @@ async def _build_file_context_section(
 
     for path in paths:
         # Check budget before reading each file
-        remaining = budget.remaining()
-        if remaining <= 0:
+        remaining_tokens = budget.remaining()
+        if remaining_tokens <= 0:
             break
+        char_budget = budget.tokens_to_characters(remaining_tokens)
 
         line_count = await asyncio.to_thread(_count_lines, path)
         use_skeleton = path.suffix.lower() == ".py" and line_count > 200
@@ -349,7 +365,13 @@ async def _build_file_context_section(
             snippet = await asyncio.to_thread(get_file_skeleton, path)
         else:
             # Read file with syntax-aware truncation up to remaining budget
-            snippet = await asyncio.to_thread(smart_read_context, path, remaining)
+            snippet = await asyncio.to_thread(
+                smart_read_context,
+                path,
+                char_budget,
+                remaining_tokens,
+                limit=budget.tokens_to_characters(budget.model_context_limit),
+            )
 
         if not snippet:
             continue
@@ -388,11 +410,18 @@ async def _build_dependency_section(
     sections: list[str] = []
     for dep in sorted(dependencies):
         # Check budget before reading each dependency
-        remaining = budget.remaining()
-        if remaining <= 0:
+        remaining_tokens = budget.remaining()
+        if remaining_tokens <= 0:
             break
+        char_budget = budget.tokens_to_characters(remaining_tokens)
 
-        snippet = await asyncio.to_thread(smart_read_context, dep, remaining)
+        snippet = await asyncio.to_thread(
+            smart_read_context,
+            dep,
+            char_budget,
+            remaining_tokens,
+            limit=budget.tokens_to_characters(budget.model_context_limit),
+        )
         if not snippet:
             continue
 
@@ -523,15 +552,27 @@ def _build_repair_instruction(
     *,
     strategy_override: str | None = None,
     reasoning_hint: str | None = None,
+    strategy: Literal["fast", "deep", "step_back"] = "fast",
 ) -> str:
     history_block = _build_history_summary(history, root)
     override_block = f"\n\nStrategy Override:\n{strategy_override}" if strategy_override else ""
     reasoning_block = f"\n\nHigh reasoning effort requested: {reasoning_hint}" if reasoning_hint else ""
+    strategy_block = ""
+    if strategy == "deep":
+        strategy_block = (
+            "\n\nSystem Notice: Attempt 1 failed. Context has been expanded to include imported "
+            "dependencies and referenced modules. Analyze interactions across modules."
+        )
+    elif strategy == "step_back":
+        strategy_block = (
+            "\n\nSystem Notice: Attempt 2 failed. Tool use is disabled for this turn. "
+            "Perform Root Cause Analysis and propose a brief plan before patching."
+        )
     return (
         f"{base_prompt.strip()}\n\n"
         "Autonomous repair loop in progress. Use the failure details to craft a minimal fix.\n"
         f"Current error:\n{current_error.strip()}\n\n"
-        f"Previous attempts:\n{history_block}{override_block}{reasoning_block}\n\n"
+        f"Previous attempts:\n{history_block}{override_block}{reasoning_block}{strategy_block}\n\n"
         "Respond with a single JSON object that matches the AgentResponse schema. "
         "Place the unified diff in `file_patch`. Do not return Markdown or prose."
     )
@@ -592,6 +633,35 @@ def _write_failed_patch(patch_text: str, root: Path) -> None:
         destination.write_text(patch_text, encoding="utf-8")
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("Unable to persist failed patch for inspection: %s", exc)
+
+
+async def _expand_context_paths(
+    error_output: str,
+    root: Path,
+    changed_files: set[Path],
+    ignore_dirs: Sequence[str],
+) -> set[Path]:
+    """Derive additional context paths from the latest failure."""
+    discovered: set[Path] = set()
+    discovered.update(changed_files)
+    discovered.update(resolve_files_from_output(error_output, root))
+
+    dependencies: set[Path] = set()
+    for path in discovered:
+        try:
+            deps = await asyncio.to_thread(get_import_dependencies, path, root)
+            dependencies.update(deps)
+        except Exception as exc:
+            logger.debug("Dependency discovery failed for %s: %s", path, exc)
+
+    if not discovered and not dependencies:
+        match await scan_recent(root, 3, False, set(ignore_dirs)):
+            case Err(err):
+                logger.debug("Recent scan fallback failed: %s", err)
+            case Ok(recents):
+                discovered.update(entry.path for entry in recents[:3])
+
+    return {security.validate_path(path, root) for path in (discovered | dependencies) if path.exists()}
 
 
 async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
@@ -776,25 +846,31 @@ async def run_repair_loop(
         iteration_prompt: str,
         loop_detected_flag: bool,
         temp_override: float | None,
+        strategy: RepairStrategy,
+        extra_paths: Sequence[Path],
     ) -> PreparedPrompt:
         history_text = "\n".join(msg.content for msg in history_messages)
         instruction = iteration_prompt
         if history_text:
             instruction = f"{instruction}\n\nPrevious tool interactions:\n{history_text}"
+        reasoning = "high" if loop_detected_flag or strategy == "step_back" else None
+        run_cmd = command if strategy in {"fast", "deep"} else None
         return await prepare_agent_prompt(
             instruction,
             root=root,
             config=config,
             model=model,
-            run_command=None,
+            run_command=run_cmd,
             attach_recent=attach_recent,
             include_diff=include_diff,
             ignore_dirs=config.ignore_dirs,
             max_file_context_chars=config.max_file_context_chars,
             max_command_output_chars=config.max_command_output_chars,
-            reasoning_effort="high" if loop_detected_flag else None,
+            reasoning_effort=reasoning,
             temperature=temp_override,
             tool_history=history_text,
+            extra_paths=extra_paths,
+            web_access=web_access,
         )
 
     async def _fetch(prepared: PreparedPrompt) -> str:
@@ -802,7 +878,10 @@ async def run_repair_loop(
 
     try:
         for attempt in range(attempt_cap):
-            console.print(f"[cyan]Attempt {attempt + 1}/{attempt_cap}: running `{command}`[/cyan]")
+            strategy: RepairStrategy = "fast" if attempt == 0 else "deep" if attempt == 1 else "step_back"
+            console.print(
+                f"[cyan]Attempt {attempt + 1}/{attempt_cap} ({strategy} strategy): running `{command}`[/cyan]"
+            )
             exit_code, stdout, stderr = await _run_shell_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded. Exiting repair loop.[/green]")
@@ -828,6 +907,12 @@ async def run_repair_loop(
             if loop_detected:
                 console.print("[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]")
 
+            dynamic_paths: set[Path] = set(changed_files)
+            if strategy == "deep":
+                dynamic_paths = await _expand_context_paths(current_error, root, changed_files, config.ignore_dirs)
+            elif strategy == "step_back":
+                dynamic_paths = set(changed_files)
+
             applied_paths: list[Path] = []
             for turn in range(5):
                 iteration_prompt = _build_repair_instruction(
@@ -837,6 +922,7 @@ async def run_repair_loop(
                     root,
                     strategy_override=strategy_override,
                     reasoning_hint=reasoning_hint,
+                    strategy=strategy,
                 )
 
                 # Lambda with default args from captured scope; mypy cannot infer types
@@ -844,11 +930,12 @@ async def run_repair_loop(
                 engine = AgentEngine[AgentResponse](
                     persona="Engineer",
                     model=model or config.default_model,
-                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override: _prompt_builder(  # type: ignore[misc]
-                        msgs, ip, ld, temp
+                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override, strat=strategy, paths=list(dynamic_paths): _prompt_builder(  # type: ignore[misc]
+                        msgs, ip, ld, temp, strat, paths
                     ),
                     fetch_response=_fetch,
                     parser=parse_agent_response,
+                    tools={} if strategy == "step_back" else None,
                     template_root=root,
                 )
 
@@ -954,7 +1041,12 @@ async def run_repair_loop(
             failure_msg = _summarize_output(stdout, stderr, config.max_command_output_chars)
             console.print(f"[yellow]Verification failed:[/yellow] {failure_msg}")
             attempt_history.append(
-                AttemptContext(iteration=attempt + 1, last_error=failure_msg, files_changed=list(changed_files))
+                AttemptContext(
+                    iteration=attempt + 1,
+                    last_error=failure_msg,
+                    files_changed=list(changed_files),
+                    strategy=strategy,
+                )
             )
             _append_history(history, Message(role="system", content=f"Verification failure (attempt {attempt + 1}): {failure_msg}"))
 
