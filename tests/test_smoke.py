@@ -79,6 +79,15 @@ def test_handbook_semantic_query(monkeypatch):
         shutil.rmtree(cache_root, ignore_errors=True)
 
 
+def test_serialize_snapshot_smoke(tmp_path: Path):
+    """Ensure serialize command can emit a manifest in an empty workspace."""
+    env = {"JP_WORKSPACE_ROOT": str(tmp_path)}
+    output_path = tmp_path / "manifest.yaml"
+    result = runner.invoke(app, ["serialize", "snapshot", "--output", str(output_path)], env=env)
+    assert result.exit_code == 0
+    assert output_path.exists()
+
+
 def test_mcp_server_imports():
     """
     Critical Test: Ensure MCP server module can be imported without errors.

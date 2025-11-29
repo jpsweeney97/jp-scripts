@@ -8,6 +8,7 @@ __all__ = [
     "search",
     "git_extra",
     "init",
+    "serialize",
     "web",
     "team",
     "agent",

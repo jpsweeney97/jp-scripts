@@ -20,6 +20,7 @@ dependencies = [
   "pyperclip>=1.8.2",
   "pathspec>=0.11.0",
   "PyYAML>=6.0",
+  "ruamel.yaml>=0.17.0",
   "mcp>=0.1.0",
 ]
 
