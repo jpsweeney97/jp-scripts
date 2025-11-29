@@ -16,7 +16,7 @@ from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.config import AppConfig
-from jpscripts.core.system import CommandResult, get_runner
+from jpscripts.core.system import CommandResult, get_sandbox
 from jpscripts.core.result import Err
 
 logger = get_logger(__name__)
@@ -258,8 +258,8 @@ async def run_safe_shell(command: str, root: Path, audit_prefix: str, config: Ap
     if not tokens:
         return "Invalid command argument."
 
-    runner = get_runner(config)
-    run_result = await runner.run(tokens, root)
+    runner = get_sandbox(config)
+    run_result = await runner.run_command(tokens, root, env=None)
     if isinstance(run_result, Err):
         logger.warning("%s.reject runner_error=%s", audit_prefix, run_result.error)
         return f"Failed to run command: {run_result.error}"

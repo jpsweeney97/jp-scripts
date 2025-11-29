@@ -5,14 +5,17 @@ import json
 import math
 import re
 import shutil
+import inspect
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Sequence
 
 import typer
 from rich.markdown import Markdown
 from rich.panel import Panel
+from typer.main import get_command
+import click
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
@@ -27,11 +30,16 @@ from jpscripts.core.engine import run_safe_shell, AUDIT_PREFIX
 from jpscripts.core.security import validate_workspace_root
 from jpscripts.core.result import CapabilityMissingError, Err, Ok
 from jpscripts.core.security import validate_path
+from jpscripts.mcp.tools import discover_tools
+from jpscripts.mcp import get_tool_metadata
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
 MAX_RESULTS = 3
 PROTOCOL_PATTERN = re.compile(r"\[Protocol:\s*(?P<name>[^\]]+)\]\s*->\s*run\s*\"(?P<command>[^\"]+)\"", re.IGNORECASE)
+CLI_REFERENCE_HEADING = "## CLI Reference"
+
+app = typer.Typer(invoke_without_command=True, no_args_is_help=False)
 
 
 @dataclass
@@ -42,6 +50,101 @@ class HandbookSection:
 
     def renderable(self) -> str:
         return f"{self.title}\n\n{self.body}".strip()
+
+
+@dataclass
+class CLICommandRef:
+    name: str
+    args: str
+    summary: str
+
+
+@dataclass
+class MCPToolRef:
+    name: str
+    params: str
+    description: str
+
+
+def _format_click_params(params: Sequence[click.Parameter]) -> str:
+    parts: list[str] = []
+    for param in params:
+        if bool(getattr(param, "hidden", False)):
+            continue
+        if param.opts:
+            parts.append("/".join(param.opts))
+        else:
+            parts.append(param.name or "")
+    return ", ".join(part for part in parts if part)
+
+
+def _collect_cli_commands() -> list[CLICommandRef]:
+    from jpscripts.main import app as main_app
+
+    click_app = get_command(main_app)
+    refs: list[CLICommandRef] = []
+
+    def _walk(command: click.Command, prefix: str) -> None:
+        if getattr(command, "hidden", False):
+            return
+        if isinstance(command, click.Group):
+            commands = getattr(command, "commands", {})
+            for name, child in sorted(commands.items()):
+                if name == "help":
+                    continue
+                _walk(child, f"{prefix} {name}".strip())
+        else:
+            args = _format_click_params(command.params)
+            summary_raw = (command.help or command.short_help or "").strip()
+            summary = " ".join(summary_raw.split())
+            refs.append(CLICommandRef(name=prefix or command.name or "", args=args, summary=summary or "—"))
+
+    if isinstance(click_app, click.Command):
+        _walk(click_app, "")
+    return sorted(refs, key=lambda ref: ref.name)
+
+
+def _type_name(obj: object) -> str:
+    if obj is inspect._empty:
+        return "Any"
+    if isinstance(obj, type):
+        return obj.__name__
+    return str(obj)
+
+
+def _collect_mcp_tools() -> list[MCPToolRef]:
+    tools = discover_tools()
+    refs: list[MCPToolRef] = []
+    for name, func in sorted(tools.items(), key=lambda item: item[0]):
+        sig = inspect.signature(func)
+        params: list[str] = []
+        for param_name, param in sig.parameters.items():
+            annotation = _type_name(param.annotation)
+            default = "" if param.default is inspect._empty else f"={param.default!r}"
+            params.append(f"{param_name}: {annotation}{default}")
+        doc = (inspect.getdoc(func) or "").strip()
+        metadata = get_tool_metadata(func) or {}
+        description = metadata.get("description", "") if isinstance(metadata, dict) else ""
+        combined_desc = " ".join((description or doc or "—").split())
+        refs.append(MCPToolRef(name=name, params=", ".join(params), description=combined_desc))
+    return refs
+
+
+def generate_reference() -> tuple[str, str]:
+    cli_refs: list[CLICommandRef] = _collect_cli_commands()
+    mcp_refs: list[MCPToolRef] = _collect_mcp_tools()
+
+    cli_lines = ["| Command | Args | Description |", "| :--- | :--- | :--- |"]
+    for cli_ref in cli_refs:
+        cli_lines.append(f"| `{cli_ref.name}` | {cli_ref.args or '—'} | {cli_ref.summary or '—'} |")
+    cli_table = "\n".join(cli_lines)
+
+    mcp_lines = ["| Tool | Params | Description |", "| :--- | :--- | :--- |"]
+    for tool_ref in mcp_refs:
+        mcp_lines.append(f"| `{tool_ref.name}` | {tool_ref.params or '—'} | {tool_ref.description or '—'} |")
+    mcp_table = "\n".join(mcp_lines)
+
+    return cli_table, mcp_table
 
 
 def _project_root() -> Path:
@@ -238,6 +341,41 @@ def _build_entries(sections: list[HandbookSection], source_mtime_ns: int) -> lis
             )
         )
     return entries
+
+
+def _render_cli_reference_section(cli_table: str, mcp_table: str) -> str:
+    return (
+        f"{CLI_REFERENCE_HEADING}\n\n"
+        "### CLI Commands\n"
+        f"{cli_table}\n\n"
+        "### MCP Tools\n"
+        f"{mcp_table}\n"
+    )
+
+
+async def _replace_cli_reference(path: Path, cli_table: str, mcp_table: str) -> bool:
+    new_section = _render_cli_reference_section(cli_table, mcp_table)
+
+    def _rewrite() -> tuple[bool, str]:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError:
+            return False, ""
+
+        pattern = re.compile(rf"{re.escape(CLI_REFERENCE_HEADING)}.*?(?=^## |\Z)", re.DOTALL | re.MULTILINE)
+        if pattern.search(content):
+            updated = pattern.sub(new_section.strip() + "\n\n", content)
+        else:
+            updated = content.rstrip() + "\n\n" + new_section
+
+        return updated != content, updated
+
+    changed, updated_content = await asyncio.to_thread(_rewrite)
+    if not changed or not updated_content:
+        return False
+
+    await asyncio.to_thread(path.write_text, updated_content, "utf-8")
+    return True
 
 
 def _build_embedding_client(config: AppConfig | None) -> EmbeddingClientProtocol:
@@ -441,6 +579,7 @@ def parse_protocols(content: str) -> dict[str, list[str]]:
     return protocols
 
 
+@app.callback(invoke_without_command=True, no_args_is_help=False)
 def handbook(
     ctx: typer.Context,
     query: str | None = typer.Argument(
@@ -514,6 +653,7 @@ def handbook(
     asyncio.run(_run())
 
 
+@app.command("verify-protocol")
 def verify_protocol(
     ctx: typer.Context,
     name: str = typer.Option("pre-commit", "--name", "-n", help="Protocol name to execute."),
@@ -555,6 +695,36 @@ def verify_protocol(
                 return 1
             if output:
                 console.print(output)
+        return 0
+
+    exit_code = asyncio.run(_run())
+    if exit_code != 0:
+        raise typer.Exit(code=exit_code)
+
+
+@app.command("internal-update-reference", hidden=True)
+def internal_update_reference(ctx: typer.Context) -> None:
+    """Regenerate CLI and MCP tool reference sections in README and HANDBOOK."""
+
+    async def _run() -> int:
+        cli_table, mcp_table = generate_reference()
+        root = _project_root()
+
+        targets: list[Path] = []
+        for name in ("README.md", HANDBOOK_NAME):
+            try:
+                targets.append(validate_path(root / name, root))
+            except Exception as exc:
+                console.print(f"[red]Failed to resolve {name}: {exc}[/red]")
+                return 1
+
+        updates = await asyncio.gather(*(_replace_cli_reference(path, cli_table, mcp_table) for path in targets))
+        updated_any = any(updates)
+        if not updated_any:
+            console.print("[yellow]No CLI reference updates applied (already current or files missing).[/yellow]")
+            return 0
+
+        console.print("[green]CLI references updated in README and HANDBOOK.[/green]")
         return 0
 
     exit_code = asyncio.run(_run())

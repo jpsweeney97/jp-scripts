@@ -8,7 +8,6 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Sequence
-import xml.etree.ElementTree as ET
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import ValidationError
@@ -20,13 +19,8 @@ from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.context import (
-    TokenBudgetManager,
-    gather_context,
-    get_file_skeleton,
-    resolve_files_from_output,
-    smart_read_context,
-)
+from jpscripts.core.context_gatherer import gather_context, get_file_skeleton, resolve_files_from_output, smart_read_context
+from jpscripts.core.tokens import TokenBudgetManager
 from jpscripts.core.engine import (
     AgentEngine,
     AgentResponse,
@@ -130,6 +124,7 @@ async def prepare_agent_prompt(
         reserved_budget=template_overhead,
         model_context_limit=model_limit,
         model=active_model,
+        truncator=smart_read_context,
     )
 
     branch, commit, is_dirty = await _collect_git_context(root)
@@ -150,7 +145,9 @@ async def prepare_agent_prompt(
 
     # === Priority 1: Diagnostic Section (highest priority) ===
     if run_command:
-        output, detected_files = await gather_context(run_command, root)
+        gathered_context = await gather_context(run_command, root)
+        output = gathered_context.output
+        detected_files = gathered_context.files
         trimmed = (
             output
             if len(output) <= max_command_output_chars
@@ -267,35 +264,38 @@ def _safe_cdata(content: str) -> str:
     return content.replace("]]>", "]]]]><![CDATA[>")
 
 
-async def _load_constitution(root: Path) -> str:
-    """Load and validate the constitutional XML from AGENTS.md."""
+async def _load_constitution(root: Path) -> dict[str, object]:
+    """Load and validate the constitutional JSON from AGENTS.md."""
     try:
         candidate = security.validate_path(root / "AGENTS.md", root)
     except Exception as exc:
         logger.debug("Unable to resolve AGENTS.md under %s: %s", root, exc)
-        return '<constitution status="unavailable">AGENTS.md not accessible.</constitution>'
+        return {"status": "unavailable", "message": "AGENTS.md not accessible", "error": str(exc)}
 
     exists = await asyncio.to_thread(candidate.exists)
     if not exists:
-        return '<constitution status="missing">AGENTS.md not found.</constitution>'
+        return {"status": "missing", "message": "AGENTS.md not found"}
 
     try:
         content = await asyncio.to_thread(candidate.read_text, encoding="utf-8")
     except OSError as exc:
         logger.debug("Failed to read AGENTS.md: %s", exc)
-        return '<constitution status="unreadable">AGENTS.md unreadable.</constitution>'
+        return {"status": "unreadable", "message": "AGENTS.md unreadable", "error": str(exc)}
 
     try:
-        document = ET.fromstring(content)
-    except ET.ParseError as exc:
-        logger.warning("Failed to parse AGENTS.md as XML: %s", exc)
-        return f'<constitution status="parse_error">{exc}</constitution>'
+        parsed = json.loads(content)
+    except json.JSONDecodeError as exc:
+        logger.warning("Failed to parse AGENTS.md as JSON: %s", exc)
+        return {"status": "parse_error", "message": str(exc)}
 
-    constitution = document if document.tag == "constitution" else document.find("constitution")
-    if constitution is None:
-        return '<constitution status="invalid">No <constitution> root found.</constitution>'
+    if not isinstance(parsed, dict):
+        return {"status": "invalid", "message": "AGENTS.md root must be an object"}
 
-    return ET.tostring(constitution, encoding="unicode")
+    constitution = parsed.get("constitution")
+    if not isinstance(constitution, dict):
+        return {"status": "invalid", "message": "Missing or invalid 'constitution' object"}
+
+    return constitution
 
 
 async def _collect_git_context(root: Path) -> tuple[str, str, bool]:

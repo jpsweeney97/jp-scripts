@@ -193,7 +193,9 @@ def _render_swarm_prompt(
 async def _collect_fallback_context(repo_root: Path, timeout: float) -> tuple[str, list[Path]]:
     fallback_timeout = max(timeout / 2, 1.0)
     try:
-        log, files = await asyncio.wait_for(gather_context("ls -a", repo_root), timeout=fallback_timeout)
+        context_result = await asyncio.wait_for(gather_context("ls -a", repo_root), timeout=fallback_timeout)
+        log = context_result.output
+        files = context_result.files
         trimmed_log = log[-2000:] if len(log) > 2000 else log
         return f"Fallback directory listing:\n{trimmed_log}", sorted(files)
     except asyncio.TimeoutError:
@@ -209,7 +211,9 @@ async def _collect_repo_context(repo_root: Path, config: AppConfig) -> tuple[str
     """
     timeout = max(config.git_status_timeout, 0.1)
     try:
-        log, files = await asyncio.wait_for(gather_context("git status --short", repo_root), timeout=timeout)
+        context_result = await asyncio.wait_for(gather_context("git status --short", repo_root), timeout=timeout)
+        log = context_result.output
+        files = context_result.files
         trimmed_log = log[-4000:] if len(log) > 4000 else log
         return trimmed_log, sorted(files)
     except asyncio.TimeoutError:

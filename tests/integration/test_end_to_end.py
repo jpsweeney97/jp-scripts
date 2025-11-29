@@ -178,7 +178,7 @@ def test_god_mode_cycle(
 
     # Verify AGENTS.md content was included (proves _load_constitution ran)
     prompt = captured_prompts[0]
-    assert "Constitution" in prompt or "mypy --strict" in prompt, (
+    assert '"invariants"' in prompt or "mypy --strict" in prompt, (
         f"AGENTS.md content not found in prompt. First 500 chars: {prompt[:500]}"
     )
 

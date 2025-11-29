@@ -25,7 +25,6 @@ _FUNCTION_COMMANDS: dict[str, dict[str, str]] = {
     "git_ops": {"status-all": "status_all", "whatpush": "whatpush", "sync": "sync"},
     "nav": {"recent": "recent", "proj": "proj"},
     "init": {"init": "init", "config-fix": "config_fix"},
-    "handbook": {"handbook": "handbook", "verify-protocol": "verify_protocol"},
     "web": {"web-snap": "web_snap"},
     "system": {
         "process-kill": "process_kill",

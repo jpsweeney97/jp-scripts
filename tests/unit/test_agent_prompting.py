@@ -8,6 +8,7 @@ import pytest
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.agent import prepare_agent_prompt
+from jpscripts.core.context import GatherContextResult
 
 
 @pytest.mark.asyncio
@@ -19,7 +20,7 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
         AsyncMock(return_value=("feature/test", "abc1234", False)),
     ), patch(
         "jpscripts.core.agent.gather_context",
-        AsyncMock(return_value=("log output", {file_path})),
+        AsyncMock(return_value=GatherContextResult(output="log output", files={file_path})),
     ), patch(
         "jpscripts.core.agent.smart_read_context",
         return_value="file snippet",
@@ -79,7 +80,7 @@ async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path:
 @pytest.mark.asyncio
 async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        "<constitution>Rule 1: Be helpful.</constitution>",
+        json.dumps({"constitution": {"invariants": [{"id": "test", "rules": ["Rule 1: Be helpful."]}]}}),
         encoding="utf-8",
     )
 
@@ -101,5 +102,6 @@ async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -
         )
 
     prompt = json.loads(prepared.prompt)
-    assert "Rule 1: Be helpful." in prompt["system_context"]["constitution"]
+    constitution = prompt["system_context"]["constitution"]
+    assert constitution["invariants"][0]["rules"][0] == "Rule 1: Be helpful."
     assert "response_contract" in prompt

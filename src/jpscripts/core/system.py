@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import functools
 import http.server
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -35,19 +36,30 @@ class CommandResult:
     stderr: str
 
 
-class CommandRunner(Protocol):
-    async def run(self, tokens: list[str], cwd: Path) -> Result[CommandResult, SystemResourceError]:
+class SandboxProtocol(Protocol):
+    async def run_command(
+        self,
+        tokens: list[str],
+        cwd: Path,
+        env: dict[str, str] | None = None,
+    ) -> Result[CommandResult, SystemResourceError]:
         ...
 
 
-class LocalRunner:
-    async def run(self, tokens: list[str], cwd: Path) -> Result[CommandResult, SystemResourceError]:
+class LocalSandbox:
+    async def run_command(
+        self,
+        tokens: list[str],
+        cwd: Path,
+        env: dict[str, str] | None = None,
+    ) -> Result[CommandResult, SystemResourceError]:
         try:
             proc = await asyncio.create_subprocess_exec(
                 *tokens,
                 cwd=cwd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=env,
             )
         except FileNotFoundError as exc:
             return Err(SystemResourceError("Command not found", context={"error": str(exc), "cmd": tokens}))
@@ -64,23 +76,46 @@ class LocalRunner:
         )
 
 
-class DockerRunner:
-    def __init__(self, image: str) -> None:
+class DockerSandbox:
+    def __init__(self, image: str, workspace_root: Path) -> None:
         self.image = image
+        self.workspace_root = workspace_root
 
-    async def run(self, tokens: list[str], cwd: Path) -> Result[CommandResult, SystemResourceError]:
+    async def run_command(
+        self,
+        tokens: list[str],
+        cwd: Path,
+        env: dict[str, str] | None = None,
+    ) -> Result[CommandResult, SystemResourceError]:
         docker_binary = shutil.which("docker")
         if not docker_binary:
             return Err(SystemResourceError("Docker binary not found", context={"image": self.image}))
+
+        mount_root = self.workspace_root.expanduser().resolve()
+        workdir = "/workspace"
+        try:
+            rel = cwd.resolve().relative_to(mount_root)
+            workdir = str(Path("/workspace") / rel)
+        except Exception:
+            pass
+
+        docker_env: list[str] = []
+        for key, value in (env or {}).items():
+            docker_env.extend(["-e", f"{key}={value}"])
+
+        user_flag = f"{os.getuid()}:{os.getgid()}"
 
         docker_cmd = [
             docker_binary,
             "run",
             "--rm",
             "-v",
-            f"{cwd}:/workspace",
+            f"{mount_root}:/workspace",
             "-w",
-            "/workspace",
+            workdir,
+            "-u",
+            user_flag,
+            *docker_env,
             self.image,
             *tokens,
         ]
@@ -106,10 +141,10 @@ class DockerRunner:
         )
 
 
-def get_runner(config: AppConfig | None) -> CommandRunner:
+def get_sandbox(config: AppConfig | None) -> SandboxProtocol:
     if config and config.use_docker_sandbox:
-        return DockerRunner(config.docker_image)
-    return LocalRunner()
+        return DockerSandbox(config.docker_image, config.workspace_root)
+    return LocalSandbox()
 
 
 def _format_cmdline(proc: psutil.Process) -> str:
@@ -164,8 +199,8 @@ async def kill_process_async(pid: int, force: bool = False, config: AppConfig | 
         logger.info("Did not kill PID %s (dry-run)", pid)
         return Ok("dry-run")
 
-    runner = get_runner(config)
-    if isinstance(runner, DockerRunner):
+    runner = get_sandbox(config)
+    if isinstance(runner, DockerSandbox):
         return Err(
             SystemResourceError(
                 "Killing host processes is not supported in docker sandbox mode.",

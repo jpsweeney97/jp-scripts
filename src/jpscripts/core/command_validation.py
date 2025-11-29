@@ -1,8 +1,10 @@
 """
-Tokenized command validation for secure shell execution.
+Tokenized command validation for secure shell execution (pre-flight).
 
 This module provides robust command validation using proper tokenization
 instead of regex-based pattern matching, preventing common bypass techniques.
+At runtime, isolation is enforced by sandboxes (e.g., Docker); this validation
+serves as an early rejection layer to avoid obviously dangerous commands.
 
 Usage:
     from jpscripts.core.command_validation import validate_command, CommandVerdict
@@ -211,7 +213,7 @@ def validate_command(
     strict_git: bool = True,
 ) -> tuple[CommandVerdict, str]:
     """
-    Validate a command using tokenized analysis.
+    Validate a command using tokenized analysis (pre-flight).
 
     This function parses the command into tokens and validates each
     component, preventing common bypass techniques like:
