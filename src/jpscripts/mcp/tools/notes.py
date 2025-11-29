@@ -14,7 +14,7 @@ async def append_daily_note(message: str) -> str:
     try:
         ctx = get_runtime()
         target_dir = ctx.config.notes_dir.expanduser()
-        path = await asyncio.to_thread(append_to_daily_note, target_dir, message)
+        path = await append_to_daily_note(target_dir, message)
         return f"Successfully logged to daily note: {path}"
     except Exception as e:
         return f"Error appending note: {str(e)}"

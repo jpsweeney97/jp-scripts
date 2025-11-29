@@ -5,6 +5,7 @@ import contextvars
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
+from time import perf_counter
 from typing import Mapping
 from uuid import uuid4
 
@@ -24,6 +25,7 @@ from .core.registry import discover_commands
 from .core.runtime import RuntimeContext, _runtime_ctx
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
+logger = logging.getLogger(__name__)
 
 # Token for CLI runtime context (established in callback, persists through command)
 _cli_runtime_token: contextvars.Token[RuntimeContext | None] | None = None
@@ -193,7 +195,14 @@ def _register_commands() -> None:
         app.command(spec.name)(spec.handler)
 
 
-_register_commands()
+def _register_commands_with_timing() -> None:
+    start = perf_counter()
+    _register_commands()
+    elapsed = perf_counter() - start
+    logger.debug("Command registry initialized in %.3f seconds", elapsed)
+
+
+_register_commands_with_timing()
 
 def cli() -> None:
     app()

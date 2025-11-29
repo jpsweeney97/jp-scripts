@@ -26,9 +26,10 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
+import functools
 import getpass
 import os
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -76,18 +77,24 @@ class PathValidationError(PermissionError, SecurityError):
 
 def _is_git_repo(path: Path) -> bool:
     """Check if path is a git repository."""
-    async def _probe() -> bool:
-        match await git_core.is_repo(path):
-            case Ok(flag):
-                return flag
-            case Err(_):
-                return False
+    try:
+        resolved = path.expanduser().resolve()
+    except OSError:
+        return False
 
     try:
-        return asyncio.run(_probe())
-    except RuntimeError:
-        # Fallback when running inside an event loop; treat as not a repo to avoid blocking.
+        proc = subprocess.run(
+            ["git", "-C", str(resolved), "rev-parse", "--is-inside-work-tree"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+    except OSError:
         return False
+
+    if proc.returncode != 0:
+        return False
+    return proc.stdout.strip().lower() == "true"
 
 
 def _is_owned_by_current_user(path: Path) -> bool:
@@ -116,22 +123,9 @@ def _is_owned_by_current_user(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def validate_workspace_root_safe(root: Path | str) -> Result[Path, WorkspaceError]:
-    """Validate and resolve a workspace root path.
-
-    A valid workspace root must:
-    - Exist
-    - Be a directory
-    - Be either a git repository OR owned by the current user
-
-    Args:
-        root: The workspace root path to validate
-
-    Returns:
-        Ok(resolved_path) if valid, Err(WorkspaceError) otherwise
-    """
-    resolved = Path(root).expanduser().resolve()
-
+@functools.lru_cache(maxsize=128)
+def _validate_workspace_root_cached(resolved: Path) -> Result[Path, WorkspaceError]:
+    """Cached workspace validation for normalized paths."""
     if not resolved.exists():
         return Err(
             WorkspaceError(
@@ -157,6 +151,24 @@ def validate_workspace_root_safe(root: Path | str) -> Result[Path, WorkspaceErro
         )
 
     return Ok(resolved)
+
+
+def validate_workspace_root_safe(root: Path | str) -> Result[Path, WorkspaceError]:
+    """Validate and resolve a workspace root path.
+
+    A valid workspace root must:
+    - Exist
+    - Be a directory
+    - Be either a git repository OR owned by the current user
+
+    Args:
+        root: The workspace root path to validate
+
+    Returns:
+        Ok(resolved_path) if valid, Err(WorkspaceError) otherwise
+    """
+    resolved = Path(root).expanduser().resolve()
+    return _validate_workspace_root_cached(resolved)
 
 
 def validate_path_safe(

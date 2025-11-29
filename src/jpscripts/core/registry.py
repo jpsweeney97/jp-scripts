@@ -64,9 +64,20 @@ def _module_name(path: Path) -> str:
 def _import_module(module_name: str) -> object | None:
     try:
         return importlib.import_module(module_name)
-    except Exception as exc:  # pragma: no cover - defensive
+    except ImportError as exc:  # pragma: no cover - defensive
         logger.error("Failed to import command module %s: %s", module_name, exc)
         return None
+
+
+def _load_command_exports() -> set[str]:
+    try:
+        from jpscripts import commands as commands_pkg
+
+        exports = getattr(commands_pkg, "__all__", [])
+        return {name for name in exports if isinstance(name, str)}
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Unable to read commands.__all__: %s", exc)
+        return set()
 
 
 def _build_function_commands(module_name: str, module: object) -> list[CommandSpec]:
@@ -90,6 +101,7 @@ def discover_commands(package_path: Path, package: str = "jpscripts.commands") -
     """
     typer_modules: list[tuple[str, CommandModule]] = []
     function_commands: list[CommandSpec] = []
+    command_exports = _load_command_exports()
 
     for file in package_path.glob("*.py"):
         if file.name.startswith("_"):
@@ -97,6 +109,8 @@ def discover_commands(package_path: Path, package: str = "jpscripts.commands") -
         module_name = _module_name(file)
         if module_name == "__init__":
             continue
+        if command_exports and module_name not in command_exports:
+            logger.debug("Command module %s not declared in commands.__all__", module_name)
         import_path = f"{package}.{module_name}"
         module = _import_module(import_path)
         if module is None:

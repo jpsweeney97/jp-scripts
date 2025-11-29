@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import pytest
 from pathlib import Path
 from unittest.mock import patch
 
@@ -28,12 +29,13 @@ def test_get_today_path_format() -> None:
 
     assert result == Path("/tmp/notes/2025-11-24.md")
 
-def test_append_to_daily_note_creates_and_appends(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_append_to_daily_note_creates_and_appends(tmp_path: Path) -> None:
     """Verify it creates a file and appends content with a timestamp."""
     notes_dir = tmp_path / "my-notes"
 
     # 1. First write (creates file)
-    path = notes_impl.append_to_daily_note(notes_dir, "First entry")
+    path = await notes_impl.append_to_daily_note(notes_dir, "First entry")
 
     assert path.exists()
     content = path.read_text(encoding="utf-8")
@@ -41,7 +43,7 @@ def test_append_to_daily_note_creates_and_appends(tmp_path: Path) -> None:
     assert "- [" in content  # Check for timestamp bracket
 
     # 2. Second write (appends)
-    notes_impl.append_to_daily_note(notes_dir, "Second entry")
+    await notes_impl.append_to_daily_note(notes_dir, "Second entry")
 
     content_updated = path.read_text(encoding="utf-8")
     lines = content_updated.strip().splitlines()

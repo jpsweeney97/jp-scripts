@@ -39,7 +39,7 @@ def note(
 
     if message:
         # Use core logic to write
-        notes_impl.append_to_daily_note(notes_dir, message)
+        asyncio.run(notes_impl.append_to_daily_note(notes_dir, message))
         console.print(f"[green]Appended to[/green] {note_path}")
         return
 
