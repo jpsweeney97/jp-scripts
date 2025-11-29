@@ -18,6 +18,7 @@ from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.config import AppConfig
 from jpscripts.core.system import CommandResult, get_sandbox
 from jpscripts.core.result import Err
+from jpscripts.core.governance import check_compliance, format_violations_for_agent, Violation
 
 logger = get_logger(__name__)
 
@@ -145,6 +146,8 @@ class AgentEngine(Generic[ResponseT]):
         memory: MemoryProtocol | None = None,
         template_root: Path | None = None,
         trace_dir: Path | None = None,
+        workspace_root: Path | None = None,
+        governance_enabled: bool = True,
     ) -> None:
         self.persona = persona
         self.model = model
@@ -156,6 +159,8 @@ class AgentEngine(Generic[ResponseT]):
         self._memory = memory
         self._template_root = template_root
         self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
+        self._workspace_root = workspace_root
+        self._governance_enabled = governance_enabled
 
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)
@@ -164,8 +169,82 @@ class AgentEngine(Generic[ResponseT]):
         prepared = await self._render_prompt(history)
         raw = await self._fetch_response(prepared)
         response = self._parser(raw)
+
+        # Apply governance check if enabled and workspace_root is set
+        if self._governance_enabled and self._workspace_root is not None:
+            response = await self._enforce_governance(response, history)
+
         await self._record_trace(history, response)
         return response
+
+    async def _enforce_governance(
+        self, response: ResponseT, history: list[Message]
+    ) -> ResponseT:
+        """Check response for constitutional violations and request corrections.
+
+        Implements "warn + prompt" strategy: violations are fed back to the agent
+        for correction with a single retry attempt.
+
+        Args:
+            response: The parsed agent response
+            history: Conversation history for context
+
+        Returns:
+            Original response if compliant, or corrected response after retry
+        """
+        # Only check responses with file patches
+        if not hasattr(response, "file_patch"):
+            return response
+
+        file_patch = getattr(response, "file_patch", None)
+        if not file_patch or not self._workspace_root:
+            return response
+
+        # Check for violations
+        violations = check_compliance(str(file_patch), self._workspace_root)
+        if not violations:
+            return response
+
+        # Log violations
+        error_count = sum(1 for v in violations if v.severity == "error")
+        warning_count = len(violations) - error_count
+        logger.warning(
+            "Governance violations detected: %d errors, %d warnings",
+            error_count,
+            warning_count,
+        )
+
+        # Format feedback and inject into history
+        feedback = format_violations_for_agent(violations)
+        governance_message = Message(
+            role="system",
+            content=f"<GovernanceViolation>\n{feedback}\n</GovernanceViolation>",
+        )
+
+        # Create new history with violation feedback
+        corrected_history = list(history) + [governance_message]
+
+        # Re-prompt for correction (single retry)
+        try:
+            prepared = await self._render_prompt(corrected_history)
+            raw = await self._fetch_response(prepared)
+            corrected_response = self._parser(raw)
+
+            # Check if correction succeeded
+            corrected_patch = getattr(corrected_response, "file_patch", None)
+            if corrected_patch:
+                remaining = check_compliance(str(corrected_patch), self._workspace_root)
+                remaining_errors = sum(1 for v in remaining if v.severity == "error")
+                if remaining_errors > 0:
+                    logger.warning(
+                        "Governance violations remain after correction: %d errors",
+                        remaining_errors,
+                    )
+
+            return corrected_response
+        except Exception as exc:
+            logger.warning("Governance correction failed: %s", exc)
+            return response
 
     async def _record_trace(self, history: Sequence[Message], response: BaseModel, tool_output: str | None = None) -> None:
         try:

@@ -29,7 +29,7 @@ from jpscripts.core.engine import (
     ToolCall,
     parse_agent_response,
 )
-from jpscripts.core.memory import query_memory, save_memory
+from jpscripts.core.memory import query_memory, save_memory, fetch_relevant_patterns, format_patterns_for_prompt
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.structure import generate_map, get_import_dependencies
@@ -219,6 +219,21 @@ async def prepare_agent_prompt(
             except Exception as exc:
                 logger.debug("Memory query from base prompt failed: %s", exc)
 
+    # Fetch relevant patterns for prompt injection
+    patterns_section = ""
+    try:
+        patterns = await fetch_relevant_patterns(
+            base_prompt.strip() or diagnostic_section[:500],
+            config,
+            limit=3,
+            min_confidence=0.6,
+        )
+        if patterns:
+            patterns_section = format_patterns_for_prompt(patterns)
+            logger.debug("Injecting %d patterns into prompt", len(patterns))
+    except Exception as exc:
+        logger.debug("Pattern fetch failed: %s", exc)
+
     logger.debug(
         "Token budget allocation: %s, remaining: %d",
         budget.summary(),
@@ -238,6 +253,7 @@ async def prepare_agent_prompt(
         "file_context_section": file_context_section,
         "dependency_section": dependency_section,
         "git_diff_section": git_diff_section,
+        "patterns_section": patterns_section,
         "instruction": base_prompt.strip(),
         "tool_history": tool_history or "",
         "response_schema": response_schema,
@@ -927,6 +943,7 @@ async def run_repair_loop(
 
                 # Lambda with default args from captured scope; mypy cannot infer types
                 # tools=None uses unified registry from get_tool_registry()
+                # workspace_root enables governance checks for constitutional compliance
                 engine = AgentEngine[AgentResponse](
                     persona="Engineer",
                     model=model or config.default_model,
@@ -937,6 +954,8 @@ async def run_repair_loop(
                     parser=parse_agent_response,
                     tools={} if strategy == "step_back" else None,
                     template_root=root,
+                    workspace_root=root,
+                    governance_enabled=True,
                 )
 
                 try:

@@ -37,10 +37,119 @@ Result: slower per retry, higher precision, fewer insanity loops.
 
 ## God-Mode Watch (jp watch)
 
-- Monitors `workspace_root` via `watchdog`, honoring `ignore_dirs`.  
-- On `.py` save: `ruff check --select E9,F821` (syntax gate); red alert on failure.  
-- On text save: debounced (5s) LanceDB embedding refresh so `jp memory search` is always current.  
+- Monitors `workspace_root` via `watchdog`, honoring `ignore_dirs`.
+- On `.py` save: `ruff check --select E9,F821` (syntax gate); red alert on failure.
+- On text save: debounced (5s) LanceDB embedding refresh so `jp memory search` is always current.
 - Live dashboard (`rich.live`) displays recent events and task status. Leave it running.
+
+---
+
+## The Evolve Loop (jp evolve)
+
+Autonomous technical debt reduction that identifies, optimizes, and PRs improvements.
+
+### How It Works
+
+1. **Debt Analysis**: Computes McCabe cyclomatic complexity for all Python files.
+2. **Frequency Weighting**: Queries memory for files with frequent fix history.
+3. **Debt Score**: `Complexity x (1 + Fix_Frequency)` identifies highest-value targets.
+4. **Optimization**: Launches "Optimizer" persona to reduce complexity.
+5. **PR Workflow**: Creates branch, applies changes, pushes, creates PR for review.
+
+### Usage
+
+```bash
+# Analyze without changes
+jp evolve run --dry-run
+
+# Run optimization (creates PR when successful)
+jp evolve run --threshold 15
+
+# Use specific model
+jp evolve run --model claude-opus-4-5
+
+# Show complexity report only
+jp evolve report
+
+# Show debt scores
+jp evolve debt
+```
+
+### Constraints
+
+- Only runs on clean git state (no uncommitted changes)
+- Respects all constitutional rules (AGENTS.md)
+- Preserves public interfaces (pure refactoring)
+- All changes must pass `mypy --strict`
+
+---
+
+## Pattern Synthesis
+
+The memory system extracts generalized patterns from successful execution traces.
+
+### How Patterns Are Learned
+
+1. **Trace Analysis**: Reviews last 50 successful trace steps from `~/.jpscripts/traces/`.
+2. **Clustering**: Groups similar fixes by error type and solution approach.
+3. **LLM Synthesis**: Extracts generalized patterns from clusters with 2+ examples.
+4. **Storage**: Patterns stored in dedicated LanceDB collection (`patterns` table).
+
+### Pattern Injection
+
+Relevant patterns are automatically injected into agent prompts:
+- Matched by semantic similarity to current task
+- Filtered by confidence threshold (60%)
+- Provides solution approaches that worked before
+
+### Manual Consolidation
+
+```bash
+# Run pattern extraction
+jp memory consolidate --model claude-sonnet-4-5
+
+# View learned patterns (via LanceDB directly)
+```
+
+### Pattern Structure
+
+- **pattern_type**: `fix_pattern`, `refactor_pattern`, `test_pattern`
+- **trigger**: When to apply (error type, code smell, etc.)
+- **solution**: Generic solution approach
+- **confidence**: 0.0-1.0 based on consistency across examples
+
+---
+
+## Constitutional Governance
+
+All agent-generated code is checked against AGENTS.md constitutional rules.
+
+### Enforcement Strategy: Warn + Prompt
+
+When violations are detected in proposed patches:
+1. Violations formatted as structured feedback
+2. Agent prompted to revise the patch (single retry)
+3. Remaining violations logged for transparency
+
+### Checked Violations
+
+| Type | Rule | Severity |
+|:-----|:-----|:---------|
+| `SYNC_SUBPROCESS` | `subprocess.run` in async without `asyncio.to_thread` | error |
+| `BARE_EXCEPT` | `except:` without specific exception | error |
+| `SHELL_TRUE` | `shell=True` in subprocess calls | error |
+| `UNTYPED_ANY` | `Any` without `type: ignore` comment | warning |
+| `OS_SYSTEM` | `os.system()` usage (always forbidden) | error |
+| `SYNC_OPEN` | `open()` in async context without wrapping | warning |
+
+### How It Works
+
+The governance check runs automatically in `AgentEngine.step()`:
+1. Parse proposed diff
+2. Apply AST analysis to changed Python code
+3. Detect constitutional violations
+4. If violations found, inject feedback and re-prompt
+5. Log remaining violations after retry
 
 ---
 

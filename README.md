@@ -32,6 +32,33 @@ pip install -e ".[dev]"
 pip install -e ".[ai]"
 ```
 
+## Autonomous Evolution
+
+`jp evolve` proactively identifies and refactors high technical debt code:
+
+```bash
+# Analyze without changes
+jp evolve run --dry-run
+
+# Run optimization (creates PR when successful)
+jp evolve run --threshold 15
+
+# Show complexity report
+jp evolve report
+
+# Show debt scores (complexity × fix frequency)
+jp evolve debt
+```
+
+**How it works:**
+1. Computes McCabe cyclomatic complexity for all Python files
+2. Queries memory for fix frequency (files that often need fixes)
+3. Calculates debt score: `Complexity × (1 + Fix_Frequency)`
+4. Launches "Optimizer" agent to reduce complexity in the top file
+5. Creates branch, applies changes, creates PR for review
+
+All changes are validated against constitutional rules (AGENTS.md) and must pass `mypy --strict`.
+
 ## Config Reference
 
 `jpscripts` loads configuration in this order: CLI flags → environment variables → config file (`~/.jpconfig` or `JPSCRIPTS_CONFIG`) → defaults. Run `jp init` to generate a starter file.
@@ -66,6 +93,9 @@ max_command_output_chars = 20000
 | `config` | — | Show the active configuration and where it came from. |
 | `config-fix` | — | Attempt to fix a broken configuration file using Codex. |
 | `doctor` | --tool/-t | Inspect external dependencies in parallel. |
+| `evolve run` | --dry-run, --model/-m, --threshold/-t | Autonomous code evolution: identify highest technical debt file, optimize via LLM, and create PR. Uses McCabe complexity × fix frequency scoring. |
+| `evolve report` | --limit/-n | Show complexity report for the codebase (most complex files and functions). |
+| `evolve debt` | --limit/-n | Show technical debt scores combining complexity and fix frequency. |
 | `fix` | prompt, --recent/-r, --diff, --run/-x, --full-auto/-y, --model/-m, --provider/-p, --loop, --max-retries, --keep-failed, --archive, --web | Delegate a task to an LLM agent. Supports multiple providers: - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.) - OpenAI GPT/o1 (gpt-4o, o1, etc.) - Codex CLI (default for backward compatibility) Examples: jp agent "Fix the failing test" --run "pytest tests/" jp agent "Explain this code" --model claude-opus-4-5 --provider anthropic jp fix "Debug the error" --run "python main.py" --loop |
 | `gbrowse` | --repo/-r, --target | Open the current repo/branch/commit on GitHub. |
 | `git-branchcheck` | --repo/-r | List branches with upstream and ahead/behind counts. |

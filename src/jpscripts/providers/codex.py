@@ -29,6 +29,7 @@ from __future__ import annotations
 import asyncio
 import json
 import shutil
+import warnings
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from jpscripts.core.console import get_logger
@@ -173,10 +174,19 @@ class CodexProvider(BaseLLMProvider):
         self._full_auto = full_auto
         self._web_enabled = web_enabled
         self._codex_bin: str | None = None
+
+        # Emit formal deprecation warning
+        warnings.warn(
+            "CodexProvider is deprecated for jp fix. Use --provider anthropic or "
+            "--provider openai for native API access. The Codex CLI wrapper will be "
+            "removed in jp-scripts 3.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         logger.warning(
-            "NOTICE: CodexProvider wraps the external Codex CLI binary. "
-            "It is a legacy adapter and will be replaced by the native Python SDK "
-            "in a future release."
+            "DEPRECATION: CodexProvider wraps the external Codex CLI binary. "
+            "This adapter is deprecated and will be removed in a future release. "
+            "Use native providers (anthropic, openai) instead."
         )
 
     def _get_codex_binary(self) -> str:
