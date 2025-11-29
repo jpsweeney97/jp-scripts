@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import AsyncIterator, Iterable, Literal, Sequence
+from typing import AsyncIterator, Iterable, Literal, Sequence, cast
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -91,11 +91,22 @@ class SwarmState(BaseModel):
     artifacts: list[str] = Field(default_factory=list)
 
 
+class SpawnRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    persona: str
+    objective: str
+    context_files: list[str] = Field(default_factory=list)
+
+
 class AgentTurnResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     swarm_state: SwarmState
-    next_step: Literal["architect", "engineer", "qa", "finish"] = "finish"
+    spawn_tasks: list[SpawnRequest] = Field(default_factory=list)
+    next_step: Literal["architect", "engineer", "qa", "finish"] | None = Field(
+        default=None, description="DEPRECATED: single-step handoff; use spawn_tasks."
+    )
 
 
 @dataclass
@@ -160,7 +171,10 @@ def _render_swarm_prompt(
 
     context_section = f"\n\nRepository context (from git status):\n{context_log.strip()}" if context_log.strip() else ""
     file_section = _format_file_snippets(context_files, max_chars=max_file_context_chars)
-    handoff_guidance = "Use `next_step` to route work to the appropriate persona (engineer/qa) or `finish` when done."
+    handoff_guidance = (
+        "Use `spawn_tasks` to launch parallel work (e.g., multiple Engineers on distinct files). "
+        "Use `next_step` only if a single sequential handoff is needed (deprecated)."
+    )
 
     render_context = {
         "persona_label": persona.label,
@@ -266,6 +280,8 @@ class SwarmController:
         self.max_file_context_chars = self.config.max_file_context_chars
         self._next_role: Persona | None = None
         self._engines: dict[str, AgentEngine[AgentTurnResponse]] = {}
+        self.pending_tasks: list[SpawnRequest] = []
+        self.extra_context_files: list[Path] = []
 
     def _starting_role(self) -> Persona | None:
         if not self.roles:
@@ -298,10 +314,41 @@ class SwarmController:
             return suggested
         return self._default_next_role(current)
 
+    def _select_roles_for_spawn(self, persona_name: str | None) -> list[Persona]:
+        if persona_name:
+            matched = [role for role in self.roles if role.name.lower() == persona_name.lower()]
+            if matched:
+                # Include QA if available to verify spawned work
+                qa_roles = [role for role in self.roles if role.name.lower() == "qa"]
+                return matched + qa_roles
+        # Fallback to all roles minus architect to avoid recursive planning
+        return [role for role in self.roles if role.name.lower() != "architect"]
+
+    def _create_subcontroller(self, request: SpawnRequest) -> "SwarmController":
+        sub_roles = self._select_roles_for_spawn(request.persona)
+        controller = SwarmController(
+            objective=request.objective,
+            roles=sub_roles,
+            config=self.config,
+            repo_root=self.root,
+            model=self.model,
+            safe_mode=self.safe_mode,
+            max_turns=self.max_turns,
+        )
+        context_paths: list[Path] = []
+        for raw in request.context_files:
+            try:
+                resolved = security.validate_path(self.root / raw, self.root)
+                context_paths.append(resolved)
+            except Exception:
+                continue
+        controller.extra_context_files = context_paths
+        return controller
+
     async def _initialize(self) -> None:
         context_log, context_files = await _collect_repo_context(self.root, self.config)
         self.context_log = context_log
-        self.context_files = context_files
+        self.context_files = context_files + self.extra_context_files
         self.swarm_state = SwarmState(
             objective=Objective(summary=self.objective),
             plan_steps=[],
@@ -354,9 +401,11 @@ class SwarmController:
         await self.queue.put(AgentUpdate(role, "exit", "0"))
 
         self.swarm_state = response.swarm_state
-        next_step = response.next_step
+        if response.spawn_tasks:
+            self.pending_tasks.extend(response.spawn_tasks)
 
-        yield AgentUpdate(role, "status", f"completed turn -> next: {next_step or 'finish'}")
+        next_step = response.next_step
+        yield AgentUpdate(role, "status", f"completed turn -> next: {next_step or 'auto'}")
         next_role = self._resolve_next_role(role, next_step)
         if next_role is not None:
             yield AgentUpdate(next_role, "status", "queued")
@@ -375,6 +424,24 @@ class SwarmController:
             turn += 1
             async for update in self._run_turn(current_role):
                 yield update
+            if self.pending_tasks:
+                controllers = [self._create_subcontroller(task) for task in self.pending_tasks]
+                self.pending_tasks = []
+
+                async def _collect_updates(controller: "SwarmController") -> list[AgentUpdate]:
+                    collected: list[AgentUpdate] = []
+                    async for upd in controller.run():
+                        collected.append(upd)
+                    return collected
+
+                results = await asyncio.gather(*[_collect_updates(ctrl) for ctrl in controllers], return_exceptions=True)
+                for result in results:
+                    if isinstance(result, Exception):  # pragma: no cover - defensive
+                        yield AgentUpdate(Persona(name="Architect", style="", color="red"), "stderr", f"Sub-swarm error: {result}")
+                        continue
+                    updates = cast(list[AgentUpdate], result)
+                    for upd in updates:
+                        yield upd
             current_role = getattr(self, "_next_role", None)
 
         if turn >= self.max_turns:

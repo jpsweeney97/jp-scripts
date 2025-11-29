@@ -8,6 +8,7 @@ from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from importlib import import_module
+from math import sqrt
 from pathlib import Path
 from typing import Any, Coroutine, Protocol, Sequence, TYPE_CHECKING, TypeVar, cast
 from urllib import error as urllib_error
@@ -18,6 +19,8 @@ from uuid import uuid4
 from jpscripts.core.config import AppConfig, ConfigError
 from jpscripts.core.console import get_logger
 from jpscripts.core.result import CapabilityMissingError, ConfigurationError, Err, JPScriptsError, Ok, Result
+from jpscripts.providers import CompletionOptions, Message as ProviderMessage, ProviderError
+from jpscripts.providers.factory import get_provider
 
 if TYPE_CHECKING:
     from lancedb.pydantic import LanceModel as LanceModelBase  # type: ignore[import-untyped]
@@ -765,6 +768,17 @@ def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
     return base_score * decay
 
 
+def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
+    if len(vec_a) != len(vec_b) or not vec_a:
+        return 0.0
+    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    norm_a = sqrt(sum(a * a for a in vec_a))
+    norm_b = sqrt(sum(b * b for b in vec_b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 0.0
+    return dot / (norm_a * norm_b)
+
+
 def get_memory_store(
     config: AppConfig,
     store_path: Path | None = None,
@@ -790,6 +804,114 @@ def get_memory_store(
             return Err(ConfigError(f"Failed to initialize LanceDB store at {resolved_store}: {exc}"))
 
     return Ok(HybridMemoryStore(archiver, vector_store))
+
+
+async def cluster_memories(
+    config: AppConfig,
+    similarity_threshold: float = 0.85,
+) -> Result[list[list[MemoryEntry]], JPScriptsError]:
+    """Group memories into clusters based on cosine similarity."""
+    match get_memory_store(config):
+        case Err(err):
+            if isinstance(err, JPScriptsError):
+                return Err(err)
+            return Err(ConfigurationError(str(err)))
+        case Ok(store):
+            pass
+
+    if not isinstance(store, HybridMemoryStore) or store.vector_store is None:
+        return Err(CapabilityMissingError("LanceDB is required for clustering memories."))
+
+    entries = await asyncio.to_thread(store.archiver.load_entries)
+    candidates = [entry for entry in entries if entry.embedding is not None]
+    if not candidates:
+        return Ok([])
+
+    candidates.sort(key=lambda e: e.ts)
+    clusters: list[list[MemoryEntry]] = []
+
+    for entry in candidates:
+        embedding = entry.embedding
+        if embedding is None:
+            continue
+        placed = False
+        for cluster in clusters:
+            representative = cluster[0]
+            rep_embedding = representative.embedding or []
+            if _cosine_similarity(embedding, rep_embedding) >= similarity_threshold:
+                cluster.append(entry)
+                placed = True
+                break
+        if not placed:
+            clusters.append([entry])
+
+    dense_clusters = [cluster for cluster in clusters if len(cluster) > 1]
+    return Ok(dense_clusters)
+
+
+async def synthesize_cluster(
+    entries: Sequence[MemoryEntry],
+    config: AppConfig,
+    *,
+    model: str | None = None,
+) -> Result[MemoryEntry, JPScriptsError]:
+    """Synthesize a canonical memory from a cluster."""
+    if not entries:
+        return Err(ConfigurationError("Cannot synthesize from an empty cluster."))
+
+    model_id = model or config.default_model
+    try:
+        provider = get_provider(config, model_id=model_id)
+    except Exception as exc:
+        return Err(ConfigurationError("Failed to initialize provider", context={"error": str(exc)}))
+
+    ordered = sorted(entries, key=lambda e: e.ts)
+    lines = []
+    for entry in ordered:
+        line_tags = ",".join(entry.tags) if entry.tags else "none"
+        source = entry.source_path or "unknown"
+        lines.append(f"- ts={entry.ts}; tags={line_tags}; source={source}; content={entry.content}")
+
+    system_prompt = (
+        "These memories describe the same topic. Merge them into a single, canonical 'Truth' entry. "
+        "Resolve contradictions by favoring the most recent timestamp."
+    )
+    messages = [
+        ProviderMessage(role="system", content=system_prompt),
+        ProviderMessage(role="user", content="\n".join(lines)),
+    ]
+    options = CompletionOptions(temperature=0.2, reasoning_effort="high")
+
+    try:
+        response = await provider.complete(messages=messages, model=model_id, options=options)
+    except ProviderError as exc:
+        return Err(ConfigurationError("LLM synthesis failed", context={"error": str(exc)}))
+    except Exception as exc:  # pragma: no cover - defensive
+        return Err(ConfigurationError("LLM synthesis failed", context={"error": str(exc)}))
+
+    synthesized_content = response.content.strip()
+    aggregated_tags = sorted({tag for entry in entries for tag in entry.tags} | {"truth"})
+    token_source = f"{synthesized_content} {' '.join(aggregated_tags)}".strip()
+    source_paths = sorted({entry.source_path for entry in entries if entry.source_path})
+    source_metadata = ";".join(source_paths) if source_paths else None
+
+    new_entry = MemoryEntry(
+        id=uuid4().hex,
+        ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        content=synthesized_content,
+        tags=aggregated_tags,
+        tokens=_tokenize(token_source),
+        source_path=source_metadata,
+        content_hash=None,
+    )
+
+    use_semantic, model_name, server_url = _embedding_settings(config)
+    embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
+    vectors = embedding_client.embed([_compose_embedding_text(new_entry)]) if use_semantic else None
+    if vectors:
+        new_entry.embedding = vectors[0]
+
+    return Ok(new_entry)
 
 
 def save_memory(

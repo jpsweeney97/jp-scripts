@@ -4,14 +4,18 @@ from __future__ import annotations
 
 import json
 from datetime import datetime
+import time
 from pathlib import Path
 
 import typer
 from rich import box
+from rich.console import Group
+from rich.live import Live
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
+from rich.tree import Tree
 
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
@@ -58,6 +62,71 @@ def _get_persona_color(persona: str) -> str:
         "qa": "yellow",
     }
     return colors.get(persona.lower(), "white")
+
+
+def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
+    if not steps:
+        return Group(Panel("No steps recorded.", title="Trace", border_style="red"))
+
+    first = steps[0]
+    root_label = f"{trace_id} / {first.timestamp} / {first.agent_persona}"
+    tree = Tree(root_label, guide_style="dim")
+
+    context_branch = tree.add("Context")
+    for msg in first.input_history:
+        role = msg.get("role", "unknown")
+        content = msg.get("content", "")
+        context_branch.add(f"{role}: {_truncate(content, 160)}")
+
+    execution_branch = tree.add("Execution Flow")
+    total_tokens = 0
+    tool_calls = 0
+    patches = 0
+
+    for idx, step in enumerate(steps, 1):
+        persona_color = _get_persona_color(step.agent_persona)
+        step_node = execution_branch.add(f"[{persona_color}]Step {idx}: {step.agent_persona}[/{persona_color}]")
+
+        thought = step.response.get("thought_process") or ""
+        if thought:
+            step_node.add(Panel(thought, title="Thought", border_style="dim", padding=(0, 1)))
+
+        usage = step.response.get("usage")
+        if usage:
+            tokens = usage.get("total_tokens") or usage.get("tokens") or 0
+            try:
+                total_tokens += int(tokens)
+            except (TypeError, ValueError):
+                pass
+
+        tool_call = step.response.get("tool_call")
+        if tool_call:
+            tool_calls += 1
+            tool_name = tool_call.get("tool", "unknown")
+            tool_args = json.dumps(tool_call.get("arguments", {}), indent=2)
+            tool_node = step_node.add(f"[cyan]Tool Call: {tool_name}[/cyan]")
+            tool_node.add(Panel(tool_args, border_style="blue", padding=(0, 1)))
+            if step.tool_output:
+                tool_node.add(Panel(step.tool_output, title="Output", border_style="dim", padding=(0, 1)))
+
+        patch = step.response.get("file_patch")
+        if patch:
+            patches += 1
+            step_node.add(Panel(Syntax(patch, "diff", line_numbers=True), title="[green]File Patch[/green]", border_style="green"))
+
+        final_msg = step.response.get("final_message")
+        if final_msg:
+            step_node.add(Panel(final_msg, title="Final Message", border_style="magenta", padding=(0, 1)))
+
+    summary = Table.grid(padding=(0, 1))
+    summary.add_column(style="bold")
+    summary.add_column()
+    summary.add_row("Steps", str(len(steps)))
+    summary.add_row("Tool Calls", str(tool_calls))
+    summary.add_row("Patches", str(patches))
+    summary.add_row("Tokens", str(total_tokens) if total_tokens else "unavailable")
+
+    return Group(tree, Panel(summary, title="Trace Summary", box=box.SIMPLE))
 
 
 @app.callback()
@@ -140,6 +209,7 @@ def list_traces(
 def show_trace(
     ctx: typer.Context,
     trace_id: str = typer.Argument(..., help="Trace ID (full or partial)"),
+    watch: bool = typer.Option(False, "--watch", "-w", help="Stream trace updates in real-time."),
 ) -> None:
     """Display detailed trace for a specific execution."""
     _ = ctx
@@ -169,80 +239,34 @@ def show_trace(
     trace_file = matching_files[0]
     console.print(f"[dim]Trace: {trace_file.stem}[/dim]\n")
 
-    # Parse and display all steps
-    try:
-        lines = trace_file.read_text(encoding="utf-8").strip().split("\n")
-    except Exception as exc:
-        console.print(f"[red]Error reading trace: {exc}[/red]")
-        raise typer.Exit(1)
+    def _load_steps() -> list[AgentTraceStep]:
+        try:
+            raw = trace_file.read_text(encoding="utf-8").strip().split("\n")
+        except Exception:
+            return []
+        steps: list[AgentTraceStep] = []
+        for line in raw:
+            step = _parse_trace_line(line)
+            if step:
+                steps.append(step)
+        return steps
 
-    for i, line in enumerate(lines, 1):
-        step = _parse_trace_line(line)
-        if not step:
-            continue
+    def _render_current() -> Group:
+        steps = _load_steps()
+        return _build_trace_tree(trace_file.stem, steps)
 
-        persona = step.agent_persona
-        color = _get_persona_color(persona)
-        timestamp = _format_timestamp(step.timestamp)
+    if watch:
+        with Live(_render_current(), console=console, refresh_per_second=2) as live:
+            try:
+                last_size = trace_file.stat().st_size
+                while True:
+                    time.sleep(1)
+                    current_size = trace_file.stat().st_size
+                    if current_size != last_size:
+                        live.update(_render_current())
+                        last_size = current_size
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopped watching trace.[/yellow]")
+        return
 
-        # Header panel
-        header = Text()
-        header.append(f"Step {i}: ", style="bold")
-        header.append(persona, style=f"bold {color}")
-        header.append(f" @ {timestamp}", style="dim")
-
-        console.print(Panel(header, box=box.HEAVY, style=color))
-
-        # Thought process
-        thought = step.response.get("thought_process", "")
-        if thought:
-            console.print(Panel(
-                thought,
-                title="[bold]Thought Process[/bold]",
-                border_style="dim",
-                padding=(0, 1),
-            ))
-
-        # Tool call
-        tool_call = step.response.get("tool_call")
-        if tool_call:
-            tool_name = tool_call.get("tool", "unknown")
-            tool_args = json.dumps(tool_call.get("arguments", {}), indent=2)
-            console.print(Panel(
-                f"[cyan]{tool_name}[/cyan]\n{tool_args}",
-                title="[bold]Tool Call[/bold]",
-                border_style="blue",
-                padding=(0, 1),
-            ))
-
-        # Tool output
-        if step.tool_output:
-            console.print(Panel(
-                step.tool_output[:500] + ("..." if len(step.tool_output) > 500 else ""),
-                title="[bold]Tool Output[/bold]",
-                border_style="dim",
-                padding=(0, 1),
-            ))
-
-        # File patch
-        patch = step.response.get("file_patch")
-        if patch:
-            syntax = Syntax(patch, "diff", theme="monokai", line_numbers=True)
-            console.print(Panel(
-                syntax,
-                title="[bold]File Patch[/bold]",
-                border_style="green",
-                padding=(0, 1),
-            ))
-
-        # Final message
-        final_msg = step.response.get("final_message")
-        if final_msg:
-            console.print(Panel(
-                final_msg,
-                title="[bold]Final Message[/bold]",
-                border_style="magenta",
-                padding=(0, 1),
-            ))
-
-        console.print()  # Spacing between steps
+    console.print(_render_current())

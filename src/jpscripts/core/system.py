@@ -6,7 +6,7 @@ import http.server
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable
+from typing import Callable, Protocol
 
 import psutil
 from jpscripts.core.config import AppConfig
@@ -26,6 +26,90 @@ class ProcessInfo:
     @property
     def label(self) -> str:
         return f"{self.pid} - {self.name} ({self.username})"
+
+
+@dataclass(slots=True)
+class CommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
+
+
+class CommandRunner(Protocol):
+    async def run(self, tokens: list[str], cwd: Path) -> Result[CommandResult, SystemResourceError]:
+        ...
+
+
+class LocalRunner:
+    async def run(self, tokens: list[str], cwd: Path) -> Result[CommandResult, SystemResourceError]:
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *tokens,
+                cwd=cwd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError as exc:
+            return Err(SystemResourceError("Command not found", context={"error": str(exc), "cmd": tokens}))
+        except Exception as exc:  # pragma: no cover - defensive
+            return Err(SystemResourceError("Failed to start command", context={"error": str(exc), "cmd": tokens}))
+
+        stdout_bytes, stderr_bytes = await proc.communicate()
+        return Ok(
+            CommandResult(
+                returncode=proc.returncode or 0,
+                stdout=stdout_bytes.decode(errors="replace"),
+                stderr=stderr_bytes.decode(errors="replace"),
+            )
+        )
+
+
+class DockerRunner:
+    def __init__(self, image: str) -> None:
+        self.image = image
+
+    async def run(self, tokens: list[str], cwd: Path) -> Result[CommandResult, SystemResourceError]:
+        docker_binary = shutil.which("docker")
+        if not docker_binary:
+            return Err(SystemResourceError("Docker binary not found", context={"image": self.image}))
+
+        docker_cmd = [
+            docker_binary,
+            "run",
+            "--rm",
+            "-v",
+            f"{cwd}:/workspace",
+            "-w",
+            "/workspace",
+            self.image,
+            *tokens,
+        ]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *docker_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            return Err(SystemResourceError("Docker binary not found", context={"image": self.image}))
+        except Exception as exc:
+            return Err(SystemResourceError("Failed to start docker command", context={"error": str(exc), "cmd": docker_cmd}))
+
+        stdout_bytes, stderr_bytes = await proc.communicate()
+        return Ok(
+            CommandResult(
+                returncode=proc.returncode or 0,
+                stdout=stdout_bytes.decode(errors="replace"),
+                stderr=stderr_bytes.decode(errors="replace"),
+            )
+        )
+
+
+def get_runner(config: AppConfig | None) -> CommandRunner:
+    if config and config.use_docker_sandbox:
+        return DockerRunner(config.docker_image)
+    return LocalRunner()
 
 
 def _format_cmdline(proc: psutil.Process) -> str:
@@ -79,6 +163,15 @@ async def kill_process_async(pid: int, force: bool = False, config: AppConfig | 
     if dry_run:
         logger.info("Did not kill PID %s (dry-run)", pid)
         return Ok("dry-run")
+
+    runner = get_runner(config)
+    if isinstance(runner, DockerRunner):
+        return Err(
+            SystemResourceError(
+                "Killing host processes is not supported in docker sandbox mode.",
+                context={"pid": pid},
+            )
+        )
 
     def _terminate() -> Result[str, SystemResourceError]:
         try:

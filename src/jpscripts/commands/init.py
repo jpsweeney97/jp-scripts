@@ -14,6 +14,7 @@ from rich.panel import Panel
 
 from jpscripts.core.console import console
 from jpscripts.core.config import AppConfig
+from jpscripts.core import security
 
 def _write_config(path: Path, config: AppConfig) -> None:
     ignore_dirs_literal = ", ".join(json.dumps(item) for item in config.ignore_dirs)
@@ -33,7 +34,11 @@ def _write_config(path: Path, config: AppConfig) -> None:
     path.write_text(content + "\n", encoding="utf-8")
 
 
-def init(ctx: typer.Context, config_path: Path | None = typer.Option(None, help="Where to write config.")) -> None:
+def init(
+    ctx: typer.Context,
+    config_path: Path | None = typer.Option(None, help="Where to write config."),
+    install_hooks: bool = typer.Option(False, "--install-hooks", help="Install git hooks (pre-commit) to enforce protocols."),
+) -> None:
     """Interactive initializer that writes the active config file."""
     state = ctx.obj
     defaults: AppConfig = state.config
@@ -75,6 +80,9 @@ def init(ctx: typer.Context, config_path: Path | None = typer.Option(None, help=
     _write_config(target_path, config)
     console.print(f"[green]Wrote config to[/green] {target_path}")
     console.print("You can rerun `jp init` anytime to update these values.")
+
+    if install_hooks:
+        _install_precommit_hook(config.workspace_root)
 
 def config_fix(ctx: typer.Context) -> None:
     """Attempt to fix a broken configuration file using Codex."""
@@ -127,3 +135,28 @@ async def _run_codex_command(cmd: list[str]) -> int:
     """Run Codex CLI asynchronously while preserving terminal IO."""
     proc = await asyncio.create_subprocess_exec(*cmd)
     return await proc.wait()
+
+
+def _install_precommit_hook(workspace_root: Path) -> None:
+    try:
+        root = security.validate_workspace_root(workspace_root)
+    except Exception as exc:
+        console.print(f"[red]Cannot install hooks: {exc}[/red]")
+        return
+
+    git_dir = root / ".git"
+    hooks_dir = git_dir / "hooks"
+    precommit = hooks_dir / "pre-commit"
+
+    if not git_dir.exists():
+        console.print(f"[yellow]Skipping hook install: {git_dir} not found.[/yellow]")
+        return
+
+    try:
+        hooks_dir.mkdir(parents=True, exist_ok=True)
+        script = '#!/bin/sh\njp verify-protocol --name pre-commit\n'
+        precommit.write_text(script, encoding="utf-8")
+        precommit.chmod(0o755)
+        console.print(f"[green]Installed pre-commit hook at {precommit}[/green]")
+    except OSError as exc:
+        console.print(f"[red]Failed to install pre-commit hook: {exc}[/red]")

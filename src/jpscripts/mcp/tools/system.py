@@ -51,4 +51,5 @@ async def run_shell(command: str) -> str:
         command=command,
         root=ctx.workspace_root,
         audit_prefix=AUDIT_PREFIX,
+        config=ctx.config,
     )

@@ -2,20 +2,43 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Generic, Protocol, Sequence, TypeVar, cast
+
+from typer.testing import CliRunner
 
 import typer
 
-from jpscripts.commands.agent import codex_exec
-from jpscripts.core.agent import parse_agent_response
-from jpscripts.core.result import Ok
+sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
+
+if TYPE_CHECKING:
+    T = TypeVar("T")
+
+    class PreparedPrompt:
+        prompt: str
+        attached_files: list[Path]
+
+    class Ok(Generic[T]):
+        def __init__(self, value: T) -> None: ...
+
+    class AgentResponseProto(Protocol):
+        final_message: str | None
+
+    def parse_agent_response(payload: str) -> AgentResponseProto: ...
+
+    def codex_exec(*args: Any, **kwargs: Any) -> None: ...
+else:  # pragma: no cover - runtime imports
+    from jpscripts.commands.agent import codex_exec
+    from jpscripts.core.agent import parse_agent_response
+    from jpscripts.core.result import Ok
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
 
 @agent_app.callback()
-def main_callback(ctx: typer.Context):
+def main_callback(ctx: typer.Context) -> None:
     # Inject a mock state object so ctx.obj.config works
     mock_state = MagicMock()
     mock_state.config.workspace_root = Path("/mock/workspace")
@@ -30,11 +53,18 @@ def main_callback(ctx: typer.Context):
 
 agent_app.command(name="fix")(codex_exec)
 
-def test_codex_exec_invokes_provider(runner):
+def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
     """Verify jp fix invokes the provider correctly."""
     captured: list[str] = []
 
-    async def fake_fetch_response(prepared, config, model, provider_type, **kwargs):
+    async def fake_fetch_response(
+        prepared: "PreparedPrompt",
+        config: Any,
+        model: str,
+        provider_type: Any,
+        full_auto: bool = False,
+        web: bool = False,
+    ) -> str:
         captured.append(prepared.prompt)
         return json.dumps({
             "thought_process": "done",
@@ -56,7 +86,7 @@ def test_codex_exec_invokes_provider(runner):
         prompt = captured[0]
         assert "Fix the bug" in prompt
 
-def test_codex_exec_attaches_recent_files(runner):
+def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
     """Verify --recent flag scans and attaches files."""
     mock_entry = MagicMock()
     mock_entry.path = Path("fake_recent.py")
@@ -64,10 +94,17 @@ def test_codex_exec_attaches_recent_files(runner):
 
     captured: list[str] = []
 
-    async def fake_scan_recent(*_args, **_kwargs):
+    async def fake_scan_recent(*_args: Any, **_kwargs: Any) -> Any:
         return Ok([mock_entry])
 
-    async def fake_fetch_response(prepared, config, model, provider_type, **kwargs):
+    async def fake_fetch_response(
+        prepared: "PreparedPrompt",
+        config: Any,
+        model: str,
+        provider_type: Any,
+        full_auto: bool = False,
+        web: bool = False,
+    ) -> str:
         captured.append(prepared.prompt)
         return json.dumps({
             "thought_process": "done",
@@ -91,24 +128,33 @@ def test_codex_exec_attaches_recent_files(runner):
         assert "fake_recent.py" in prompt
 
 
-def test_run_repair_loop_auto_archives(monkeypatch, tmp_path: Path) -> None:
-    from jpscripts.core import agent as agent_core
-    from jpscripts.core.config import AppConfig
+def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None:
+    from importlib import import_module
+
+    agent_core = import_module("jpscripts.core.agent")
+    config_mod = import_module("jpscripts.core.config")
+    AppConfig = cast(Any, config_mod).AppConfig
 
     config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
 
-    async def fake_run_shell_command(command: str, cwd: Path):
+    async def fake_run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
         return 0, "ok", ""
 
     calls: list[str] = []
 
-    async def fake_fetch(prepared):
+    async def fake_fetch(prepared: Any) -> str:
         calls.append(prepared.prompt)
         return "Fixed summary."
 
     saved: list[tuple[str, list[str] | None]] = []
 
-    def fake_save_memory(content: str, tags=None, *, config=None, store_path=None):
+    def fake_save_memory(
+        content: str,
+        tags: list[str] | None = None,
+        *,
+        config: Any = None,
+        store_path: Any = None,
+    ) -> MagicMock:
         saved.append((content, tags))
         return MagicMock()
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import shutil
 from pathlib import Path
+from typing import Sequence
 
 import typer
 from rich import box
@@ -9,8 +11,19 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
-from jpscripts.core.result import JPScriptsError
-from jpscripts.core.memory import prune_memory, query_memory, reindex_memory, save_memory
+from jpscripts.core.result import CapabilityMissingError, Err, JPScriptsError, Ok
+from jpscripts.core.memory import (
+    HybridMemoryStore,
+    cluster_memories,
+    get_memory_store,
+    prune_memory,
+    query_memory,
+    reindex_memory,
+    save_memory,
+    synthesize_cluster,
+    _write_entries,
+    MemoryEntry,
+)
 
 app = typer.Typer(help="Persistent memory store for ADRs and lessons learned.")
 
@@ -88,3 +101,80 @@ def vacuum(ctx: typer.Context) -> None:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
     console.print(f"[green]Pruned {count} stale memory entries.[/green]")
+
+
+@app.command("consolidate")
+def consolidate(
+    ctx: typer.Context,
+    model: str | None = typer.Option(None, "--model", "-m", help="Model used to synthesize canonical memories."),
+    threshold: float = typer.Option(0.85, "--threshold", help="Cosine similarity threshold for clustering."),
+) -> None:
+    """Cluster similar memories and synthesize canonical truth entries."""
+    state = ctx.obj
+
+    clusters_result = asyncio.run(cluster_memories(state.config, similarity_threshold=threshold))
+    match clusters_result:
+        case Err(err):
+            if isinstance(err, CapabilityMissingError):
+                console.print(f"[red]{err}[/red]")
+            else:
+                console.print(f"[red]{err}[/red]")
+            raise typer.Exit(code=1)
+        case Ok(clusters):
+            pass
+
+    if not clusters:
+        console.print("[yellow]No clusters found for consolidation.[/yellow]")
+        return
+
+    store_result = get_memory_store(state.config)
+    if isinstance(store_result, Err):
+        console.print(f"[red]{store_result.error}[/red]")
+        raise typer.Exit(code=1)
+
+    store = store_result.value
+    if not isinstance(store, HybridMemoryStore):
+        console.print("[red]Consolidation requires the hybrid memory store with LanceDB enabled.[/red]")
+        raise typer.Exit(code=1)
+
+    archived_ids: set[str] = set()
+    synthesized_entries: list[MemoryEntry] = []
+
+    for cluster in clusters:
+        synth_result = asyncio.run(synthesize_cluster(cluster, state.config, model=model))
+        if isinstance(synth_result, Err):
+            console.print(f"[red]Synthesis failed: {synth_result.error}[/red]")
+            continue
+        synthesized_entries.append(synth_result.value)
+        archived_ids.update(entry.id for entry in cluster)
+
+    if not synthesized_entries:
+        console.print("[yellow]No synthesized entries were created.[/yellow]")
+        return
+
+    existing_entries = asyncio.run(asyncio.to_thread(store.archiver.load_entries))
+    updated_entries = []
+    for entry in existing_entries:
+        if entry.id in archived_ids and "archived" not in entry.tags:
+            entry.tags.append("archived")
+        updated_entries.append(entry)
+
+    updated_entries.extend(synthesized_entries)
+    asyncio.run(asyncio.to_thread(_write_entries, store.archiver.path, updated_entries))
+
+    if store.vector_store:
+        for entry in synthesized_entries:
+            if entry.embedding is not None:
+                add_result = store.vector_store.add(entry)
+                if isinstance(add_result, Err):
+                    console.print(f"[yellow]Vector insert failed for {entry.id}: {add_result.error}[/yellow]")
+
+    console.print(
+        Panel(
+            f"[green]Consolidated {len(clusters)} clusters[/green]\n"
+            f"Created {len(synthesized_entries)} canonical entries.\n"
+            f"Archived {len(archived_ids)} originals.",
+            title="Memory Consolidation",
+            box=box.SIMPLE_HEAVY,
+        )
+    )

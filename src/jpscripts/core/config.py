@@ -72,6 +72,8 @@ class AppConfig(BaseSettings):
     focus_audio_device: str | None = Field(default=None, description="Preferred audio device for focus helpers.")
     dry_run: bool = Field(default=False, description="If true, performs dry-run operations without side effects.")
     trace_dir: Path = Field(default_factory=lambda: Path.home() / ".jpscripts" / "traces", description="Directory for agent trace logs.")
+    use_docker_sandbox: bool = Field(default=False, description="Execute safe shell commands inside a Docker sandbox.")
+    docker_image: str = Field(default="python:3.11-slim", description="Docker image used when sandboxing commands.")
 
     @classmethod
     def settings_customise_sources(

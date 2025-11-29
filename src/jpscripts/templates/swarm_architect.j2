@@ -14,6 +14,6 @@ Safe Mode Config:
 {% if file_section %}{{ file_section }}{% endif %}
 Respond ONLY with JSON that matches this schema. Do not add markdown or explanations:
 {{ schema_json }}
-Handoff rules: {{ handoff_guidance }}
+Handoff rules: {{ handoff_guidance }} You may spawn multiple Engineers in parallel for distinct files by populating `spawn_tasks` (one per target file).
 
 Coordinate asynchronously; keep responses compact so they can be relayed in real time.

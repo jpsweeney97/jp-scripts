@@ -23,12 +23,15 @@ from jpscripts.core.memory import (
     STOPWORDS,
     get_memory_store,
 )
+from jpscripts.core.engine import run_safe_shell, AUDIT_PREFIX
+from jpscripts.core.security import validate_workspace_root
 from jpscripts.core.result import CapabilityMissingError, Err, Ok
 from jpscripts.core.security import validate_path
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
 MAX_RESULTS = 3
+PROTOCOL_PATTERN = re.compile(r"\[Protocol:\s*(?P<name>[^\]]+)\]\s*->\s*run\s*\"(?P<command>[^\"]+)\"", re.IGNORECASE)
 
 
 @dataclass
@@ -426,6 +429,18 @@ def _render_results(results: list[MemoryEntry]) -> None:
         console.print(Panel(Markdown(body), title=title, expand=True))
 
 
+def parse_protocols(content: str) -> dict[str, list[str]]:
+    """Extract protocol definitions from handbook content."""
+    protocols: dict[str, list[str]] = {}
+    for match in PROTOCOL_PATTERN.finditer(content):
+        name = match.group("name").strip().lower()
+        command = match.group("command").strip()
+        if not name or not command:
+            continue
+        protocols.setdefault(name, []).append(command)
+    return protocols
+
+
 def handbook(
     ctx: typer.Context,
     query: str | None = typer.Argument(
@@ -497,3 +512,51 @@ def handbook(
         _render_results(results)
 
     asyncio.run(_run())
+
+
+def verify_protocol(
+    ctx: typer.Context,
+    name: str = typer.Option("pre-commit", "--name", "-n", help="Protocol name to execute."),
+) -> None:
+    """Execute Handbook protocol commands for the given context."""
+    state = ctx.obj
+
+    async def _run() -> int:
+        handbook_path = _resolve_handbook_path()
+        if handbook_path is None:
+            return 1
+
+        content = await _read_handbook(handbook_path)
+        if not content:
+            console.print("[red]Handbook is empty or unreadable.[/red]")
+            return 1
+
+        protocols = parse_protocols(content)
+        commands = protocols.get(name.lower())
+        if not commands:
+            console.print(f"[yellow]No protocol named '{name}' found in handbook.[/yellow]")
+            return 1
+
+        config: AppConfig | None = getattr(state, "config", None)
+        if config is None:
+            console.print("[red]Configuration unavailable; cannot execute protocols.[/red]")
+            return 1
+
+        try:
+            root = await asyncio.to_thread(validate_workspace_root, config.workspace_root)
+        except Exception as exc:
+            console.print(f"[red]Workspace validation failed: {exc}[/red]")
+            return 1
+
+        for cmd in commands:
+            output = await run_safe_shell(cmd, root, f"{AUDIT_PREFIX}.protocol.{name}", config=config)
+            if output and output.startswith("SecurityError"):
+                console.print(f"[red]{output}[/red]")
+                return 1
+            if output:
+                console.print(output)
+        return 0
+
+    exit_code = asyncio.run(_run())
+    if exit_code != 0:
+        raise typer.Exit(code=exit_code)

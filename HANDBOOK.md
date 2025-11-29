@@ -77,6 +77,6 @@ Result: slower per retry, higher precision, fewer insanity loops.
 ## Field Notes (Daily Discipline)
 
 - Keep `jp watch` running; let it block on syntax before you git-add.  
-- Run `jp status-all` before commits; refuse to ship dirty/behind states without intent.  
+- [Protocol: pre-commit] -> run "jp status-all"  
 - Capture lessons with `jp memory add ... --tag <area>`; this feeds immediate recall.  
 - When handing off, run `jp serialize snapshot` to produce a lossless manifest for teammates or agents.

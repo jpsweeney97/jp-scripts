@@ -15,6 +15,9 @@ from pydantic import BaseModel, Field
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import get_tool_registry
+from jpscripts.core.config import AppConfig
+from jpscripts.core.system import CommandResult, get_runner
+from jpscripts.core.result import Err
 
 logger = get_logger(__name__)
 
@@ -201,7 +204,7 @@ def load_template_environment(template_root: Path) -> Environment:
     return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
 
 
-async def run_safe_shell(command: str, root: Path, audit_prefix: str) -> str:
+async def run_safe_shell(command: str, root: Path, audit_prefix: str, config: AppConfig | None = None) -> str:
     """
     Shared safe shell runner for AgentEngine and MCP.
 
@@ -255,23 +258,16 @@ async def run_safe_shell(command: str, root: Path, audit_prefix: str) -> str:
     if not tokens:
         return "Invalid command argument."
 
-    # Execute the validated command
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *tokens,
-            cwd=root,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except Exception as exc:  # pragma: no cover - defensive
-        return f"Failed to run command: {exc}"
+    runner = get_runner(config)
+    run_result = await runner.run(tokens, root)
+    if isinstance(run_result, Err):
+        logger.warning("%s.reject runner_error=%s", audit_prefix, run_result.error)
+        return f"Failed to run command: {run_result.error}"
 
-    stdout_bytes, stderr_bytes = await proc.communicate()
-    stdout = stdout_bytes.decode(errors="replace")
-    stderr = stderr_bytes.decode(errors="replace")
+    result: CommandResult = run_result.value
+    if result.returncode != 0:
+        logger.warning("%s.fail code=%s cmd=%r", audit_prefix, result.returncode, command)
+        return f"Command failed with exit code {result.returncode}"
 
-    if proc.returncode != 0:
-        logger.warning("%s.fail code=%s cmd=%r", audit_prefix, proc.returncode, command)
-        return f"Command failed with exit code {proc.returncode}"
-
-    return (stdout + stderr).strip() or "Command produced no output."
+    combined = (result.stdout + result.stderr).strip()
+    return combined or "Command produced no output."
