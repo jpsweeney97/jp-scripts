@@ -3,6 +3,7 @@ from __future__ import annotations
 from git import Repo
 
 from jpscripts.commands import git_extra
+from jpscripts.core import git as git_core
 
 def test_gundo_last_local_only(runner, tmp_path, monkeypatch):
     """Verify undo works on a local branch with no upstream (the fix)."""
@@ -25,7 +26,7 @@ def test_gundo_last_local_only(runner, tmp_path, monkeypatch):
     # Run gundo-last
     # We must patch _ensure_repo because typer argument parsing of Path objects
     # behaves differently in tests vs CLI invocation sometimes.
-    monkeypatch.setattr(git_extra, "_ensure_repo", lambda p: Repo(repo_dir))
+    monkeypatch.setattr(git_extra, "_ensure_repo", lambda p: git_core.AsyncRepo(repo_dir))
 
     result = runner.invoke(git_extra.app, ["gundo-last", "--repo", str(repo_dir)])
 

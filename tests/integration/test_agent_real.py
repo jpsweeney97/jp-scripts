@@ -100,6 +100,7 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         return json.dumps(
             {
                 "thought_process": "apply patch",
+                "criticism": "Self-correction applied.",
                 "tool_call": None,
                 "file_patch": patch_text,
                 "final_message": None,

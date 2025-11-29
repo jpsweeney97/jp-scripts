@@ -1,6 +1,11 @@
 """
 Codex CLI provider adapter.
 
+.. deprecated::
+    NOTICE: This provider wraps the external Codex CLI binary. It is a legacy
+    adapter and will be replaced by the native Python SDK in a future release.
+    New integrations should prefer direct API providers.
+
 This module wraps the Codex CLI binary to provide the LLMProvider interface.
 It maintains backward compatibility with the existing jp agent workflow
 while enabling gradual migration to direct API providers.
@@ -26,6 +31,7 @@ import json
 import shutil
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
+from jpscripts.core.console import get_logger
 from jpscripts.providers import (
     BaseLLMProvider,
     CompletionOptions,
@@ -40,6 +46,8 @@ from jpscripts.providers import (
 
 if TYPE_CHECKING:
     from jpscripts.core.config import AppConfig
+
+logger = get_logger(__name__)
 
 # Codex supports OpenAI models
 CODEX_AVAILABLE_MODELS: tuple[str, ...] = (
@@ -166,6 +174,11 @@ class CodexProvider(BaseLLMProvider):
         self._full_auto = full_auto
         self._web_enabled = web_enabled
         self._codex_bin: str | None = None
+        logger.warning(
+            "NOTICE: CodexProvider wraps the external Codex CLI binary. "
+            "It is a legacy adapter and will be replaced by the native Python SDK "
+            "in a future release."
+        )
 
     def _get_codex_binary(self) -> str:
         """Get the Codex binary path, caching the result."""
@@ -231,6 +244,7 @@ class CodexProvider(BaseLLMProvider):
         # Execute Codex
         assistant_parts: list[str] = []
         tool_calls: list[ToolCall] = []
+        raw_fallback_lines: list[str] = []
 
         try:
             proc = await asyncio.create_subprocess_exec(
@@ -255,6 +269,8 @@ class CodexProvider(BaseLLMProvider):
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                raw_fallback_lines.append(line)
+                logger.debug("Non-JSON line from Codex: %s", line[:100])
                 continue
 
             data: dict[str, Any] = event.get("data") or {}
@@ -289,6 +305,11 @@ class CodexProvider(BaseLLMProvider):
             stderr_text = (await proc.stderr.read()).decode(errors="replace").strip()
             if stderr_text and proc.returncode != 0:
                 raise ProviderError(f"Codex error: {stderr_text}")
+
+        # Fallback if no structured content was extracted
+        if not assistant_parts and raw_fallback_lines:
+            assistant_parts = raw_fallback_lines
+            logger.warning("Codex output contained no parseable JSON events; using raw output")
 
         content = "\n\n".join(assistant_parts)
 
@@ -341,6 +362,9 @@ class CodexProvider(BaseLLMProvider):
         if proc.stdout is None:
             raise ProviderError("Codex process has no stdout")
 
+        raw_fallback_lines: list[str] = []
+        yielded_content = False
+
         async for raw_line in proc.stdout:
             line = raw_line.decode(errors="replace").strip()
             if not line:
@@ -349,6 +373,8 @@ class CodexProvider(BaseLLMProvider):
             try:
                 event = json.loads(line)
             except json.JSONDecodeError:
+                raw_fallback_lines.append(line)
+                logger.debug("Non-JSON line from Codex: %s", line[:100])
                 continue
 
             data: dict[str, Any] = event.get("data") or {}
@@ -362,6 +388,7 @@ class CodexProvider(BaseLLMProvider):
             )
             if isinstance(message, str) and message.strip():
                 yield StreamChunk(content=message.strip() + "\n")
+                yielded_content = True
 
             # Yield tool calls as they happen
             if event_type == "tool.call":
@@ -378,12 +405,18 @@ class CodexProvider(BaseLLMProvider):
                             )
                         ],
                     )
+                    yielded_content = True
 
             # Check for completion
             if event_type in ("turn.completed", "session.completed"):
                 yield StreamChunk(content="", finish_reason="stop")
 
         await proc.wait()
+
+        # Fallback if no structured content was yielded
+        if not yielded_content and raw_fallback_lines:
+            logger.warning("Codex output contained no parseable JSON events; using raw output")
+            yield StreamChunk(content="\n".join(raw_fallback_lines))
 
         # Final chunk if we didn't get a completion event
         if proc.returncode != 0:

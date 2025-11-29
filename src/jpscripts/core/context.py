@@ -13,6 +13,7 @@ from typing import Any, Callable, Literal
 import yaml
 from rich.console import Console
 
+from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
 
 # Regex to catch file paths, often with line numbers (e.g., "src/main.py:42")
@@ -35,6 +36,12 @@ def estimate_tokens(text: str) -> int:
 
 async def run_and_capture(command: str, cwd: Path) -> str:
     """Run a command without shell interpolation and return combined stdout/stderr."""
+    # Security: Validate command before execution
+    verdict, reason = validate_command(command, cwd)
+    if verdict != CommandVerdict.ALLOWED:
+        logger.warning("Command blocked by security policy: %s (reason: %s)", command, reason)
+        return f"[SECURITY BLOCK] Command rejected: {reason}"
+
     try:
         tokens = shlex.split(command)
     except ValueError as exc:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 from collections import Counter
@@ -157,6 +158,7 @@ class MemoryEntry:
     tokens: list[str]
     embedding: list[float] | None = None
     source_path: str | None = None
+    content_hash: str | None = None
 
 
 class MemoryStore(Protocol):
@@ -212,6 +214,16 @@ def _format_entry(entry: MemoryEntry) -> str:
 def _compose_embedding_text(entry: MemoryEntry) -> str:
     tags = " ".join(entry.tags)
     return f"{entry.content} {tags}".strip()
+
+
+def _compute_file_hash(path: Path) -> str | None:
+    """Compute MD5 hash of file content. Returns None if file cannot be read."""
+    try:
+        resolved = path.resolve()
+        with resolved.open("rb") as fh:
+            return hashlib.md5(fh.read()).hexdigest()
+    except (OSError, IOError):
+        return None
 
 
 def _embedding_settings(config: AppConfig | None) -> tuple[bool, str, str | None]:
@@ -398,6 +410,8 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                 embedding_list = [float(val) for val in embedding] if isinstance(embedding, list) else None
                 raw_source_path = raw.get("source_path")
                 source_path = str(raw_source_path) if raw_source_path else None
+                raw_content_hash = raw.get("content_hash")
+                content_hash = str(raw_content_hash) if raw_content_hash else None
                 entries.append(
                     MemoryEntry(
                         id=str(raw.get("id", uuid4().hex)),
@@ -407,6 +421,7 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                         tokens=tokens,
                         embedding=embedding_list,
                         source_path=source_path,
+                        content_hash=content_hash,
                     )
                 )
     except OSError as exc:
@@ -426,6 +441,7 @@ def _append_entry(path: Path, entry: MemoryEntry) -> None:
         "tokens": entry.tokens,
         "embedding": entry.embedding,
         "source_path": entry.source_path,
+        "content_hash": entry.content_hash,
     }
     with path.open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=True) + "\n")
@@ -443,6 +459,7 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
                 "tokens": entry.tokens,
                 "embedding": entry.embedding,
                 "source_path": entry.source_path,
+                "content_hash": entry.content_hash,
             }
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
 
@@ -616,11 +633,20 @@ class JsonlArchiver(MemoryStore):
                 source = workspace_root / source
 
             try:
-                if source.exists():
-                    kept.append(entry)
-                else:
+                if not source.exists():
                     pruned_count += 1
                     logger.debug("Pruning stale memory entry: %s (file missing: %s)", entry.id, entry.source_path)
+                    continue
+
+                # Check for content drift via hash mismatch
+                if entry.content_hash is not None:
+                    current_hash = _compute_file_hash(source)
+                    if current_hash is not None and current_hash != entry.content_hash:
+                        pruned_count += 1
+                        logger.debug("Pruning drifted memory entry: %s (hash mismatch)", entry.id)
+                        continue
+
+                kept.append(entry)
             except OSError:
                 kept.append(entry)
 
@@ -792,6 +818,14 @@ def save_memory(
     content_text = content.strip()
     token_source = f"{content_text} {' '.join(normalized_tags)}".strip()
 
+    # Compute content hash if source_path provided
+    computed_hash: str | None = None
+    if source_path:
+        source = Path(source_path)
+        if not source.is_absolute():
+            source = Path.cwd() / source
+        computed_hash = _compute_file_hash(source)
+
     entry = MemoryEntry(
         id=uuid4().hex,
         ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -799,6 +833,7 @@ def save_memory(
         tags=normalized_tags,
         tokens=_tokenize(token_source),
         source_path=source_path,
+        content_hash=computed_hash,
     )
 
     use_semantic, model_name, server_url = _embedding_settings(config)

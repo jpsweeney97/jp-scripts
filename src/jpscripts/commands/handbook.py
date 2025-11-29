@@ -21,9 +21,26 @@ from jpscripts.core.memory import (
     EmbeddingClientProtocol,
     MemoryEntry,
     STOPWORDS,
-    get_vector_store,
 )
 from jpscripts.core.security import validate_path
+
+
+class _StubVectorStore:
+    """Stub store that disables vector operations until LanceDB integration is restored."""
+
+    def available(self) -> bool:
+        return False
+
+    def insert(self, entries: list[MemoryEntry]) -> None:
+        pass
+
+    def search(self, query_vec: list[float], limit: int) -> list[MemoryEntry]:
+        return []
+
+
+def get_vector_store(store_path: Path, *, embedding_dim: int) -> _StubVectorStore:
+    """Placeholder for handbook vector store - returns stub until LanceDB integration is restored."""
+    return _StubVectorStore()
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
