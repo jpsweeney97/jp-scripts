@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from importlib import import_module
 from math import sqrt
+import os
 from pathlib import Path
 from typing import Any, Coroutine, Protocol, Sequence, TYPE_CHECKING, TypeVar, cast
 from urllib import error as urllib_error
@@ -38,6 +39,7 @@ logger = get_logger(__name__)
 T = TypeVar("T")
 
 
+# TODO: Load from a resource file to enable updates without code changes.
 STOPWORDS = {
     "the",
     "and",
@@ -64,6 +66,12 @@ STOPWORDS = {
     "use",
     "uses",
     "using",
+    "self",
+    "cls",
+    "def",
+    "class",
+    "import",
+    "return",
 }
 MAX_ENTRIES = 5000
 DEFAULT_STORE = Path.home() / ".jp_memory.lance"
@@ -245,8 +253,14 @@ def _compute_file_hash(path: Path) -> str | None:
     """Compute MD5 hash of file content. Returns None if file cannot be read."""
     try:
         resolved = path.resolve()
+        digest = hashlib.md5()
         with resolved.open("rb") as fh:
-            return hashlib.md5(fh.read()).hexdigest()
+            while True:
+                chunk = fh.read(4096)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
     except (OSError, IOError):
         return None
 
@@ -526,7 +540,8 @@ def _append_entry(path: Path, entry: MemoryEntry) -> None:
 
 def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as fh:
+    temp_path = path.with_suffix(".tmp")
+    with temp_path.open("w", encoding="utf-8") as fh:
         for entry in entries:
             record = {
                 "id": entry.id,
@@ -540,6 +555,9 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
                 "related_files": entry.related_files,
             }
             fh.write(json.dumps(record, ensure_ascii=True) + "\n")
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(temp_path, path)
 
 
 def _load_lancedb_dependencies() -> tuple[Any, type[LanceModelBase]] | None:
