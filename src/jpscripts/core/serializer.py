@@ -56,10 +56,16 @@ class AsyncSerializer:
         self._semaphore = asyncio.Semaphore(max_concurrency)
         self._logger = get_logger(__name__)
 
-    async def serialize(self, root: Path | str) -> Result[RepoManifest, JPScriptsError]:
+    async def serialize(self, root: Path | str) -> Result[RepoManifest, SerializationError]:
         root_result = await asyncio.to_thread(validate_workspace_root_safe, root)
         if isinstance(root_result, Err):
-            return root_result
+            workspace_err = root_result.error
+            return Err(
+                SerializationError(
+                    f"Invalid workspace root: {workspace_err.message}",
+                    context=workspace_err.context,
+                )
+            )
 
         resolved_root = root_result.value
         self._logger.debug("Starting repository serialization", extra={"root": str(resolved_root)})
@@ -176,14 +182,20 @@ class AsyncSerializer:
         self,
         path: Path,
         root: Path,
-    ) -> Result[FileNode, JPScriptsError]:
+    ) -> Result[FileNode, SerializationError]:
         async with self._semaphore:
             return await asyncio.to_thread(self._read_file_node, path, root)
 
-    def _read_file_node(self, path: Path, root: Path) -> Result[FileNode, JPScriptsError]:
+    def _read_file_node(self, path: Path, root: Path) -> Result[FileNode, SerializationError]:
         safe_path_result = validate_path_safe(path, root)
         if isinstance(safe_path_result, Err):
-            return safe_path_result
+            security_error = safe_path_result.error
+            return Err(
+                SerializationError(
+                    f"Path validation failed for {path}",
+                    context=security_error.context,
+                )
+            )
 
         safe_path = safe_path_result.value
         try:
@@ -257,7 +269,7 @@ async def write_manifest_yaml(
     output: Path,
     *,
     workspace_root: Path | None = None,
-) -> Result[Path, JPScriptsError]:
+) -> Result[Path, SerializationError]:
     """
     Persist a manifest to YAML using literal block scalars for text content.
 
@@ -266,11 +278,23 @@ async def write_manifest_yaml(
     base_root = workspace_root or Path(manifest.root)
     validated_root = await asyncio.to_thread(validate_workspace_root_safe, base_root)
     if isinstance(validated_root, Err):
-        return validated_root
+        workspace_err = validated_root.error
+        return Err(
+            SerializationError(
+                f"Invalid workspace root: {workspace_err.message}",
+                context=workspace_err.context,
+            )
+        )
 
     output_result = await asyncio.to_thread(validate_path_safe, output, validated_root.value)
     if isinstance(output_result, Err):
-        return output_result
+        security_err = output_result.error
+        return Err(
+            SerializationError(
+                f"Output path validation failed: {security_err.message}",
+                context=security_err.context,
+            )
+        )
     safe_output = output_result.value
 
     def _write() -> Result[Path, SerializationError]:

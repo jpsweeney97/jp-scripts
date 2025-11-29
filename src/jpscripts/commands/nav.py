@@ -13,7 +13,7 @@ from rich.table import Table
 # Import core logic
 from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
-from jpscripts.core.result import Err, Ok, Result
+from jpscripts.core.result import Err, Ok, Result, NavigationError
 from jpscripts.commands.ui import fzf_select_async
 
 
@@ -53,7 +53,7 @@ def recent(
     state = ctx.obj
     ignore_dirs = set(state.config.ignore_dirs)
 
-    async def run_scan() -> Result[list[nav_core.RecentEntry], nav_core.NavigationError]:
+    async def run_scan() -> Result[list[nav_core.RecentEntry], NavigationError]:
         with console.status(f"Scanning {base_root}...", spinner="dots"):
             return await nav_core.scan_recent(
                 base_root,
@@ -103,7 +103,7 @@ def proj(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick a project using zoxide + fzf and print the path."""
-    async def run_query() -> Result[list[str], nav_core.NavigationError]:
+    async def run_query() -> Result[list[str], NavigationError]:
         return await nav_core.get_zoxide_projects()
 
     match asyncio.run(run_query()):

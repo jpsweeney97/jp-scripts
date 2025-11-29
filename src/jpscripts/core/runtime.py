@@ -215,18 +215,12 @@ def override_workspace(workspace: Path) -> Iterator[RuntimeContext]:
 
 
 __all__ = [
-    # Core types
     "RuntimeContext",
     "WarningState",
-    # Context access
     "get_runtime",
     "get_runtime_or_none",
     "has_runtime",
-    # Context managers
     "runtime_context",
     "override_workspace",
-    # Errors
     "NoRuntimeContextError",
-    # Internal (for MCP server startup)
-    "_runtime_ctx",
 ]

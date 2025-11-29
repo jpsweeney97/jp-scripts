@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from typing import Any
+
 from jpscripts.core import memory as memory_core
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Ok
@@ -38,7 +40,7 @@ def test_score_keyword_overlap() -> None:
     assert score > 0
 
 
-def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> None:
+def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -> None:
     store = tmp_path / "mem.lance"
     fallback = store.with_suffix(".jsonl")
     base_entry = memory_core.MemoryEntry(
@@ -51,7 +53,7 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
     memory_core._write_entries(fallback, [base_entry])
 
     class FakeEmbeddingClient:
-        def __init__(self, *_args, **_kwargs) -> None:
+        def __init__(self) -> None:
             self.called = False
 
         @property
@@ -61,18 +63,18 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
         def available(self) -> bool:
             return True
 
-        def embed(self, texts):  # type: ignore[override]
+        def embed(self, texts: list[str]) -> list[list[float]]:
             self.called = True
             return [[0.1, 0.2] for _ in texts]
 
     class FakeStore:
-        def __init__(self, *_args, **_kwargs) -> None:
+        def __init__(self) -> None:
             pass
 
         def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
             return Ok(entry)
 
-        def search(self, _vector, _limit: int, *, query_tokens=None):  # type: ignore[override]
+        def search(self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None) -> Ok[list[memory_core.MemoryEntry]]:
             return Ok(
                 [
                     memory_core.MemoryEntry(
@@ -85,7 +87,7 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
                 ]
             )
 
-        def prune(self, _root):
+        def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
     monkeypatch.setattr(memory_core, "_load_lancedb_dependencies", lambda: ("db", object))
@@ -97,7 +99,7 @@ def test_query_memory_prefers_vector_results(monkeypatch, tmp_path: Path) -> Non
     assert "vector match" in results[0]
 
 
-def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch, tmp_path: Path) -> None:
+def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path: Path) -> None:
     store = tmp_path / "mem.lance"
     fallback = store.with_suffix(".jsonl")
 
@@ -121,7 +123,7 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch, tmp_path: Pat
     memory_core._write_entries(fallback, [vector_entry, keyword_entry])
 
     class FakeEmbeddingClient:
-        def __init__(self, *_args, **_kwargs) -> None:
+        def __init__(self) -> None:
             pass
 
         @property
@@ -131,20 +133,20 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch, tmp_path: Pat
         def available(self) -> bool:
             return True
 
-        def embed(self, texts):  # type: ignore[override]
+        def embed(self, texts: list[str]) -> list[list[float]]:
             return [[0.5, 0.5] for _ in texts]
 
     class FakeStore:
-        def __init__(self, *_args, **_kwargs) -> None:
+        def __init__(self) -> None:
             pass
 
         def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
             return Ok(entry)
 
-        def search(self, _vector, _limit: int, *, query_tokens=None):  # type: ignore[override]
+        def search(self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None) -> Ok[list[memory_core.MemoryEntry]]:
             return Ok([vector_entry])
 
-        def prune(self, _root):
+        def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
     monkeypatch.setattr(memory_core, "_load_lancedb_dependencies", lambda: ("db", object))

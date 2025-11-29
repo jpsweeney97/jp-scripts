@@ -14,7 +14,6 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
-from rich.text import Text
 from rich.tree import Tree
 
 from jpscripts.core.console import console
@@ -201,7 +200,7 @@ def list_traces(
             continue
 
     console.print(table)
-    console.print(f"\n[dim]Use `jp trace show <ID>` to view details.[/dim]")
+    console.print("\n[dim]Use `jp trace show <ID>` to view details.[/dim]")
 
 
 @app.command("show")

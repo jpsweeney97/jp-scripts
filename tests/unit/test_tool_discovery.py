@@ -3,8 +3,6 @@ from __future__ import annotations
 import warnings
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 
 class TestToolDiscovery:
     """Tests for dynamic MCP tool discovery."""

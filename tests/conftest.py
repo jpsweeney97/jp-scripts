@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 import sys
 from pathlib import Path
+from typing import Any
 from rich.console import Console
 from typer.testing import CliRunner
 
@@ -19,7 +20,7 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(autouse=True)
-def isolate_config(tmp_path, monkeypatch):
+def isolate_config(tmp_path: Path, monkeypatch: Any) -> Path:
     """Point config to a temp path so tests don't touch user state."""
     cfg_path = tmp_path / "config.toml"
     monkeypatch.setenv("JPSCRIPTS_CONFIG", str(cfg_path))
@@ -27,7 +28,7 @@ def isolate_config(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def capture_console(monkeypatch):
+def capture_console(monkeypatch: Any) -> Console:
     """Use an in-memory Rich console during tests."""
     test_console = Console(record=True)
     import jpscripts.core.console as core_console

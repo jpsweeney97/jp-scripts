@@ -14,7 +14,8 @@ from rich.table import Table
 from jpscripts.core import git as git_core
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
-from jpscripts.core.result import Err, Ok, Result
+from jpscripts.core.result import SystemResourceError
+from jpscripts.core.result import Err, Ok, Result, JPScriptsError
 from jpscripts.commands.ui import fzf_select_async
 
 T = TypeVar("T")
@@ -53,7 +54,7 @@ def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, promp
     return None
 
 
-def _unwrap_result(result: Result[T, Exception]) -> T:
+def _unwrap_result(result: Result[T, JPScriptsError] | Result[T, SystemResourceError]) -> T:
     match result:
         case Ok(value):
             return value

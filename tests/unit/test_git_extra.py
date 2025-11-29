@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from git import Repo
+from pathlib import Path
 
 from jpscripts.commands import git_extra
 from jpscripts.core import git as git_core
+from typer.testing import CliRunner
+import pytest
 
-def test_gundo_last_local_only(runner, tmp_path, monkeypatch):
+def test_gundo_last_local_only(runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Verify undo works on a local branch with no upstream (the fix)."""
     repo_dir = tmp_path / "repo"
     repo_dir.mkdir()

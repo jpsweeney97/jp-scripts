@@ -7,7 +7,7 @@ import sys
 import textwrap
 from pathlib import Path
 from types import SimpleNamespace
-from typing import cast
+from typing import Any, cast
 
 import pytest
 import typer
@@ -30,7 +30,13 @@ def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp
 
     captured_prompt: str | None = None
 
-    async def fake_fetch_agent_response(prepared, config, model, provider_type, **kwargs):
+    async def fake_fetch_agent_response(
+        prepared: agent_core.PreparedPrompt,
+        config: Any,
+        model: str,
+        provider_type: Any,
+        **kwargs: Any,
+    ) -> str:
         nonlocal captured_prompt
         captured_prompt = prepared.prompt
         # Return a valid JSON response
@@ -87,7 +93,7 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 
     config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
 
-    async def fake_prepare_agent_prompt(base_prompt: str, **_kwargs) -> agent_core.PreparedPrompt:
+    async def fake_prepare_agent_prompt(base_prompt: str, **_kwargs: Any) -> agent_core.PreparedPrompt:
         return agent_core.PreparedPrompt(prompt=base_prompt, attached_files=[])
 
     monkeypatch.setattr(agent_core, "prepare_agent_prompt", fake_prepare_agent_prompt)

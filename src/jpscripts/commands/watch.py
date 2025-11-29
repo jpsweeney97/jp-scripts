@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Deque
 from collections import deque
@@ -64,7 +64,7 @@ class _AsyncDispatchHandler(FileSystemEventHandler):
     def _handle_event(self, event: FileSystemEvent) -> None:
         if event.is_directory:
             return
-        path = Path(event.src_path)
+        path = Path(str(event.src_path))
         try:
             safe_path = validate_path(path, self._root)
         except Exception:
@@ -162,7 +162,7 @@ async def _watch_loop(state: "AppState", debounce_seconds: float = 5.0) -> None:
     observer_thread.start()
 
     try:
-        async with Live(_render_dashboard(events), console=console, refresh_per_second=4) as live:
+        with Live(_render_dashboard(events), console=console, refresh_per_second=4) as live:
             def _append_event(task: asyncio.Task[WatchEvent]) -> None:
                 try:
                     events.append(task.result())

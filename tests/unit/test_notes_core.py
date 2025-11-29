@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from jpscripts.core import notes_impl
 
-def test_ensure_notes_dir_creates_directory(tmp_path):
+def test_ensure_notes_dir_creates_directory(tmp_path: Path) -> None:
     """Verify it creates the directory if it doesn't exist."""
     target = tmp_path / "notes"
     assert not target.exists()
@@ -16,7 +16,7 @@ def test_ensure_notes_dir_creates_directory(tmp_path):
     assert target.exists()
     assert target.is_dir()
 
-def test_get_today_path_format():
+def test_get_today_path_format() -> None:
     """Verify the filename format matches YYYY-MM-DD.md."""
     fake_root = Path("/tmp/notes")
 
@@ -28,7 +28,7 @@ def test_get_today_path_format():
 
     assert result == Path("/tmp/notes/2025-11-24.md")
 
-def test_append_to_daily_note_creates_and_appends(tmp_path):
+def test_append_to_daily_note_creates_and_appends(tmp_path: Path) -> None:
     """Verify it creates a file and appends content with a timestamp."""
     notes_dir = tmp_path / "my-notes"
 

@@ -17,7 +17,7 @@ from jpscripts.core import git as git_core
 from jpscripts.core import notes_impl
 from jpscripts.core import search as search_core
 from jpscripts.core.console import console
-from jpscripts.core.result import Err, Ok, Result
+from jpscripts.core.result import Err, Ok
 from jpscripts.commands.ui import fzf_select_async, fzf_stream_with_command
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"

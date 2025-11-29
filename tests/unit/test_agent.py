@@ -5,7 +5,7 @@ import json
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, Generic, Protocol, Sequence, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
 
 from typer.testing import CliRunner
 

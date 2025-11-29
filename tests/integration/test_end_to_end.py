@@ -22,7 +22,6 @@ import pytest
 from typer.testing import CliRunner
 
 from jpscripts.main import app
-from jpscripts.core import nav as nav_core
 
 
 @pytest.fixture
@@ -307,15 +306,12 @@ def test_security_blocks_dangerous_commands_in_fix(
     )
 
     # Try to run with a dangerous command
-    result = runner.invoke(
+    runner.invoke(
         app,
         ["fix", "--run", "rm -rf .", "--no-loop", "Do something"],
         env=env,
     )
-
-    # Command should complete but security block should appear in output or context
-    # The security system blocks at the gather_context level
-    console_output = capture_console.export_text() or result.output
+    capture_console.export_text()
 
     # The LLM should still be called, but the diagnostic section should show security block
     # (security doesn't prevent the entire command, just blocks the dangerous subcommand)

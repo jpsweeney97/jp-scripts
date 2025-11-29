@@ -3,18 +3,19 @@ from __future__ import annotations
 import os
 import asyncio
 from datetime import datetime
+from pathlib import Path
 
 # FIX: Import from the new core module location
 from jpscripts.core.nav import scan_recent
 from jpscripts.commands.nav import _human_time
 
 
-def test_human_time_formats_timestamp():
+def test_human_time_formats_timestamp() -> None:
     timestamp = datetime(2024, 1, 2, 15, 30).timestamp()
     assert _human_time(timestamp) == "2024-01-02 15:30"
 
 
-def test_scan_recent_sorts_and_ignores(tmp_path):
+def test_scan_recent_sorts_and_ignores(tmp_path: Path) -> None:
     base = datetime.now().timestamp()
 
     keep = tmp_path / "keep.txt"

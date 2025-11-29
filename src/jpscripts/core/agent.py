@@ -7,7 +7,7 @@ import sys
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Literal, Sequence
+from typing import Awaitable, Callable, Literal, Sequence
 import xml.etree.ElementTree as ET
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound

@@ -19,7 +19,6 @@ from jpscripts.providers import (
     CompletionOptions,
     LLMProvider,
     Message as ProviderMessage,
-    StreamChunk,
 )
 from jpscripts.providers.factory import get_provider
 

@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
-from typing import Sequence
 
 import typer
 from rich import box
