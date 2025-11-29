@@ -21,26 +21,10 @@ from jpscripts.core.memory import (
     EmbeddingClientProtocol,
     MemoryEntry,
     STOPWORDS,
+    get_memory_store,
 )
+from jpscripts.core.result import CapabilityMissingError, Err, Ok
 from jpscripts.core.security import validate_path
-
-
-class _StubVectorStore:
-    """Stub store that disables vector operations until LanceDB integration is restored."""
-
-    def available(self) -> bool:
-        return False
-
-    def insert(self, entries: list[MemoryEntry]) -> None:
-        pass
-
-    def search(self, query_vec: list[float], limit: int) -> list[MemoryEntry]:
-        return []
-
-
-def get_vector_store(store_path: Path, *, embedding_dim: int) -> _StubVectorStore:
-    """Placeholder for handbook vector store - returns stub until LanceDB integration is restored."""
-    return _StubVectorStore()
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
@@ -274,18 +258,34 @@ async def _reset_store(store_path: Path) -> None:
     await asyncio.to_thread(_remove)
 
 
-async def _insert_into_store(entries: list[MemoryEntry], store_path: Path, embedding_dim: int) -> None:
-    store = get_vector_store(store_path, embedding_dim=embedding_dim)
-    if not store.available():
-        return
+async def _insert_into_store(
+    entries: list[MemoryEntry],
+    store_path: Path,
+    config: AppConfig,
+) -> None:
+    """Insert entries into the memory store with graceful fallback."""
+    store_result = get_memory_store(config, store_path=store_path)
+
+    match store_result:
+        case Err(CapabilityMissingError()):
+            # LanceDB unavailable - entries will be searched via keyword fallback
+            return
+        case Err(error):
+            console.print(f"[yellow]Memory store unavailable: {error}[/yellow]")
+            return
+        case Ok(store):
+            pass
 
     def _insert() -> None:
-        store.insert(entries)
+        for entry in entries:
+            result = store.add(entry)
+            if isinstance(result, Err):
+                raise result.error
 
     try:
         await asyncio.to_thread(_insert)
     except Exception as exc:
-        console.print(f"[yellow]Vector store unavailable: {exc}[/yellow]")
+        console.print(f"[yellow]Memory store insertion failed: {exc}[/yellow]")
 
 
 async def _load_or_index_entries(
@@ -295,6 +295,7 @@ async def _load_or_index_entries(
     meta_path: Path,
     entries_path: Path,
     store_path: Path,
+    config: AppConfig,
 ) -> tuple[list[MemoryEntry], int]:
     meta = await _read_json(meta_path)
     if meta and meta.get("source_mtime_ns") == source_mtime_ns:
@@ -326,7 +327,7 @@ async def _load_or_index_entries(
     )
 
     if embedding_dim > 0:
-        await _insert_into_store(entries, store_path, embedding_dim)
+        await _insert_into_store(entries, store_path, config)
 
     return entries, embedding_dim
 
@@ -371,28 +372,47 @@ async def _search_entries(
     query: str,
     embedding_client: EmbeddingClientProtocol,
     entries: list[MemoryEntry],
-    embedding_dim: int,
     store_path: Path,
+    config: AppConfig,
     limit: int = MAX_RESULTS,
 ) -> list[MemoryEntry]:
-    if not embedding_client.available() or embedding_dim <= 0:
+    """Search entries using core memory store with fallbacks."""
+    store_result = get_memory_store(config, store_path=store_path)
+
+    # Fallback to keyword search if store unavailable
+    # Yellow warning for non-CapabilityMissing errors, silent for expected missing deps
+    if isinstance(store_result, Err):
+        if not isinstance(store_result.error, CapabilityMissingError):
+            console.print(f"[yellow]Memory store unavailable: {store_result.error}[/yellow]")
         return _keyword_search(entries, query, limit)
 
-    query_vecs = embedding_client.embed([query])
-    query_vec = query_vecs[0] if query_vecs else None
+    store = store_result.value
 
-    if query_vec and len(query_vec) == embedding_dim:
-        store = get_vector_store(store_path, embedding_dim=embedding_dim)
-        if store.available():
-            try:
-                return store.search(query_vec, limit)
-            except Exception:
-                console.print("[yellow]Vector store search failed; falling back to local scoring.[/yellow]")
-        local_ranked = _local_vector_search(entries, query_vec, limit)
-        if local_ranked:
-            return local_ranked
+    # Get query embeddings if available
+    query_vec: list[float] | None = None
+    if embedding_client.available():
+        query_vecs = embedding_client.embed([query])
+        query_vec = query_vecs[0] if query_vecs else None
 
-    return _keyword_search(entries, query, limit)
+    # Tokenize for hybrid search
+    query_tokens = _tokenize_text(query)
+
+    # Use store's hybrid search (RRF fusion of vector + keyword)
+    search_result = store.search(query_vec, limit, query_tokens=query_tokens)
+
+    if isinstance(search_result, Err):
+        console.print(f"[yellow]Store search failed: {search_result.error}[/yellow]")
+        return _keyword_search(entries, query, limit)
+
+    results = search_result.value
+
+    # Fall back to local search if store returns empty
+    if not results:
+        if query_vec:
+            return _local_vector_search(entries, query_vec, limit)
+        return _keyword_search(entries, query, limit)
+
+    return results
 
 
 def _render_results(results: list[MemoryEntry]) -> None:
@@ -447,6 +467,15 @@ def handbook(
         await _ensure_dir(cache_dir)
 
         embedding_client = _build_embedding_client(config)
+
+        # Config required for memory store integration
+        if config is None:
+            console.print("[yellow]Configuration unavailable; falling back to keyword search.[/yellow]")
+            entries = _build_entries(sections, source_mtime_ns)
+            results = _keyword_search(entries, query, MAX_RESULTS)
+            _render_results(results)
+            return
+
         entries, embedding_dim = await _load_or_index_entries(
             sections,
             embedding_client,
@@ -454,14 +483,15 @@ def handbook(
             meta_path,
             entries_path,
             store_path,
+            config,
         )
 
         results = await _search_entries(
             query=query,
             embedding_client=embedding_client,
             entries=entries,
-            embedding_dim=embedding_dim,
             store_path=store_path,
+            config=config,
             limit=MAX_RESULTS,
         )
         _render_results(results)

@@ -28,15 +28,21 @@ def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(agent_core, "_collect_git_context", fake_git_context)
     monkeypatch.setattr(agent_core, "_collect_git_diff", fake_git_diff)
 
-    captured_cmd: list[str] | None = None
+    captured_prompt: str | None = None
 
-    async def fake_execute(cmd, *, status_label):
-        nonlocal captured_cmd
-        captured_cmd = list(cmd)
-        return ["done"], None
+    async def fake_fetch_agent_response(prepared, config, model, provider_type, **kwargs):
+        nonlocal captured_prompt
+        captured_prompt = prepared.prompt
+        # Return a valid JSON response
+        return json.dumps({
+            "thought_process": "done",
+            "criticism": None,
+            "tool_call": None,
+            "file_patch": None,
+            "final_message": "Completed",
+        })
 
-    monkeypatch.setattr(agent_cmd, "_ensure_codex", lambda: "codex")
-    monkeypatch.setattr(agent_cmd, "_execute_codex_prompt", fake_execute)
+    monkeypatch.setattr(agent_cmd, "_fetch_agent_response", fake_fetch_agent_response)
 
     config = AppConfig(
         workspace_root=tmp_path,
@@ -57,13 +63,16 @@ def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp
         run_command=None,
         full_auto=True,
         model=None,
+        provider=None,
         loop=False,
         max_retries=3,
         keep_failed=False,
+        archive=True,
+        web=False,
     )
 
-    assert captured_cmd is not None
-    prompt = json.loads(captured_cmd[-1])
+    assert captured_prompt is not None
+    prompt = json.loads(captured_prompt)
     assert "system_context" in prompt
     assert prompt["system_context"]["git_context"]["head"] == "abcdef0"
     assert prompt["git_diff"] == "diff chunk with ]]> marker"

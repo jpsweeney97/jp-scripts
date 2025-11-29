@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
 from typing import Any, Awaitable
 
 import typer
@@ -169,152 +168,6 @@ async def _fetch_agent_response(
 
 
 # ---------------------------------------------------------------------------
-# Legacy Codex CLI support (for backward compatibility)
-# ---------------------------------------------------------------------------
-
-
-def _ensure_codex() -> str:
-    """Ensure Codex CLI is available."""
-    binary = shutil.which("codex")
-    if not binary:
-        console.print(
-            "[red]Codex CLI not found. Install it via `npm install -g @openai/codex` or `brew install codex`.[/red]"
-        )
-        raise typer.Exit(code=1)
-    return binary
-
-
-def _build_codex_command(
-    codex_bin: str,
-    model: str,
-    prompt: str,
-    full_auto: bool,
-    web: bool,
-    *,
-    temperature: float | None = None,
-    reasoning_effort: str | None = "high",
-) -> list[str]:
-    """Build command line for Codex CLI."""
-    cmd = [codex_bin, "exec", "--json", "--model", model]
-    if reasoning_effort:
-        cmd.extend(["-c", f"reasoning.effort={reasoning_effort}"])
-    if temperature is not None:
-        cmd.extend(["-c", f"temperature={temperature}"])
-    if web:
-        cmd.append("--search")
-    if full_auto:
-        cmd.append("--full-auto")
-    cmd.append(prompt)
-    return cmd
-
-
-async def _execute_codex_prompt(
-    cmd: list[str], *, status_label: str
-) -> tuple[list[str], str | None]:
-    """Execute Codex CLI and stream output."""
-    assistant_parts: list[str] = []
-    status = console.status(status_label, spinner="dots")
-    status.start()
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except KeyboardInterrupt:
-        status.stop()
-        console.print("[yellow]Codex session cancelled.[/yellow]")
-        raise typer.Exit(code=1)
-    except Exception as exc:
-        status.stop()
-        console.print(f"[red]Failed to start Codex:[/red] {exc}")
-        raise typer.Exit(code=1)
-
-    try:
-        if proc.stdout is None or proc.stderr is None:
-            return [], "Codex did not provide output."
-
-        async for raw_line in proc.stdout:
-            line = raw_line.decode(errors="replace").strip()
-            if not line:
-                continue
-            try:
-                event = json.loads(line)
-            except json.JSONDecodeError:
-                console.print(f"[red]Failed to parse Codex output:[/red] {line}")
-                continue
-
-            data: dict[str, Any] = event.get("data") or {}
-            event_type = event.get("event") or event.get("type")
-
-            if event_type == "item.started":
-                action = (
-                    data.get("action")
-                    or data.get("command")
-                    or data.get("name")
-                    or "working"
-                )
-                status.update(f"[cyan]Running[/cyan] {action}")
-            elif event_type == "turn.failed":
-                error_msg = (
-                    data.get("error") or event.get("error") or "Codex execution failed."
-                )
-                console.print(
-                    Panel(f"[red]{error_msg}[/red]", title="Codex error", box=box.SIMPLE)
-                )
-            elif event_type == "item.completed":
-                action = (
-                    data.get("action")
-                    or data.get("command")
-                    or data.get("name")
-                    or "task"
-                )
-                status.update(f"[green]Completed[/green] {action}")
-
-            message = (
-                data.get("assistant_message")
-                or event.get("assistant_message")
-                or data.get("message")
-            )
-            if isinstance(message, str) and message.strip():
-                assistant_parts.append(message.strip())
-
-        await proc.wait()
-        stderr_text = (await proc.stderr.read()).decode(errors="replace").strip()
-        return assistant_parts, stderr_text or None
-    finally:
-        status.stop()
-
-
-async def _fetch_agent_response_from_codex(
-    prepared: PreparedPrompt,
-    codex_bin: str,
-    model: str,
-    full_auto: bool,
-    web: bool,
-) -> str:
-    """Fetch response using Codex CLI directly (legacy path)."""
-    cmd = _build_codex_command(
-        codex_bin,
-        model,
-        prepared.prompt,
-        full_auto,
-        web,
-        temperature=prepared.temperature,
-        reasoning_effort=prepared.reasoning_effort or "high",
-    )
-    assistant_parts, stderr_text = await _execute_codex_prompt(
-        cmd, status_label="Consulting Codex..."
-    )
-    if stderr_text:
-        console.print(
-            Panel(f"[red]{stderr_text}[/red]", title="Codex stderr", box=box.SIMPLE)
-        )
-    return "\n\n".join(assistant_parts)
-
-
-# ---------------------------------------------------------------------------
 # Main command
 # ---------------------------------------------------------------------------
 
@@ -365,11 +218,6 @@ def codex_exec(
     web: bool = typer.Option(
         False, "--web/--no-web", help="Enable web search tool for the agent (Codex only)."
     ),
-    use_legacy_codex: bool = typer.Option(
-        False,
-        "--legacy-codex",
-        help="Force use of legacy Codex CLI path (skip provider abstraction).",
-    ),
 ) -> None:
     """Delegate a task to an LLM agent.
 
@@ -394,37 +242,28 @@ def codex_exec(
 
     effective_retries = max(1, max_retries)
 
-    # Determine if we should use legacy Codex path
-    use_legacy = use_legacy_codex
-    if not use_legacy and provider is None:
-        # Auto-detect: use legacy Codex if model looks like OpenAI and Codex is available
+    # Auto-detect Codex provider for OpenAI models when Codex CLI is available
+    effective_provider = provider
+    if effective_provider is None:
         try:
             inferred = infer_provider_type(target_model)
             if inferred == ProviderType.OPENAI and is_codex_available():
-                use_legacy = True
+                effective_provider = "codex"
         except Exception:
             pass
 
     # Repair loop mode
     if loop_enabled and run_command:
-        if use_legacy:
-            codex_bin = _ensure_codex()
 
-            def fetcher(prepared: PreparedPrompt) -> Awaitable[str]:
-                return _fetch_agent_response_from_codex(
-                    prepared, codex_bin, target_model, full_auto, web
-                )
-        else:
-
-            def fetcher(prepared: PreparedPrompt) -> Awaitable[str]:
-                return _fetch_agent_response(
-                    prepared,
-                    state.config,
-                    target_model,
-                    provider,
-                    full_auto=full_auto,
-                    web=web,
-                )
+        def fetcher(prepared: PreparedPrompt) -> Awaitable[str]:
+            return _fetch_agent_response(
+                prepared,
+                state.config,
+                target_model,
+                effective_provider,
+                full_auto=full_auto,
+                web=web,
+            )
 
         success = asyncio.run(
             run_repair_loop(
@@ -482,42 +321,17 @@ def codex_exec(
             "[yellow]No files detected in command output. Proceeding without file context.[/yellow]"
         )
 
-    # Fetch response
-    if use_legacy:
-        codex_bin = _ensure_codex()
-        console.print(
-            Panel("Handing off to [bold magenta]Codex[/bold magenta]...", box=box.SIMPLE)
-        )
-        cmd = _build_codex_command(
-            codex_bin,
+    # Fetch response via unified provider path
+    raw_response = asyncio.run(
+        _fetch_agent_response(
+            prepared,
+            state.config,
             target_model,
-            prepared.prompt,
-            full_auto,
-            web,
-            temperature=prepared.temperature,
-            reasoning_effort=prepared.reasoning_effort or "high",
+            effective_provider,
+            full_auto=full_auto,
+            web=web,
         )
-        assistant_parts, stderr_text = asyncio.run(
-            _execute_codex_prompt(cmd, status_label="Connecting to Codex...")
-        )
-
-        if stderr_text:
-            console.print(
-                Panel(f"[red]{stderr_text}[/red]", title="Codex stderr", box=box.SIMPLE)
-            )
-
-        raw_response = "\n\n".join(assistant_parts)
-    else:
-        raw_response = asyncio.run(
-            _fetch_agent_response(
-                prepared,
-                state.config,
-                target_model,
-                provider,
-                full_auto=full_auto,
-                web=web,
-            )
-        )
+    )
 
     if not raw_response:
         console.print("[yellow]No response received from agent.[/yellow]")

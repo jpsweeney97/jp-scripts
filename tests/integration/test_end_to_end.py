@@ -156,11 +156,8 @@ def test_god_mode_cycle(
 
     # Mock the provider call but NOT prepare_agent_prompt
     monkeypatch.setattr(
-        "jpscripts.commands.agent._ensure_codex", lambda: "/usr/bin/codex"
-    )
-    monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
-    )  # Force provider path
+    )  # Prevent Codex auto-detection
     monkeypatch.setattr(
         "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
     )
@@ -255,11 +252,8 @@ def test_repair_loop_integration(
         )
 
     monkeypatch.setattr(
-        "jpscripts.commands.agent._ensure_codex", lambda: "/usr/bin/codex"
-    )
-    monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
-    )
+    )  # Prevent Codex auto-detection
     monkeypatch.setattr(
         "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
     )
@@ -306,11 +300,8 @@ def test_security_blocks_dangerous_commands_in_fix(
         )
 
     monkeypatch.setattr(
-        "jpscripts.commands.agent._ensure_codex", lambda: "/usr/bin/codex"
-    )
-    monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
-    )
+    )  # Prevent Codex auto-detection
     monkeypatch.setattr(
         "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
     )
@@ -389,11 +380,8 @@ def function_{i}(arg1: int, arg2: str) -> bool:
         )
 
     monkeypatch.setattr(
-        "jpscripts.commands.agent._ensure_codex", lambda: "/usr/bin/codex"
-    )
-    monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
-    )
+    )  # Prevent Codex auto-detection
     monkeypatch.setattr(
         "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
     )

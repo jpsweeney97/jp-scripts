@@ -30,29 +30,31 @@ def main_callback(ctx: typer.Context):
 
 agent_app.command(name="fix")(codex_exec)
 
-def test_codex_exec_builds_command(runner):
-    """Verify jp fix constructs the correct codex CLI call."""
-    captured: list[list[str]] = []
+def test_codex_exec_invokes_provider(runner):
+    """Verify jp fix invokes the provider correctly."""
+    captured: list[str] = []
 
-    async def fake_execute(cmd, *, status_label):
-        captured.append(cmd)
-        return ["done"], None
+    async def fake_fetch_response(prepared, config, model, provider_type, **kwargs):
+        captured.append(prepared.prompt)
+        return json.dumps({
+            "thought_process": "done",
+            "criticism": None,
+            "tool_call": None,
+            "file_patch": None,
+            "final_message": "Completed",
+        })
 
-    with patch("jpscripts.commands.agent._execute_codex_prompt", side_effect=fake_execute), \
-         patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"), \
-         patch("jpscripts.commands.agent.is_codex_available", return_value=True):
+    with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
+         patch("jpscripts.commands.agent.is_codex_available", return_value=False):
 
         result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
         assert result.exit_code == 0
         assert captured
 
-        cmd = captured[0]
-
-        assert cmd[0] == "/usr/bin/codex"
-        assert "exec" in cmd
-        assert any("Fix the bug" in part for part in cmd)
-        assert "--full-auto" in cmd
+        # Verify prompt was captured
+        prompt = captured[0]
+        assert "Fix the bug" in prompt
 
 def test_codex_exec_attaches_recent_files(runner):
     """Verify --recent flag scans and attaches files."""
@@ -60,29 +62,33 @@ def test_codex_exec_attaches_recent_files(runner):
     mock_entry.path = Path("fake_recent.py")
     mock_entry.path.write_text("hello world", encoding="utf-8")
 
-    captured: list[list[str]] = []
+    captured: list[str] = []
 
     async def fake_scan_recent(*_args, **_kwargs):
         return Ok([mock_entry])
 
-    async def fake_execute(cmd, *, status_label):
-        captured.append(cmd)
-        return ["done"], None
+    async def fake_fetch_response(prepared, config, model, provider_type, **kwargs):
+        captured.append(prepared.prompt)
+        return json.dumps({
+            "thought_process": "done",
+            "criticism": None,
+            "tool_call": None,
+            "file_patch": None,
+            "final_message": "Completed",
+        })
 
-    with patch("jpscripts.commands.agent._execute_codex_prompt", side_effect=fake_execute), \
-         patch("jpscripts.commands.agent._ensure_codex", return_value="/usr/bin/codex"), \
-         patch("jpscripts.commands.agent.is_codex_available", return_value=True), \
+    with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
+         patch("jpscripts.commands.agent.is_codex_available", return_value=False), \
          patch("jpscripts.core.agent.scan_recent", side_effect=fake_scan_recent):
 
         result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
         assert result.exit_code == 0
         assert captured
-        cmd = captured[0]
 
-        # Prompt (last arg) should include the recent file snippet/path
-        prompt_arg = cmd[-1]
-        assert "fake_recent.py" in prompt_arg
+        # Prompt should include the recent file snippet/path
+        prompt = captured[0]
+        assert "fake_recent.py" in prompt
 
 
 def test_run_repair_loop_auto_archives(monkeypatch, tmp_path: Path) -> None:
