@@ -45,6 +45,12 @@
           "Every CLI command has a smoke test in tests/test_smoke.py covering --help and basic invocation.",
           "Async tests use pytest.mark.asyncio; security-sensitive code ships explicit security tests; bug fixes include regression coverage."
         ]
+      },
+      {
+        "id": "destructive-fs",
+        "rules": [
+          "Destructive Python file operations (shutil.rmtree, os.remove, etc.) are forbidden unless the line contains `# safety: checked`. Enforced by AST."
+        ]
       }
     ],
     "cognitive_standards": [

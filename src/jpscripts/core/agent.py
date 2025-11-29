@@ -230,8 +230,8 @@ async def prepare_agent_prompt(
         patterns = await fetch_relevant_patterns(
             base_prompt.strip() or diagnostic_section[:500],
             config,
-            limit=3,
-            min_confidence=0.6,
+            limit=2,
+            min_confidence=0.75,
         )
         if patterns:
             patterns_section = format_patterns_for_prompt(patterns)

@@ -31,6 +31,7 @@ class ViolationType(Enum):
     UNTYPED_ANY = auto()  # Any type without type: ignore comment
     SYNC_OPEN = auto()  # open() in async context without to_thread
     OS_SYSTEM = auto()  # os.system() usage (always forbidden)
+    DESTRUCTIVE_FS = auto()  # Destructive filesystem call without safety override
 
 
 @dataclass(frozen=True)
@@ -76,6 +77,7 @@ class ConstitutionChecker(ast.NodeVisitor):
         self._check_shell_true(node)
         self._check_os_system(node)
         self._check_sync_open(node)
+        self._check_destructive_fs(node)
         self.generic_visit(node)
 
     def _check_subprocess_run(self, node: ast.Call) -> None:
@@ -144,6 +146,28 @@ class ConstitutionChecker(ast.NodeVisitor):
                             fatal=True,
                         )
                     )
+
+    def _check_destructive_fs(self, node: ast.Call) -> None:
+        """Detect destructive filesystem operations without explicit safety override."""
+        if not self._is_destructive_fs_call(node):
+            return
+
+        line_content = self._get_line(node.lineno)
+        if "# safety: checked" in line_content:
+            return
+
+        self.violations.append(
+            Violation(
+                type=ViolationType.DESTRUCTIVE_FS,
+                file=self.file_path,
+                line=node.lineno,
+                column=node.col_offset,
+                message="Destructive filesystem call without '# safety: checked' override",
+                suggestion="Avoid destructive filesystem calls or add '# safety: checked' when explicitly audited.",
+                severity="error",
+                fatal=True,
+            )
+        )
 
     def _check_sync_open(self, node: ast.Call) -> None:
         """Detect open() in async context without wrapping."""
@@ -251,6 +275,37 @@ class ConstitutionChecker(ast.NodeVisitor):
         if isinstance(node.func, ast.Attribute):
             if isinstance(node.func.value, ast.Name):
                 return node.func.value.id == "subprocess"
+        return False
+
+    def _is_destructive_fs_call(self, node: ast.Call) -> bool:
+        """Check if call targets destructive filesystem operations."""
+        func = node.func
+        if not isinstance(func, ast.Attribute):
+            return False
+
+        target = func.value
+        if func.attr == "rmtree" and isinstance(target, ast.Name):
+            return target.id == "shutil"
+
+        if func.attr in {"remove", "unlink"} and isinstance(target, ast.Name):
+            return target.id == "os"
+
+        if func.attr != "unlink":
+            return False
+
+        if isinstance(target, ast.Name):
+            return target.id == "Path"
+
+        if isinstance(target, ast.Attribute):
+            return target.attr == "Path"
+
+        if isinstance(target, ast.Call):
+            call_func = target.func
+            if isinstance(call_func, ast.Name):
+                return call_func.id == "Path"
+            if isinstance(call_func, ast.Attribute):
+                return call_func.attr == "Path"
+
         return False
 
     def _get_line(self, lineno: int) -> str:

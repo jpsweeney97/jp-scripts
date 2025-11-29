@@ -9,6 +9,7 @@ from typing import AsyncIterator, Iterable, Literal, Sequence, cast
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from ruamel.yaml import YAML, YAMLError
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
@@ -36,8 +37,90 @@ class Persona:
         return self.name
 
 
+class _PersonaConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    style: str
+    color: str | None = None
+
+
+class _SwarmConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    personas: list[_PersonaConfig]
+
+
+def _load_swarm_config(config_path: Path) -> dict[str, object] | None:
+    yaml_loader = YAML(typ="safe")
+
+    def _read() -> dict[str, object] | None:
+        with config_path.open("r", encoding="utf-8") as handle:
+            loaded = yaml_loader.load(handle)
+        if loaded is None:
+            return {}
+        if isinstance(loaded, dict):
+            return cast(dict[str, object], loaded)
+        raise ValueError("Swarm config must be a mapping.")
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(asyncio.to_thread(_read))
+
+    logger.debug("Skipping swarm config load while event loop is running; using defaults.")
+    return None
+
+
+def _load_configured_swarm() -> list[Persona] | None:
+    config_path = Path.home() / ".jpscripts" / "swarms.yaml"
+    if not config_path.exists():
+        logger.debug("Swarm config not found at %s; using defaults.", config_path)
+        return None
+
+    if not config_path.is_file():
+        logger.debug("Swarm config path is not a file: %s; using defaults.", config_path)
+        return None
+
+    try:
+        raw_data = _load_swarm_config(config_path)
+    except (OSError, YAMLError, ValueError) as exc:
+        logger.debug("Failed to load swarm config at %s: %s; using defaults.", config_path, exc)
+        return None
+
+    if raw_data is None:
+        logger.debug("Swarm config at %s returned no data; using defaults.", config_path)
+        return None
+
+    try:
+        config = _SwarmConfig.model_validate(raw_data)
+    except ValidationError as exc:
+        logger.debug("Invalid swarm config at %s: %s; using defaults.", config_path, exc)
+        return None
+
+    if not config.personas:
+        logger.debug("Swarm config at %s contains no personas; using defaults.", config_path)
+        return None
+
+    personas: list[Persona] = []
+    for persona_config in config.personas:
+        persona_kwargs: dict[str, str] = {
+            "name": persona_config.name,
+            "style": persona_config.style,
+        }
+        if persona_config.color:
+            persona_kwargs["color"] = persona_config.color
+        personas.append(Persona(**persona_kwargs))
+
+    return personas
+
+
 def get_default_swarm() -> list[Persona]:
     """Return the default Architect/Engineer/QA personas."""
+    configured = _load_configured_swarm()
+    if configured:
+        return configured
+
     return [
         Persona(
             name="Architect",
