@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable, cast
 
 import pytest
 
@@ -39,7 +39,7 @@ def test_strict_tool_validator_raises_tool_error_on_invalid_input() -> None:
 def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure tools with missing type hints cause RuntimeError during registration."""
 
-    typed_tool = tool()
+    typed_tool = cast(Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]], tool())
 
     @typed_tool
     async def bad(x) -> str:  # type: ignore[no-untyped-def]

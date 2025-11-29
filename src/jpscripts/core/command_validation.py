@@ -76,18 +76,20 @@ ALLOWED_BINARIES: FrozenSet[str] = frozenset({
     "find", "fd", "fdfind", "locate",
     # Git (read operations only - validated separately)
     "git",
-    # Utilities
-    "wc", "sort", "uniq", "cut", "tr", "column",
-    "pwd", "realpath", "dirname", "basename",
-    "which", "whereis", "type", "command",
-    "file", "stat", "du", "df",
-    "env", "printenv", "echo",
-    "date", "cal",
-    "true", "false",
-    # JSON processing
-    "jq", "yq",
-    # Testing commands
-    "test", "[",
+# Utilities
+"wc", "sort", "uniq", "cut", "tr", "column",
+"pwd", "realpath", "dirname", "basename",
+"which", "whereis", "type", "command",
+"file", "stat", "du", "df",
+"env", "printenv", "echo",
+"date", "cal",
+"true", "false",
+# JPScripts CLI - required for recursive protocol execution (e.g., jp verify-protocol -> jp status-all)
+"jp",
+# JSON processing
+"jq", "yq",
+# Testing commands
+"test", "[",
 })
 
 # Git subcommands that are safe (read-only)

@@ -88,44 +88,47 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
 
 def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
     """Verify --recent flag scans and attaches files."""
-    mock_entry = MagicMock()
-    mock_entry.path = Path("fake_recent.py")
-    mock_entry.path.write_text("hello world", encoding="utf-8")
-
     captured: list[str] = []
 
-    async def fake_scan_recent(*_args: Any, **_kwargs: Any) -> Any:
-        return Ok([mock_entry])
+    with runner.isolated_filesystem():
+        recent_path = Path("fake_recent.py")
+        recent_path.write_text("hello world", encoding="utf-8")
 
-    async def fake_fetch_response(
-        prepared: "PreparedPrompt",
-        config: Any,
-        model: str,
-        provider_type: Any,
-        full_auto: bool = False,
-        web: bool = False,
-    ) -> str:
-        captured.append(prepared.prompt)
-        return json.dumps({
-            "thought_process": "done",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": None,
-            "final_message": "Completed",
-        })
+        mock_entry = MagicMock()
+        mock_entry.path = recent_path
 
-    with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
-         patch("jpscripts.commands.agent.is_codex_available", return_value=False), \
-         patch("jpscripts.core.agent.scan_recent", side_effect=fake_scan_recent):
+        async def fake_scan_recent(*_args: Any, **_kwargs: Any) -> Any:
+            return Ok([mock_entry])
 
-        result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
+        async def fake_fetch_response(
+            prepared: "PreparedPrompt",
+            config: Any,
+            model: str,
+            provider_type: Any,
+            full_auto: bool = False,
+            web: bool = False,
+        ) -> str:
+            captured.append(prepared.prompt)
+            return json.dumps({
+                "thought_process": "done",
+                "criticism": None,
+                "tool_call": None,
+                "file_patch": None,
+                "final_message": "Completed",
+            })
 
-        assert result.exit_code == 0
-        assert captured
+        with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
+             patch("jpscripts.commands.agent.is_codex_available", return_value=False), \
+             patch("jpscripts.core.agent.scan_recent", side_effect=fake_scan_recent):
 
-        # Prompt should include the recent file snippet/path
-        prompt = captured[0]
-        assert "fake_recent.py" in prompt
+            result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
+
+            assert result.exit_code == 0
+            assert captured
+
+            # Prompt should include the recent file snippet/path
+            prompt = captured[0]
+            assert "fake_recent.py" in prompt
 
 
 def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None:

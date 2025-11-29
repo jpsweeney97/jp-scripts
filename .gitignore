@@ -5,3 +5,4 @@ __pycache__/
 tmp-repo-test/
 /*.py
 !/setup.py
+fake_*.py

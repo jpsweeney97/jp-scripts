@@ -6,16 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.context import (
-    TRUNCATION_MARKER,
-    TokenBudgetManager,
-    get_file_skeleton,
-    read_file_context,
-    smart_read_context,
-)
+from jpscripts.core.context import TokenCounter, TokenBudgetManager, TRUNCATION_MARKER, get_file_skeleton, read_file_context, smart_read_context
 
 
-class MockTokenCounter:
+class MockTokenCounter(TokenCounter):
+    def __init__(self) -> None:
+        super().__init__(default_model="gpt-4o")
+
     def count_tokens(self, text: str, model: str | None = None) -> int:
         return len(text)
 
