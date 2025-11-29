@@ -2,11 +2,13 @@
 
 Concise rules for operating `jp` with precision. No fluff, no drift.
 
+> **Version:** 2.0 | **Python:** 3.12+ | **Typing:** mypy --strict
+
 ---
 
 ## The Zero-State (≤3 minutes to operational)
 
-1) **Prereqs**: Python 3.11+, `git`, `ruff`, `rg`, `fzf`. Optional: `uv` or `pipx` for isolated install.  
+1) **Prereqs**: Python 3.12+, `git`, `ruff`, `rg`, `fzf`. Optional: `uv` or `pipx` for isolated install.  
 2) **Bootstrap**:  
    - `git clone https://github.com/.../jp-scripts.git` (or sync your fork)  
    - `cd jp-scripts`  
@@ -91,6 +93,149 @@ jp evolve debt
 ### Security Boundaries
 - Dynamic execution is banned. Do not use `eval`, `exec`, `compile`, `__import__`, or dynamic `importlib.import_module` without an explicit, reviewed `# safety: checked` override.
 - Shell execution stays tokenized and validated; `shell=True` and obfuscated commands are forbidden.
+
+---
+
+## Parallel Swarm Execution
+
+Execute multiple agents in parallel with git worktree isolation.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────┐
+│                 ParallelSwarmController              │
+├─────────────────────────────────────────────────────┤
+│  DAGGraph → topological sort → parallel batches      │
+│                                                      │
+│  ┌─────────┐  ┌─────────┐  ┌─────────┐              │
+│  │Worktree │  │Worktree │  │Worktree │  (max_parallel)
+│  │ task-001│  │ task-002│  │ task-003│              │
+│  └────┬────┘  └────┬────┘  └────┬────┘              │
+│       │            │            │                   │
+│       └────────────┴────────────┘                   │
+│                    │                                │
+│            MergeConflictResolver                    │
+│       TRIVIAL → SEMANTIC → COMPLEX                  │
+└─────────────────────────────────────────────────────┘
+```
+
+### DAG Task Model
+
+```python
+DAGTask(
+    id="task-001",
+    objective="Implement feature X",
+    files_touched=["src/foo.py", "src/bar.py"],
+    depends_on=["task-000"],  # Must complete first
+    persona="engineer",       # or "qa"
+    priority=10,              # Higher = first in batch
+    estimated_complexity="moderate",
+)
+```
+
+### Worktree Isolation
+
+Each task runs in its own git worktree:
+- **Prevents** `index.lock` contention
+- **Prevents** filesystem race conditions
+- **Enables** true parallel git operations
+
+```python
+async with manager.create_worktree("task-001") as ctx:
+    # ctx.worktree_path - isolated checkout
+    # ctx.branch_name   - unique branch (swarm/task-001-abc123)
+    await execute_task(ctx)
+# Automatic cleanup on exit
+```
+
+### Merge Strategy (3-Tier)
+
+| Category | Detection | Resolution |
+|:---------|:----------|:-----------|
+| `TRIVIAL` | Whitespace-only, import reordering | Auto-resolve deterministically |
+| `SEMANTIC` | Logic changes in non-overlapping regions | Attempt LLM-assisted resolution |
+| `COMPLEX` | Structural overlap, high divergence | Flag for human review |
+
+### Usage
+
+```python
+from jpscripts.core.parallel_swarm import ParallelSwarmController
+from jpscripts.core.dag import DAGGraph, DAGTask
+
+dag = DAGGraph(tasks=[...])
+controller = ParallelSwarmController(
+    objective="Build feature",
+    config=config,
+    repo_root=Path("."),
+    max_parallel=4,
+    preserve_on_failure=True,  # Keep worktrees for debugging
+)
+controller.set_dag(dag)
+
+match await controller.run():
+    case Ok(merge_result):
+        print(f"Merged: {merge_result.merged_branches}")
+    case Err(error):
+        print(f"Failed: {error}")
+```
+
+---
+
+## AST-Aware Context Slicing
+
+Smart code extraction that preserves semantic relationships.
+
+### DependencyWalker
+
+Analyzes Python source to extract:
+- **Symbols**: Functions, classes, constants
+- **Call Graph**: What calls what
+- **Class Hierarchy**: Inheritance relationships
+- **Imports**: External dependencies
+
+```python
+from jpscripts.core.dependency_walker import DependencyWalker
+
+walker = DependencyWalker(source_code)
+
+# Extract all symbols
+symbols = walker.get_symbols()
+for s in symbols:
+    print(f"{s.kind}: {s.name} ({s.start_line}-{s.end_line})")
+
+# Get call relationships
+graph = walker.get_call_graph()
+print(graph.callers["main"])  # What main() calls
+
+# Slice with dependencies
+context = walker.slice_for_symbol("process_data")
+
+# Fit within token budget
+truncated = walker.slice_to_budget("main", max_tokens=500)
+```
+
+### Token-Aware Allocation
+
+```python
+from jpscripts.core.tokens import TokenBudgetManager, SemanticSlicer
+
+# Priority-based allocation
+manager = TokenBudgetManager(total_budget=4000, model="gpt-4o")
+content = manager.allocate_with_dependencies(
+    priority=1,
+    content=full_source,
+    target_symbol="main",
+)
+
+# Multi-file slicing
+slicer = SemanticSlicer()
+sliced_files = slicer.prioritize_files(
+    files=[path1, path2, path3],
+    target_symbols=["foo", "bar"],
+    max_tokens=8000,
+)
+```
 
 ---
 

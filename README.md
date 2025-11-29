@@ -1,16 +1,25 @@
 # jpscripts
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![mypy: strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy.readthedocs.io/)
 
-**The modern, typed, "God-Mode" CLI for macOS power users.**
+**The modern, typed, "God-Mode" CLI for macOS power users with autonomous agent orchestration.**
 
 For detailed workflows and God-Mode configurations, see the [Handbook](HANDBOOK.md).
+
+## Highlights
+
+- **Parallel Swarm Execution**: Run multiple AI agents in parallel using git worktrees for isolation
+- **AST-Aware Context Slicing**: Smart code slicing that preserves semantic meaning
+- **Constitutional Governance**: Automated enforcement of coding standards via AST analysis
+- **Merge Conflict Resolution**: Intelligent 3-tier conflict resolution (TRIVIAL → SEMANTIC → COMPLEX)
 
 ## Installation
 
 ### Prerequisites
 
+- Python 3.12+ (uses `asyncio.TaskGroup` and modern type syntax)
 - `brew install fzf ripgrep git`
 - `brew install gh` (for PR helpers)
 - `brew install zoxide` (for navigation)
@@ -58,6 +67,71 @@ jp evolve debt
 5. Creates branch, applies changes, and **verifies tests before any push/PR** (Verify-before-Push guarantee)
 
 All changes are validated against constitutional rules (AGENTS.md) and must pass `mypy --strict`.
+
+## Parallel Swarm Architecture
+
+Execute DAG-based tasks in parallel with full git worktree isolation:
+
+```python
+from jpscripts.core.dag import DAGGraph, DAGTask
+from jpscripts.core.parallel_swarm import ParallelSwarmController
+
+# Define tasks with dependencies
+dag = DAGGraph(tasks=[
+    DAGTask(id="task-001", objective="Add auth module", files_touched=["src/auth.py"]),
+    DAGTask(id="task-002", objective="Add tests", files_touched=["tests/test_auth.py"]),
+    DAGTask(id="task-003", objective="Update docs", depends_on=["task-001", "task-002"]),
+])
+
+# Execute with parallel workers
+controller = ParallelSwarmController(
+    objective="Implement authentication",
+    config=config,
+    repo_root=Path("."),
+    max_parallel=4,
+)
+controller.set_dag(dag)
+result = await controller.run()
+```
+
+**Key features:**
+- Git worktree isolation prevents `index.lock` contention
+- DAG validation ensures no cycles
+- Automatic parallel grouping via `detect_disjoint_subgraphs()`
+- Configurable `--preserve-on-failure` for debugging
+
+## AST-Aware Context Slicing
+
+Smart code slicing that preserves semantic relationships:
+
+```python
+from jpscripts.core.dependency_walker import DependencyWalker
+
+walker = DependencyWalker(source_code)
+
+# Get symbols and their relationships
+symbols = walker.get_symbols()
+call_graph = walker.get_call_graph()
+hierarchy = walker.get_class_hierarchy()
+
+# Slice code for a target symbol with dependencies
+sliced = walker.slice_for_symbol("main")
+
+# Fit within token budget
+context = walker.slice_to_budget("process_data", max_tokens=1000)
+```
+
+**Integrated with TokenBudgetManager:**
+```python
+from jpscripts.core.tokens import TokenBudgetManager
+
+manager = TokenBudgetManager(total_budget=4000)
+content = manager.allocate_with_dependencies(
+    priority=1,
+    content=source,
+    target_symbol="main",
+)
+```
 
 ## Config Reference
 

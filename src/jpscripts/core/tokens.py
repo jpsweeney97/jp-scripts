@@ -1,10 +1,23 @@
+"""Token budget management with AST-aware slicing support.
+
+This module provides:
+- TokenCounter: Token counting backed by tiktoken with fallback
+- TokenBudgetManager: Priority-based token budget allocation
+- Integration with DependencyWalker for semantic slicing
+
+[invariant:typing] All types are explicit; mypy --strict compliant.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Protocol, Sequence, cast
+from typing import TYPE_CHECKING, Literal, Protocol, Sequence, cast
 
 from jpscripts.core.console import get_logger
+
+if TYPE_CHECKING:
+    from jpscripts.core.dependency_walker import DependencyWalker
 
 logger = get_logger(__name__)
 
@@ -218,3 +231,170 @@ class TokenBudgetManager:
     def summary(self) -> dict[str, int]:
         """Return allocation summary by priority (tokens)."""
         return {f"priority_{p}": tokens for p, tokens in self._allocations.items()}
+
+    def allocate_with_dependencies(
+        self,
+        priority: Priority,
+        content: str,
+        target_symbol: str,
+        source_path: Path | None = None,
+    ) -> str:
+        """Allocate content with AST-aware dependency slicing.
+
+        Prioritizes the target symbol and its dependencies, then fills
+        remaining budget with related code.
+
+        Args:
+            priority: Priority level for allocation
+            content: Full source code content
+            target_symbol: Name of the primary symbol to include
+            source_path: Optional path for syntax-aware truncation
+
+        Returns:
+            Sliced content fitting within token budget
+        """
+        if not content or not target_symbol:
+            return self.allocate(priority, content, source_path)
+
+        token_budget = self.remaining()
+        if token_budget <= 0:
+            return ""
+
+        # Try to use DependencyWalker for semantic slicing
+        try:
+            from jpscripts.core.dependency_walker import DependencyWalker
+
+            walker = DependencyWalker(content)
+            sliced = walker.slice_to_budget(target_symbol, token_budget)
+
+            if sliced:
+                return self.allocate(priority, sliced, source_path)
+        except ImportError:
+            logger.debug("DependencyWalker not available, using basic allocation")
+        except Exception as exc:
+            logger.debug("Semantic slicing failed: %s", exc)
+
+        # Fall back to basic allocation
+        return self.allocate(priority, content, source_path)
+
+
+class SemanticSlicer:
+    """Semantic code slicer using AST analysis.
+
+    Provides higher-level interface for slicing code based on
+    symbol relationships and token budgets.
+
+    [invariant:typing] All types explicit; mypy --strict compliant
+    """
+
+    def __init__(
+        self,
+        token_counter: TokenCounter | None = None,
+        model: str = "gpt-4o",
+    ) -> None:
+        """Initialize the semantic slicer.
+
+        Args:
+            token_counter: Optional token counter (creates default if None)
+            model: Model name for token counting
+        """
+        self._token_counter = token_counter or TokenCounter()
+        self._model = model
+
+    def slice_for_context(
+        self,
+        source: str,
+        target_symbol: str,
+        max_tokens: int,
+    ) -> str:
+        """Slice source code to include target and dependencies.
+
+        Args:
+            source: Full Python source code
+            target_symbol: Primary symbol to include
+            max_tokens: Maximum token budget
+
+        Returns:
+            Sliced code within budget
+        """
+        try:
+            from jpscripts.core.dependency_walker import DependencyWalker
+
+            walker = DependencyWalker(source)
+            return walker.slice_to_budget(target_symbol, max_tokens)
+        except ImportError:
+            # Fall back to simple truncation
+            max_chars = max_tokens * 4
+            return source[:max_chars]
+
+    def prioritize_files(
+        self,
+        files: list[Path],
+        target_symbols: list[str],
+        max_tokens: int,
+    ) -> list[tuple[Path, str]]:
+        """Prioritize and slice multiple files for context.
+
+        Args:
+            files: List of file paths to process
+            target_symbols: Symbols to prioritize across files
+            max_tokens: Total token budget
+
+        Returns:
+            List of (path, sliced_content) tuples
+        """
+        results: list[tuple[Path, str]] = []
+        remaining_tokens = max_tokens
+
+        # First pass: find files containing target symbols
+        file_relevance: list[tuple[Path, int, str]] = []
+
+        for file_path in files:
+            if not file_path.exists():
+                continue
+
+            try:
+                content = file_path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue
+
+            # Check if file contains any target symbols
+            relevance = 0
+            for symbol in target_symbols:
+                if symbol in content:
+                    relevance += 1
+
+            file_relevance.append((file_path, relevance, content))
+
+        # Sort by relevance (most relevant first)
+        file_relevance.sort(key=lambda x: -x[1])
+
+        # Second pass: allocate tokens
+        for file_path, relevance, content in file_relevance:
+            if remaining_tokens <= 0:
+                break
+
+            if relevance > 0:
+                # Slice for target symbols
+                for symbol in target_symbols:
+                    if symbol in content:
+                        sliced = self.slice_for_context(
+                            content, symbol, remaining_tokens
+                        )
+                        if sliced:
+                            token_count = self._token_counter.count_tokens(
+                                sliced, self._model
+                            )
+                            results.append((file_path, sliced))
+                            remaining_tokens -= token_count
+                            break
+            else:
+                # Include head of file for context
+                tokens_for_file = min(remaining_tokens, 500)
+                max_chars = tokens_for_file * 4
+                sliced = content[:max_chars]
+                token_count = self._token_counter.count_tokens(sliced, self._model)
+                results.append((file_path, sliced))
+                remaining_tokens -= token_count
+
+        return results

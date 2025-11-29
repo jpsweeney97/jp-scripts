@@ -36,6 +36,17 @@ class GitCommit:
         return datetime.fromtimestamp(self.committed_date)
 
 
+@dataclass
+class WorktreeInfo:
+    """Information about a git worktree."""
+
+    path: Path
+    branch: str
+    commit: str
+    is_locked: bool
+    prunable: bool
+
+
 class GitOperationError(GitError):
     """Raised when git operations fail."""
 
@@ -150,6 +161,52 @@ def _safe_int(value: str) -> int:
         return int(value)
     except (TypeError, ValueError):
         return 0
+
+
+def _parse_worktree_list(output: str) -> list[WorktreeInfo]:
+    """Parse `git worktree list --porcelain` output."""
+    worktrees: list[WorktreeInfo] = []
+    current: dict[str, str] = {}
+
+    for line in output.splitlines():
+        if not line.strip():
+            if current:
+                worktrees.append(
+                    WorktreeInfo(
+                        path=Path(current.get("worktree", "")),
+                        branch=current.get("branch", "").replace("refs/heads/", ""),
+                        commit=current.get("HEAD", ""),
+                        is_locked="locked" in current,
+                        prunable="prunable" in current,
+                    )
+                )
+                current = {}
+            continue
+
+        if line.startswith("worktree "):
+            current["worktree"] = line[9:]
+        elif line.startswith("HEAD "):
+            current["HEAD"] = line[5:]
+        elif line.startswith("branch "):
+            current["branch"] = line[7:]
+        elif line == "locked":
+            current["locked"] = "true"
+        elif line == "prunable":
+            current["prunable"] = "true"
+
+    # Handle last entry if no trailing newline
+    if current:
+        worktrees.append(
+            WorktreeInfo(
+                path=Path(current.get("worktree", "")),
+                branch=current.get("branch", "").replace("refs/heads/", ""),
+                commit=current.get("HEAD", ""),
+                is_locked="locked" in current,
+                prunable="prunable" in current,
+            )
+        )
+
+    return worktrees
 
 
 async def _resolve_worktree(path: Path) -> Result[Path, GitError]:
@@ -312,6 +369,191 @@ class AsyncRepo:
     async def _run_git(self, *args: str) -> Result[str, GitError]:
         """Internal helper to run git commands for higher-level ops."""
         return await _run_git(self._root, *args)
+
+    # -------------------------------------------------------------------------
+    # Worktree operations
+    # -------------------------------------------------------------------------
+
+    async def worktree_add(
+        self,
+        path: Path,
+        branch: str,
+        *,
+        new_branch: bool = True,
+        start_point: str | None = None,
+    ) -> Result[Path, GitError]:
+        """Create a new worktree.
+
+        Args:
+            path: Directory for the new worktree
+            branch: Branch name (created if new_branch=True)
+            new_branch: If True, create branch with -b flag
+            start_point: Base commit/branch (default: HEAD)
+
+        Returns:
+            Ok(worktree_path) on success, Err(GitError) on failure
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        args: list[str] = ["worktree", "add"]
+        if new_branch:
+            args.extend(["-b", branch])
+        args.append(str(path))
+        if not new_branch:
+            args.append(branch)
+        if start_point:
+            args.append(start_point)
+
+        match await _run_git(self._root, *args):
+            case Ok(_):
+                return Ok(path.resolve())
+            case Err(err):
+                return Err(err)
+
+    async def worktree_remove(
+        self,
+        path: Path,
+        *,
+        force: bool = False,
+    ) -> Result[None, GitError]:
+        """Remove a worktree.
+
+        Args:
+            path: Worktree directory to remove
+            force: If True, remove even if dirty
+
+        Returns:
+            Ok(None) on success, Err(GitError) on failure
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        args = ["worktree", "remove"]
+        if force:
+            args.append("--force")
+        args.append(str(path))
+
+        result = await _run_git(self._root, *args)
+        return result.map(lambda _: None)
+
+    async def worktree_list(self) -> Result[list[WorktreeInfo], GitError]:
+        """List all worktrees.
+
+        Returns:
+            Ok(list[WorktreeInfo]) on success
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        match await _run_git(self._root, "worktree", "list", "--porcelain"):
+            case Ok(output):
+                return Ok(_parse_worktree_list(output))
+            case Err(err):
+                return Err(err)
+
+    async def worktree_prune(self) -> Result[None, GitError]:
+        """Prune stale worktree references.
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        result = await _run_git(self._root, "worktree", "prune")
+        return result.map(lambda _: None)
+
+    # -------------------------------------------------------------------------
+    # Merge operations
+    # -------------------------------------------------------------------------
+
+    async def merge(
+        self,
+        branch: str,
+        *,
+        no_ff: bool = False,
+        message: str | None = None,
+    ) -> Result[str, GitError]:
+        """Merge a branch into current HEAD.
+
+        Args:
+            branch: Branch to merge
+            no_ff: Force merge commit even if fast-forward possible
+            message: Custom merge commit message
+
+        Returns:
+            Ok(commit_sha) on success, Err(GitError) on conflict/failure
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        args = ["merge"]
+        if no_ff:
+            args.append("--no-ff")
+        if message:
+            args.extend(["-m", message])
+        args.append(branch)
+
+        match await _run_git(self._root, *args):
+            case Ok(_):
+                return await self.head(short=False)
+            case Err(err):
+                return Err(err)
+
+    async def merge_abort(self) -> Result[None, GitError]:
+        """Abort an in-progress merge.
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        result = await _run_git(self._root, "merge", "--abort")
+        return result.map(lambda _: None)
+
+    async def get_conflict_files(self) -> Result[list[Path], GitError]:
+        """Get list of files with merge conflicts.
+
+        Returns:
+            Ok(list[Path]) of conflicted files
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        match await _run_git(self._root, "diff", "--name-only", "--diff-filter=U"):
+            case Ok(output):
+                files = [
+                    self._root / line.strip()
+                    for line in output.splitlines()
+                    if line.strip()
+                ]
+                return Ok(files)
+            case Err(err):
+                return Err(err)
+
+    # -------------------------------------------------------------------------
+    # Branch operations
+    # -------------------------------------------------------------------------
+
+    async def checkout_branch(
+        self,
+        branch: str,
+        *,
+        create: bool = False,
+    ) -> Result[None, GitError]:
+        """Checkout a branch.
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        args = ["checkout"]
+        if create:
+            args.append("-b")
+        args.append(branch)
+        result = await _run_git(self._root, *args)
+        return result.map(lambda _: None)
+
+    async def delete_branch(
+        self,
+        branch: str,
+        *,
+        force: bool = False,
+    ) -> Result[None, GitError]:
+        """Delete a local branch.
+
+        [invariant:async-io] Uses asyncio subprocess
+        """
+        flag = "-D" if force else "-d"
+        result = await _run_git(self._root, "branch", flag, branch)
+        return result.map(lambda _: None)
 
 
 async def is_repo(path: Path | str = ".") -> Result[bool, GitError]:

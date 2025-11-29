@@ -83,8 +83,9 @@ class ConstitutionChecker(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _check_subprocess_run(self, node: ast.Call) -> None:
-        """Detect subprocess.run in async context without asyncio.to_thread."""
-        if not self._is_subprocess_run(node):
+        """Detect blocking subprocess calls in async context without asyncio.to_thread."""
+        blocking_func = self._get_blocking_subprocess_func(node)
+        if blocking_func is None:
             return
 
         if self._in_async_context:
@@ -94,9 +95,9 @@ class ConstitutionChecker(ast.NodeVisitor):
                     file=self.file_path,
                     line=node.lineno,
                     column=node.col_offset,
-                    message="subprocess.run called in async context without asyncio.to_thread",
+                    message=f"subprocess.{blocking_func} called in async context without asyncio.to_thread",
                     suggestion=(
-                        "Wrap with asyncio.to_thread(subprocess.run, ...) or use "
+                        f"Wrap with asyncio.to_thread(subprocess.{blocking_func}, ...) or use "
                         "asyncio.create_subprocess_exec for true async"
                     ),
                     severity="error",
@@ -311,13 +312,32 @@ class ConstitutionChecker(ast.NodeVisitor):
                     return True
         return False
 
-    def _is_subprocess_run(self, node: ast.Call) -> bool:
-        """Check if call is subprocess.run."""
+    # Blocking subprocess functions that should be wrapped with asyncio.to_thread
+    _BLOCKING_SUBPROCESS_FUNCS: frozenset[str] = frozenset({
+        "run",
+        "call",
+        "check_call",
+        "check_output",
+        "Popen",
+        "getoutput",
+        "getstatusoutput",
+    })
+
+    def _get_blocking_subprocess_func(self, node: ast.Call) -> str | None:
+        """Check if call is a blocking subprocess function.
+
+        Returns the function name if it's a blocking subprocess call, None otherwise.
+        """
         if isinstance(node.func, ast.Attribute):
-            if node.func.attr == "run":
+            if node.func.attr in self._BLOCKING_SUBPROCESS_FUNCS:
                 if isinstance(node.func.value, ast.Name):
-                    return node.func.value.id == "subprocess"
-        return False
+                    if node.func.value.id == "subprocess":
+                        return node.func.attr
+        return None
+
+    def _is_subprocess_run(self, node: ast.Call) -> bool:
+        """Check if call is subprocess.run (legacy compatibility)."""
+        return self._get_blocking_subprocess_func(node) == "run"
 
     def _is_subprocess_call(self, node: ast.Call) -> bool:
         """Check if call is any subprocess module function."""
