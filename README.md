@@ -14,6 +14,30 @@ For detailed workflows and God-Mode configurations, see the [Handbook](HANDBOOK.
 - **AST-Aware Context Slicing**: Smart code slicing that preserves semantic meaning
 - **Constitutional Governance**: Automated enforcement of coding standards via AST analysis
 - **Merge Conflict Resolution**: Intelligent 3-tier conflict resolution (TRIVIAL → SEMANTIC → COMPLEX)
+- **CircuitBreaker Guardrails**: Enforces cost velocity and file churn limits, emitting Black Box crash reports before damage spreads
+- **Cognitive Separation**: Captures raw `<thinking>` streams separately from action JSON so reasoning cannot be rewritten by summarization
+
+## Architecture
+
+The runtime moves from swarm planning into isolated work execution and finally agent control with hard-stop safety rails.
+
+```mermaid
+flowchart LR
+    Swarm[Parallel Swarm Controller] --> DAG[DAGGraph Planner]
+    DAG --> Worktree[Ephemeral Git Worktree]
+    Worktree --> AgentEngine[Agent Engine]
+    AgentEngine --> CircuitBreaker[CircuitBreaker Watchdog]
+    AgentEngine --> Governance[Governance Gate]
+    CircuitBreaker --> BlackBox[Black Box Report]
+    Governance --> Output[Patch / Tool Call / Final Message]
+```
+
+Swarm orchestration fans out tasks into dedicated worktrees, each agent engine runs with governance and the circuit breaker in-line so no response or tool invocation bypasses safety checks.
+
+## God-Mode Capabilities
+
+- **CircuitBreaker**: Monitors token-cost velocity and file churn every turn and halts execution with a Black Box crash report when thresholds are breached.
+- **Cognitive Separation**: Splits `<thinking>` prose from JSON directives, validating the action payload independently and preserving unfiltered reasoning.
 
 ## Installation
 

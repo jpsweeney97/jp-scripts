@@ -24,12 +24,16 @@ from __future__ import annotations
 import contextvars
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from decimal import Decimal
 from pathlib import Path
+from time import monotonic
 from typing import TYPE_CHECKING, Any, Iterator
 from uuid import uuid4
 
 if TYPE_CHECKING:
     from jpscripts.core.config import AppConfig
+
+from jpscripts.core.cost_tracker import TokenUsage, get_pricing
 
 
 @dataclass
@@ -39,6 +43,61 @@ class WarningState:
     semantic_unavailable: bool = False
     memory_degraded: bool = False
     codex_missing: bool = False
+
+
+@dataclass
+class CircuitBreaker:
+    """Guardrails for runaway cost or churn during a single agent turn."""
+
+    max_cost_velocity: Decimal
+    max_file_churn: int
+    model_id: str = "default"
+
+    _last_check_timestamp: float | None = field(default=None, init=False, repr=False)
+    last_cost_estimate: Decimal = field(default=Decimal("0"), init=False)
+    last_cost_velocity: Decimal = field(default=Decimal("0"), init=False)
+    last_file_churn: int = field(default=0, init=False)
+    last_failure_reason: str | None = field(default=None, init=False)
+
+    def check_health(self, usage: TokenUsage, files_touched: list[Path]) -> bool:
+        """Evaluate whether current usage stays within guardrails."""
+        cost = self._estimate_cost(usage)
+        file_churn = self._count_unique_files(files_touched)
+        velocity = self._compute_velocity(cost)
+
+        self.last_cost_estimate = cost
+        self.last_cost_velocity = velocity
+        self.last_file_churn = file_churn
+
+        if velocity > self.max_cost_velocity:
+            self.last_failure_reason = "Cost velocity threshold exceeded"
+            return False
+        if file_churn > self.max_file_churn:
+            self.last_failure_reason = "File churn threshold exceeded"
+            return False
+
+        self.last_failure_reason = None
+        return True
+
+    def _estimate_cost(self, usage: TokenUsage) -> Decimal:
+        pricing = get_pricing(self.model_id)
+        input_cost = (Decimal(usage.prompt_tokens) / Decimal(1_000_000)) * pricing["input"]
+        output_cost = (Decimal(usage.completion_tokens) / Decimal(1_000_000)) * pricing["output"]
+        return input_cost + output_cost
+
+    def _compute_velocity(self, cost: Decimal) -> Decimal:
+        now = monotonic()
+        if self._last_check_timestamp is None:
+            self._last_check_timestamp = now
+            return cost
+
+        elapsed_minutes = max((now - self._last_check_timestamp) / 60, 1 / 60)
+        self._last_check_timestamp = now
+        return cost / Decimal(str(elapsed_minutes))
+
+    @staticmethod
+    def _count_unique_files(files_touched: list[Path]) -> int:
+        return len({path for path in files_touched})
 
 
 @dataclass
@@ -65,6 +124,7 @@ class RuntimeContext:
     # Lazy-initialized optional components
     _rate_limiter: Any | None = field(default=None, repr=False)
     _cost_tracker: Any | None = field(default=None, repr=False)
+    _circuit_breaker: CircuitBreaker | None = field(default=None, repr=False)
 
     def get_rate_limiter(self) -> Any:
         """Get or create the rate limiter for this context."""
@@ -90,6 +150,18 @@ class RuntimeContext:
                 model_id=self.config.default_model,
             )
         return self._cost_tracker
+
+    def get_circuit_breaker(self) -> CircuitBreaker:
+        """Get or create the circuit breaker for this context."""
+        if self._circuit_breaker is None:
+            max_velocity = getattr(self.config, "max_cost_velocity", Decimal("5.0"))
+            max_churn = getattr(self.config, "max_file_churn", 12)
+            self._circuit_breaker = CircuitBreaker(
+                max_cost_velocity=Decimal(str(max_velocity)),
+                max_file_churn=int(max_churn),
+                model_id=getattr(self.config, "default_model", "default"),
+            )
+        return self._circuit_breaker
 
 
 # Context variable for async/thread safety
@@ -135,6 +207,11 @@ def get_runtime_or_none() -> RuntimeContext | None:
 def has_runtime() -> bool:
     """Check if a runtime context is currently active."""
     return _runtime_ctx.get() is not None
+
+
+def get_circuit_breaker() -> CircuitBreaker:
+    """Convenience accessor for the active circuit breaker."""
+    return get_runtime().get_circuit_breaker()
 
 
 @contextmanager
@@ -220,7 +297,9 @@ __all__ = [
     "get_runtime",
     "get_runtime_or_none",
     "has_runtime",
+    "get_circuit_breaker",
     "runtime_context",
     "override_workspace",
     "NoRuntimeContextError",
+    "CircuitBreaker",
 ]

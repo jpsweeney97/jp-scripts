@@ -12,10 +12,13 @@ from typing import Any, Awaitable, Callable, Generic, Mapping, Protocol, Sequenc
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
+from jpscripts.core import runtime, security
 from jpscripts.core.command_validation import CommandVerdict, validate_command
+from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.config import AppConfig
+from jpscripts.core.runtime import CircuitBreaker
 from jpscripts.core.system import CommandResult, get_sandbox
 from jpscripts.core.result import Err
 from jpscripts.core.governance import check_compliance, format_violations_for_agent, has_fatal_violations
@@ -25,6 +28,7 @@ logger = get_logger(__name__)
 
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 AUDIT_PREFIX = "audit.shell"
+THINKING_PATTERN = re.compile(r"<thinking>(.*?)</thinking>", flags=re.IGNORECASE | re.DOTALL)
 
 
 class MemoryProtocol(Protocol):
@@ -62,6 +66,14 @@ class AgentResponse(BaseModel):
     tool_call: ToolCall | None = Field(None, description="Tool invocation request")
     file_patch: str | None = Field(None, description="Unified diff to apply (optional)")
     final_message: str | None = Field(None, description="Response to user if no action needed")
+
+
+class SafetyLockdownError(RuntimeError):
+    """Raised when the circuit breaker halts an agent turn."""
+
+    def __init__(self, report: str) -> None:
+        self.report = report
+        super().__init__(f"SafetyLockdownError triggered\n{report}")
 
 
 class AgentTraceStep(BaseModel):
@@ -128,10 +140,110 @@ def _clean_json_payload(text: str) -> str:
     return stripped
 
 
+def _split_thought_and_json(payload: str) -> tuple[str, str]:
+    """Separate thinking content from JSON payload for strict validation."""
+    stripped = payload.strip()
+    if not stripped:
+        return "", ""
+
+    thinking_match = THINKING_PATTERN.search(stripped)
+    if thinking_match:
+        preamble = stripped[: thinking_match.start()].strip()
+        thinking = thinking_match.group(1).strip()
+        thought_parts = [part for part in (preamble, thinking) if part]
+        remaining = stripped[thinking_match.end() :].strip()
+        json_candidate = _clean_json_payload(remaining or stripped)
+        return "\n\n".join(thought_parts), json_candidate
+
+    json_content = _clean_json_payload(stripped)
+    if not json_content:
+        return stripped, ""
+
+    json_start = stripped.find(json_content)
+    preamble = stripped[:json_start].strip() if json_start != -1 else ""
+    return preamble, json_content
+
+
 def parse_agent_response(payload: str) -> AgentResponse:
     """Parse and validate a JSON agent response."""
-    cleaned = _clean_json_payload(payload)
-    return AgentResponse.model_validate_json(cleaned)
+    thought_content, json_content = _split_thought_and_json(payload)
+    response = AgentResponse.model_validate_json(json_content)
+    if thought_content:
+        response.thought_process = thought_content
+    return response
+
+
+def _approximate_tokens(content: str) -> int:
+    if not content:
+        return 0
+    return max(1, len(content) // 4)
+
+
+def _estimate_token_usage(prompt_text: str, completion_text: str) -> TokenUsage:
+    """Coarse token estimate to feed the circuit breaker."""
+    return TokenUsage(
+        prompt_tokens=_approximate_tokens(prompt_text),
+        completion_tokens=_approximate_tokens(completion_text),
+    )
+
+
+def _extract_patch_paths(file_patch: str, workspace_root: Path) -> list[Path]:
+    """Derive touched files from a unified diff."""
+    if not file_patch.strip():
+        return []
+
+    candidates: set[Path] = set()
+    for raw_line in file_patch.splitlines():
+        if not raw_line.startswith(("+++ ", "--- ")):
+            continue
+        try:
+            _, path_str = raw_line.split(" ", 1)
+        except ValueError:
+            continue
+        normalized_line = path_str.strip()
+        if normalized_line in {"/dev/null", "dev/null", "a/dev/null", "b/dev/null"}:
+            continue
+        if normalized_line.startswith(("a/", "b/")):
+            normalized_line = normalized_line[2:]
+        try:
+            normalized_path = security.validate_path(
+                workspace_root / normalized_line,
+                workspace_root,
+            )
+        except Exception as exc:
+            logger.debug("Skipping patch path %s: %s", normalized_line, exc)
+            continue
+        candidates.add(normalized_path)
+    return sorted(candidates)
+
+
+def _build_black_box_report(
+    breaker: CircuitBreaker,
+    *,
+    usage: TokenUsage,
+    files_touched: list[Path],
+    persona: str,
+    context: str,
+) -> str:
+    file_lines = (
+        "\n".join(f"- {path}" for path in files_touched) if files_touched else "- (none)"
+    )
+    reason = breaker.last_failure_reason or "Unknown"
+    return (
+        "=== Black Box Crash Report ===\n"
+        f"Persona: {persona}\n"
+        f"Context: {context}\n"
+        f"Reason: {reason}\n"
+        f"Prompt tokens: {usage.prompt_tokens}\n"
+        f"Completion tokens: {usage.completion_tokens}\n"
+        f"Cost estimate (USD): {breaker.last_cost_estimate}\n"
+        f"Cost velocity (USD/min): {breaker.last_cost_velocity}\n"
+        f"Max velocity allowed (USD/min): {breaker.max_cost_velocity}\n"
+        f"File churn: {breaker.last_file_churn}\n"
+        f"Max file churn allowed: {breaker.max_file_churn}\n"
+        "Files observed:\n"
+        f"{file_lines}"
+    )
 
 
 class AgentEngine(Generic[ResponseT]):
@@ -162,6 +274,8 @@ class AgentEngine(Generic[ResponseT]):
         self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
         self._workspace_root = workspace_root
         self._governance_enabled = governance_enabled
+        self._last_usage_snapshot: TokenUsage | None = None
+        self._last_files_touched: list[Path] = []
 
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)
@@ -173,14 +287,34 @@ class AgentEngine(Generic[ResponseT]):
 
         # Apply governance check if enabled and workspace_root is set
         if self._governance_enabled and self._workspace_root is not None:
-            response = await self._enforce_governance(response, history)
+            response, prepared, raw = await self._enforce_governance(
+                response,
+                history,
+                prepared,
+                raw,
+            )
+
+        usage_snapshot = _estimate_token_usage(prepared.prompt, raw)
+        files_touched = self._infer_files_touched(response)
+        self._last_usage_snapshot = usage_snapshot
+        self._last_files_touched = files_touched
+
+        self._enforce_circuit_breaker(
+            usage=usage_snapshot,
+            files_touched=files_touched,
+            context="agent_response",
+        )
 
         await self._record_trace(history, response)
         return response
 
     async def _enforce_governance(
-        self, response: ResponseT, history: list[Message]
-    ) -> ResponseT:
+        self,
+        response: ResponseT,
+        history: list[Message],
+        prepared: PreparedPrompt,
+        raw_response: str,
+    ) -> tuple[ResponseT, PreparedPrompt, str]:
         """Check response for constitutional violations and request corrections.
 
         Implements hard-gating strategy:
@@ -191,9 +325,11 @@ class AgentEngine(Generic[ResponseT]):
         Args:
             response: The parsed agent response
             history: Conversation history for context
+            prepared: Prepared prompt issued for this attempt
+            raw_response: Raw model output tied to the parsed response
 
         Returns:
-            Original response if compliant, or corrected response after retry
+            Tuple of (response, prepared_prompt, raw_response) representing the final compliant attempt
 
         Raises:
             ToolExecutionError: If fatal violations persist after max retries
@@ -201,20 +337,22 @@ class AgentEngine(Generic[ResponseT]):
         max_retries = 3
         current_response = response
         current_history = list(history)
+        current_prepared = prepared
+        current_raw = raw_response
 
         for attempt in range(max_retries):
             # Only check responses with file patches
             if not hasattr(current_response, "file_patch"):
-                return current_response
+                return current_response, current_prepared, current_raw
 
             file_patch = getattr(current_response, "file_patch", None)
             if not file_patch or not self._workspace_root:
-                return current_response
+                return current_response, current_prepared, current_raw
 
             # Check for violations
             violations = check_compliance(str(file_patch), self._workspace_root)
             if not violations:
-                return current_response
+                return current_response, current_prepared, current_raw
 
             # Log violations
             error_count = sum(1 for v in violations if v.severity == "error")
@@ -263,9 +401,9 @@ class AgentEngine(Generic[ResponseT]):
 
                 # Re-prompt for correction
                 try:
-                    prepared = await self._render_prompt(current_history)
-                    raw = await self._fetch_response(prepared)
-                    current_response = self._parser(raw)
+                    current_prepared = await self._render_prompt(current_history)
+                    current_raw = await self._fetch_response(current_prepared)
+                    current_response = self._parser(current_raw)
                     continue  # Check the new response
                 except Exception as exc:
                     logger.warning("Governance correction failed: %s", exc)
@@ -277,7 +415,7 @@ class AgentEngine(Generic[ResponseT]):
             logger.warning(
                 "Non-fatal governance violations detected, proceeding with warnings"
             )
-            return current_response
+            return current_response, current_prepared, current_raw
 
         # Should not reach here, but fail safely
         raise ToolExecutionError(
@@ -297,6 +435,37 @@ class AgentEngine(Generic[ResponseT]):
         except Exception as exc:  # pragma: no cover - best effort
             logger.debug("Failed to record trace: %s", exc)
 
+    def _infer_files_touched(self, response: BaseModel) -> list[Path]:
+        if not hasattr(response, "file_patch"):
+            return []
+
+        file_patch = getattr(response, "file_patch", None)
+        if not file_patch or self._workspace_root is None:
+            return []
+
+        return _extract_patch_paths(str(file_patch), self._workspace_root)
+
+    def _enforce_circuit_breaker(
+        self,
+        *,
+        usage: TokenUsage,
+        files_touched: list[Path],
+        context: str,
+    ) -> None:
+        breaker = runtime.get_circuit_breaker()
+        if breaker.check_health(usage, files_touched):
+            return
+
+        report = _build_black_box_report(
+            breaker,
+            usage=usage,
+            files_touched=files_touched,
+            persona=self.persona,
+            context=context,
+        )
+        logger.error("Circuit breaker triggered: %s", breaker.last_failure_reason)
+        raise SafetyLockdownError(report)
+
     async def execute_tool(self, call: ToolCall) -> str:
         """Execute a tool from the unified registry.
 
@@ -306,6 +475,14 @@ class AgentEngine(Generic[ResponseT]):
         normalized = call.tool.strip().lower()
         if normalized not in self._tools:
             return f"Unknown tool: {call.tool}"
+
+        usage = self._last_usage_snapshot or _estimate_token_usage("", "")
+        files_touched = list(self._last_files_touched)
+        self._enforce_circuit_breaker(
+            usage=usage,
+            files_touched=files_touched,
+            context=f"tool:{normalized}",
+        )
 
         try:
             # Call tool with unpacked kwargs (tools have proper signatures)

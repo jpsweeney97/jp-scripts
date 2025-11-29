@@ -152,6 +152,12 @@ Plan → Test (Red) → Execute (Green) → Verify
 3. **Execute:** `asyncio.create_subprocess_exec(*tokens, ...)`
 4. **Warn:** When commands reference paths outside workspace
 
+### Protocol: Self-Repair
+
+- **Dependency Conflicts**: If import errors occur, run `uv pip install -e .` or `pip install -e .` immediately.
+- **Type Narrowing**: If `mypy` flags a union type, assert the type explicitly before usage. Do not cast `Any`.
+- **Context Exhaustion**: If context limit is reached, call `tools.read_file_paged` on only the critical sections of files.
+
 ---
 
 ## Security Clearance
