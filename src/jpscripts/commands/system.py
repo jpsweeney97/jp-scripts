@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import signal
 import sys
 from pathlib import Path
 from typing import TypeVar
 
+import psutil
 import typer
 from rich import box
 from rich.panel import Panel
@@ -281,3 +283,76 @@ async def _run_ssh(target: str) -> int:
     """Run ssh while preserving TTY control using asyncio."""
     proc = await asyncio.create_subprocess_exec("ssh", target)
     return await proc.wait()
+
+
+def panic(
+    ctx: typer.Context,
+    hard: bool = typer.Option(False, "--hard", help="Also reset git to HEAD"),
+) -> None:
+    """Emergency kill switch for runaway agent processes.
+
+    Terminates all codex and MCP processes system-wide.
+    Use --hard to also reset git workspace to HEAD.
+    """
+    killed_count = 0
+    errors: list[str] = []
+
+    console.print("[bold red]🚨 PANIC PROTOCOL ENGAGED[/bold red]")
+
+    # Find and kill codex processes
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            proc_name = proc.info.get("name", "") or ""
+            proc_cmdline = proc.info.get("cmdline") or []
+            cmdline_str = " ".join(proc_cmdline) if proc_cmdline else ""
+
+            # Kill codex processes
+            if proc_name.lower() == "codex":
+                console.print(f"[yellow]Terminating codex process: PID {proc.pid}[/yellow]")
+                proc.send_signal(signal.SIGTERM)
+                killed_count += 1
+
+            # Kill MCP processes (Model Context Protocol servers)
+            elif "mcp" in cmdline_str.lower():
+                console.print(f"[yellow]Terminating MCP process: PID {proc.pid}[/yellow]")
+                proc.send_signal(signal.SIGTERM)
+                killed_count += 1
+
+        except psutil.NoSuchProcess:
+            # Process already terminated
+            pass
+        except psutil.AccessDenied:
+            errors.append(f"Access denied for PID {proc.pid}")
+        except Exception as exc:
+            errors.append(f"Error terminating PID {proc.pid}: {exc}")
+
+    console.print(f"[green]Terminated {killed_count} agent processes.[/green]")
+
+    if errors:
+        for err in errors:
+            console.print(f"[dim]{err}[/dim]")
+
+    # Hard reset if requested
+    if hard:
+        console.print("[yellow]Executing git reset --hard HEAD...[/yellow]")
+        try:
+            result = asyncio.run(_run_git_reset_hard())
+            if result == 0:
+                console.print("[green]Workspace sanitized.[/green]")
+            else:
+                console.print("[red]git reset failed.[/red]")
+        except Exception as exc:
+            console.print(f"[red]git reset failed: {exc}[/red]")
+
+    console.print("[bold green]🚨 PANIC PROTOCOL COMPLETE.[/bold green]")
+
+
+async def _run_git_reset_hard() -> int:
+    """Execute git reset --hard HEAD."""
+    proc = await asyncio.create_subprocess_exec(
+        "git", "reset", "--hard", "HEAD",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    await proc.communicate()
+    return proc.returncode or 0

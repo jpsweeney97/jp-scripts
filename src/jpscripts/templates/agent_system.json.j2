@@ -12,6 +12,7 @@
   },
   "diagnostic": {{ diagnostic_section | tojson }},
   "learned_patterns": {{ patterns_section | tojson }},
+  {% if anti_patterns %}"forbidden_patterns": {{ anti_patterns | tojson }},{% endif %}
   "memory_context": {{ relevant_memories | tojson }},
   "file_context": {{ file_context_section | tojson }},
   "dependencies": {{ dependency_section | tojson }},
@@ -25,6 +26,7 @@
   "response_contract": {
     "schema": {{ response_schema | tojson }},
     "rules": [
+      "First, output a <thinking> block that performs the required [cognitive-standards:safety-scan] and [cognitive-standards:anti-pattern-check]. Then, output the JSON object.",
       "Respond with a single JSON object that validates against the AgentResponse schema.",
       "Do not wrap the JSON in Markdown or include any explanatory prose.",
       "Populate `file_patch` with a unified diff when code changes are required; leave null when not needed.",

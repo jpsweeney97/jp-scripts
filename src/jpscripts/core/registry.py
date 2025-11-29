@@ -34,6 +34,7 @@ _FUNCTION_COMMANDS: dict[str, dict[str, str]] = {
         "ssh-open": "ssh_open",
         "tmpserver": "tmpserver",
         "update": "update",
+        "panic": "panic",
     },
     "notes": {
         "note": "note",

@@ -44,6 +44,7 @@ class Violation:
     message: str
     suggestion: str
     severity: str  # "error" | "warning"
+    fatal: bool = False  # Fatal violations block patch application
 
 
 class ConstitutionChecker(ast.NodeVisitor):
@@ -95,6 +96,7 @@ class ConstitutionChecker(ast.NodeVisitor):
                         "asyncio.create_subprocess_exec for true async"
                     ),
                     severity="error",
+                    fatal=True,
                 )
             )
 
@@ -118,6 +120,7 @@ class ConstitutionChecker(ast.NodeVisitor):
                                 "as a list to subprocess without shell=True"
                             ),
                             severity="error",
+                            fatal=True,
                         )
                     )
 
@@ -138,6 +141,7 @@ class ConstitutionChecker(ast.NodeVisitor):
                                 "with proper command validation"
                             ),
                             severity="error",
+                            fatal=True,
                         )
                     )
 
@@ -190,6 +194,7 @@ class ConstitutionChecker(ast.NodeVisitor):
                         "or at minimum use 'except Exception:'"
                     ),
                     severity="error",
+                    fatal=True,
                 )
             )
         self.generic_visit(node)
@@ -414,6 +419,14 @@ def count_violations_by_severity(violations: Sequence[Violation]) -> tuple[int, 
     return errors, warnings
 
 
+def has_fatal_violations(violations: Sequence[Violation]) -> bool:
+    """Check if any violation in the sequence is fatal.
+
+    Fatal violations must block patch application entirely.
+    """
+    return any(v.fatal for v in violations)
+
+
 __all__ = [
     "ViolationType",
     "Violation",
@@ -422,4 +435,5 @@ __all__ = [
     "check_source_compliance",
     "format_violations_for_agent",
     "count_violations_by_severity",
+    "has_fatal_violations",
 ]

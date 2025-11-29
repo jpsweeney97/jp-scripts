@@ -18,7 +18,8 @@ from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.config import AppConfig
 from jpscripts.core.system import CommandResult, get_sandbox
 from jpscripts.core.result import Err
-from jpscripts.core.governance import check_compliance, format_violations_for_agent, Violation
+from jpscripts.core.governance import check_compliance, format_violations_for_agent, has_fatal_violations, Violation
+from jpscripts.core.result import ToolExecutionError
 
 logger = get_logger(__name__)
 
@@ -182,8 +183,10 @@ class AgentEngine(Generic[ResponseT]):
     ) -> ResponseT:
         """Check response for constitutional violations and request corrections.
 
-        Implements "warn + prompt" strategy: violations are fed back to the agent
-        for correction with a single retry attempt.
+        Implements hard-gating strategy:
+        - Fatal violations (SHELL_TRUE, OS_SYSTEM, BARE_EXCEPT) DROP the patch
+        - Non-fatal violations trigger retry with agent feedback
+        - Maximum 3 retry attempts before raising ToolExecutionError
 
         Args:
             response: The parsed agent response
@@ -191,60 +194,95 @@ class AgentEngine(Generic[ResponseT]):
 
         Returns:
             Original response if compliant, or corrected response after retry
+
+        Raises:
+            ToolExecutionError: If fatal violations persist after max retries
         """
-        # Only check responses with file patches
-        if not hasattr(response, "file_patch"):
-            return response
+        max_retries = 3
+        current_response = response
+        current_history = list(history)
 
-        file_patch = getattr(response, "file_patch", None)
-        if not file_patch or not self._workspace_root:
-            return response
+        for attempt in range(max_retries):
+            # Only check responses with file patches
+            if not hasattr(current_response, "file_patch"):
+                return current_response
 
-        # Check for violations
-        violations = check_compliance(str(file_patch), self._workspace_root)
-        if not violations:
-            return response
+            file_patch = getattr(current_response, "file_patch", None)
+            if not file_patch or not self._workspace_root:
+                return current_response
 
-        # Log violations
-        error_count = sum(1 for v in violations if v.severity == "error")
-        warning_count = len(violations) - error_count
-        logger.warning(
-            "Governance violations detected: %d errors, %d warnings",
-            error_count,
-            warning_count,
-        )
+            # Check for violations
+            violations = check_compliance(str(file_patch), self._workspace_root)
+            if not violations:
+                return current_response
 
-        # Format feedback and inject into history
-        feedback = format_violations_for_agent(violations)
-        governance_message = Message(
-            role="system",
-            content=f"<GovernanceViolation>\n{feedback}\n</GovernanceViolation>",
-        )
+            # Log violations
+            error_count = sum(1 for v in violations if v.severity == "error")
+            warning_count = len(violations) - error_count
+            fatal_count = sum(1 for v in violations if v.fatal)
+            logger.warning(
+                "Governance violations detected (attempt %d/%d): %d errors (%d fatal), %d warnings",
+                attempt + 1,
+                max_retries,
+                error_count,
+                fatal_count,
+                warning_count,
+            )
 
-        # Create new history with violation feedback
-        corrected_history = list(history) + [governance_message]
+            # Check for fatal violations - DROP the patch
+            if has_fatal_violations(violations):
+                logger.error(
+                    "Fatal governance violation detected - patch DROPPED (attempt %d/%d)",
+                    attempt + 1,
+                    max_retries,
+                )
 
-        # Re-prompt for correction (single retry)
-        try:
-            prepared = await self._render_prompt(corrected_history)
-            raw = await self._fetch_response(prepared)
-            corrected_response = self._parser(raw)
-
-            # Check if correction succeeded
-            corrected_patch = getattr(corrected_response, "file_patch", None)
-            if corrected_patch:
-                remaining = check_compliance(str(corrected_patch), self._workspace_root)
-                remaining_errors = sum(1 for v in remaining if v.severity == "error")
-                if remaining_errors > 0:
-                    logger.warning(
-                        "Governance violations remain after correction: %d errors",
-                        remaining_errors,
+                # Last attempt - raise error
+                if attempt >= max_retries - 1:
+                    fatal_msgs = [
+                        f"{v.type.name} at {v.file.name}:{v.line}: {v.message}"
+                        for v in violations if v.fatal
+                    ]
+                    raise ToolExecutionError(
+                        f"Fatal governance violations after {max_retries} attempts:\n"
+                        + "\n".join(fatal_msgs)
                     )
 
-            return corrected_response
-        except Exception as exc:
-            logger.warning("Governance correction failed: %s", exc)
-            return response
+                # Format feedback and inject into history for retry
+                feedback = format_violations_for_agent(violations)
+                governance_message = Message(
+                    role="system",
+                    content=(
+                        f"<GovernanceViolation severity='FATAL'>\n"
+                        f"Your patch was REJECTED and NOT APPLIED due to fatal violations.\n"
+                        f"{feedback}\n"
+                        f"</GovernanceViolation>"
+                    ),
+                )
+                current_history = current_history + [governance_message]
+
+                # Re-prompt for correction
+                try:
+                    prepared = await self._render_prompt(current_history)
+                    raw = await self._fetch_response(prepared)
+                    current_response = self._parser(raw)
+                    continue  # Check the new response
+                except Exception as exc:
+                    logger.warning("Governance correction failed: %s", exc)
+                    raise ToolExecutionError(
+                        f"Governance correction failed after fatal violation: {exc}"
+                    ) from exc
+
+            # Non-fatal violations: warn and return (allow patch with warnings)
+            logger.warning(
+                "Non-fatal governance violations detected, proceeding with warnings"
+            )
+            return current_response
+
+        # Should not reach here, but fail safely
+        raise ToolExecutionError(
+            f"Governance enforcement exceeded {max_retries} attempts"
+        )
 
     async def _record_trace(self, history: Sequence[Message], response: BaseModel, tool_output: str | None = None) -> None:
         try:

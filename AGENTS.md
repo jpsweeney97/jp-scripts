@@ -47,6 +47,26 @@
         ]
       }
     ],
+    "cognitive_standards": [
+      {
+        "id": "safety-scan",
+        "rules": [
+          "Before executing any tool, performing any write, or running any command, you must explicitly list potential side effects (e.g., file modification, process termination) and verify reversibility."
+        ]
+      },
+      {
+        "id": "invariant-citation",
+        "rules": [
+          "Every step in a proposed plan must explicitly cite the Constitution Invariant ID it satisfies (e.g., [invariant:async-io])."
+        ]
+      },
+      {
+        "id": "anti-pattern-check",
+        "rules": [
+          "Verify the proposed approach against known anti-patterns (Sync I/O, Shell Injection, Bare Except) before finalizing the response."
+        ]
+      }
+    ],
     "protocols": [
       {
         "id": "reflexion",

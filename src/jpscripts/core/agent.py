@@ -37,6 +37,11 @@ from jpscripts.core.structure import generate_map, get_import_dependencies
 logger = get_logger(__name__)
 
 AGENT_TEMPLATE_NAME = "agent_system.json.j2"
+GOVERNANCE_ANTI_PATTERNS: list[str] = [
+    "Using subprocess.run or os.system (Strictly forbidden: use asyncio)",
+    "Using shell=True (Strictly forbidden: use tokenized lists)",
+    "Bare except: clauses (Strictly forbidden: catch specific exceptions)",
+]
 STRATEGY_OVERRIDE_TEXT = (
     "You are stuck in a loop. Stop editing code. Analyze the error trace and the file content again. "
     "List three possible root causes before proposing a new patch."
@@ -254,6 +259,7 @@ async def prepare_agent_prompt(
         "dependency_section": dependency_section,
         "git_diff_section": git_diff_section,
         "patterns_section": patterns_section,
+        "anti_patterns": GOVERNANCE_ANTI_PATTERNS,
         "instruction": base_prompt.strip(),
         "tool_history": tool_history or "",
         "response_schema": response_schema,
