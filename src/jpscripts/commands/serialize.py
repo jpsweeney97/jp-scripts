@@ -43,6 +43,10 @@ async def _run_snapshot(
 @app.command("snapshot")
 def snapshot(
     ctx: typer.Context,
+    target: Path | None = typer.Argument(
+        None,
+        help="Directory to serialize. Defaults to configured workspace root.",
+    ),
     output: Path = typer.Option(Path("manifest.yaml"), "--output", "-o", help="Path to write the manifest."),
     format: str = typer.Option("yaml", "--format", "-f", help="Output format (only 'yaml' is supported)."),
 ) -> None:
@@ -53,9 +57,10 @@ def snapshot(
         raise typer.Exit(code=1)
 
     runtime = state.runtime_ctx
+    resolved_root = (target or runtime.workspace_root).expanduser().resolve()
     result = asyncio.run(
         _run_snapshot(
-            workspace_root=runtime.workspace_root,
+            workspace_root=resolved_root,
             output=output,
             dry_run=runtime.dry_run,
         )

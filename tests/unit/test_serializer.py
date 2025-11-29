@@ -137,3 +137,33 @@ async def test_round_trip_serialization(tmp_path: Path) -> None:
 
     restored_hashes = await _collect_hashes(restored)
     assert source_hashes == restored_hashes
+
+
+@pytest.mark.asyncio
+async def test_serialize_arbitrary_directory(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    target = tmp_path / "external"
+    await asyncio.to_thread(workspace.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(target.mkdir, parents=True, exist_ok=True)
+
+    target_file = target / "data.txt"
+    await _write_text_file(target_file, "external content")
+
+    serializer = AsyncSerializer(max_concurrency=4)
+    manifest_result = await serializer.serialize(target)
+    match manifest_result:
+        case Err(error):
+            pytest.fail(f"Serialization failed: {error}")
+        case Ok(manifest):
+            pass
+
+    manifest_path = workspace / "external-manifest.yaml"
+    write_result = await write_manifest_yaml(manifest, manifest_path, workspace_root=target)
+    match write_result:
+        case Err(error):
+            pytest.fail(f"Writing manifest failed: {error}")
+        case Ok(path):
+            assert path == manifest_path
+
+    manifest_text = await asyncio.to_thread(manifest_path.read_text, encoding="utf-8")
+    assert "data.txt" in manifest_text

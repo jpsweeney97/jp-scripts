@@ -286,16 +286,17 @@ async def write_manifest_yaml(
             )
         )
 
-    output_result = await asyncio.to_thread(validate_path_safe, output, validated_root.value)
-    if isinstance(output_result, Err):
-        security_err = output_result.error
+    output_parent = output.parent if output.is_absolute() else (Path.cwd() / output.parent).resolve()
+    parent_result = await asyncio.to_thread(validate_workspace_root_safe, output_parent)
+    if isinstance(parent_result, Err):
+        workspace_err = parent_result.error
         return Err(
             SerializationError(
-                f"Output path validation failed: {security_err.message}",
-                context=security_err.context,
+                f"Output directory validation failed: {workspace_err.message}",
+                context=workspace_err.context,
             )
         )
-    safe_output = output_result.value
+    safe_output = output if output.is_absolute() else parent_result.value / output.name
 
     def _write() -> Result[Path, SerializationError]:
         yaml = YAML(typ="rt")
