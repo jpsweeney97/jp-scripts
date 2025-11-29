@@ -32,6 +32,7 @@ class ViolationType(Enum):
     SYNC_OPEN = auto()  # open() in async context without to_thread
     OS_SYSTEM = auto()  # os.system() usage (always forbidden)
     DESTRUCTIVE_FS = auto()  # Destructive filesystem call without safety override
+    DYNAMIC_EXECUTION = auto()  # eval/exec/dynamic imports without safety override
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class ConstitutionChecker(ast.NodeVisitor):
         self._check_os_system(node)
         self._check_sync_open(node)
         self._check_destructive_fs(node)
+        self._check_dynamic_execution(node)
         self.generic_visit(node)
 
     def _check_subprocess_run(self, node: ast.Call) -> None:
@@ -168,6 +170,53 @@ class ConstitutionChecker(ast.NodeVisitor):
                 fatal=True,
             )
         )
+
+    def _check_dynamic_execution(self, node: ast.Call) -> None:
+        """Detect dynamic execution patterns (eval/exec/compile/dynamic import)."""
+        func = node.func
+        line_content = self._get_line(node.lineno)
+
+        def _has_safety_override() -> bool:
+            return "# safety: checked" in line_content
+
+        if isinstance(func, ast.Name) and func.id in {"eval", "exec", "compile", "__import__"}:
+            self.violations.append(
+                Violation(
+                    type=ViolationType.DYNAMIC_EXECUTION,
+                    file=self.file_path,
+                    line=node.lineno,
+                    column=node.col_offset,
+                    message=f"Dynamic execution via {func.id}() is forbidden.",
+                    suggestion="Remove dynamic execution or replace with explicit imports and functions.",
+                    severity="error",
+                    fatal=True,
+                )
+            )
+            return
+
+        if isinstance(func, ast.Attribute) and func.attr == "import_module":
+            # importlib.import_module or alias; allow safety override
+            if _has_safety_override():
+                return
+            is_importlib = False
+            if isinstance(func.value, ast.Name) and func.value.id == "importlib":
+                is_importlib = True
+            elif isinstance(func.value, ast.Attribute) and func.value.attr == "importlib":
+                is_importlib = True
+
+            if is_importlib:
+                self.violations.append(
+                    Violation(
+                        type=ViolationType.DYNAMIC_EXECUTION,
+                        file=self.file_path,
+                        line=node.lineno,
+                        column=node.col_offset,
+                        message="Dynamic import via importlib.import_module is forbidden without explicit safety override.",
+                        suggestion="Use static imports or add '# safety: checked' only after manual review.",
+                        severity="error",
+                        fatal=True,
+                    )
+                )
 
     def _check_sync_open(self, node: ast.Call) -> None:
         """Detect open() in async context without wrapping."""

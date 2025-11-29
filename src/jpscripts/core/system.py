@@ -5,6 +5,7 @@ import functools
 import http.server
 import os
 import shutil
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Protocol
@@ -12,6 +13,7 @@ from typing import Callable, Protocol
 import psutil
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
+from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.result import Err, Ok, Result, SystemResourceError
 
 logger = get_logger(__name__)
@@ -228,6 +230,35 @@ async def kill_process_async(pid: int, force: bool = False, config: AppConfig | 
 
 def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> Result[str, SystemResourceError]:
     return asyncio.run(kill_process_async(pid, force, config))
+
+
+async def run_safe_shell(
+    command: str,
+    root: Path,
+    audit_prefix: str,
+    config: AppConfig | None = None,
+    *,
+    env: dict[str, str] | None = None,
+) -> Result[CommandResult, SystemResourceError]:
+    """Validate and execute a shell command asynchronously using the sandbox."""
+    verdict, reason = validate_command(command, root)
+    if verdict != CommandVerdict.ALLOWED:
+        return Err(SystemResourceError("Command blocked by policy", context={"reason": reason, "command": command}))
+
+    try:
+        tokens = shlex.split(command)
+    except ValueError as exc:
+        return Err(SystemResourceError("Failed to parse command", context={"command": command, "error": str(exc)}))
+
+    if not tokens:
+        return Err(SystemResourceError("Invalid command", context={"command": command}))
+
+    runner = get_sandbox(config)
+    run_result = await runner.run_command(tokens, root, env=env)
+    if isinstance(run_result, Err):
+        logger.warning("%s.run_safe_shell failure: %s", audit_prefix, run_result.error)
+        return run_result
+    return run_result
 
 
 async def get_audio_devices() -> Result[list[str], SystemResourceError]:

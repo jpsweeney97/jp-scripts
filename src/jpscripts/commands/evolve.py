@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import shutil
 from pathlib import Path
 from typing import Awaitable
 
@@ -23,17 +24,18 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core import git as git_core
-from jpscripts.core.agent import PreparedPrompt, prepare_agent_prompt, run_repair_loop
+from jpscripts.core.agent import PreparedPrompt, run_repair_loop
 from jpscripts.core.memory import save_memory
+from jpscripts.core.system import run_safe_shell
 from jpscripts.core.complexity import (
     TechnicalDebtScore,
     analyze_directory_complexity,
     calculate_debt_scores,
-    format_complexity_report,
 )
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.result import Err, Ok
+from jpscripts.core.structure import get_import_dependencies
 from jpscripts.main import AppState
 from jpscripts.providers import CompletionOptions, Message, ProviderType, infer_provider_type
 from jpscripts.providers.factory import get_provider
@@ -79,6 +81,8 @@ async def _create_evolution_pr(
     branch_name: str,
     root: Path,
     config: AppConfig,
+    verification_cmd: str,
+    verification_exit: int,
 ) -> None:
     """Create a PR for the evolution changes."""
     # Stage and commit
@@ -105,6 +109,9 @@ async def _create_evolution_pr(
 
 ### Reasons for Selection
 {chr(10).join('- ' + r for r in target.reasons) if target.reasons else '- High complexity'}
+
+### Verification
+- `{verification_cmd}` -> exit {verification_exit}
 
 ### Changes
 - Reduced cyclomatic complexity
@@ -300,8 +307,103 @@ async def _run_evolve(
 
     console.print("[green]Optimization successful![/green]")
 
-    # Step 6: Create PR
-    await _create_evolution_pr(repo, target, branch_name, root, config)
+    # Step 6: Determine changed files for targeted testing
+    match await repo._run_git("diff", "--name-only", "main..HEAD"):
+        case Err(err):
+            console.print(f"[red]Failed to detect changed files: {err}[/red]")
+            await repo._run_git("checkout", "main")
+            await repo._run_git("branch", "-D", branch_name)
+            return
+        case Ok(diff_output):
+            changed_paths = [
+                line.strip() for line in diff_output.splitlines() if line.strip()
+            ]
+
+    python_changes = [Path(root / p).resolve() for p in changed_paths if p.endswith(".py")]
+    tests_root = root / "tests"
+
+    async def _collect_dependent_tests() -> list[Path]:
+        if not tests_root.exists():
+            return []
+        try:
+            test_files = await asyncio.to_thread(lambda: list(tests_root.rglob("test_*.py")))
+        except OSError:
+            return []
+
+        dependents: list[Path] = []
+        for test_file in test_files:
+            try:
+                deps = await asyncio.to_thread(get_import_dependencies, test_file, root)
+            except Exception:
+                deps = set()
+            for changed in python_changes:
+                if changed in deps:
+                    dependents.append(test_file)
+                    break
+        return dependents
+
+    test_targets: list[Path] = []
+    test_targets.extend([p for p in python_changes if tests_root in p.parents])
+    dependent_tests = await _collect_dependent_tests()
+    test_targets.extend(dependent_tests)
+    if not test_targets and tests_root.exists():
+        test_targets.append(tests_root)
+    # Preserve order while deduplicating
+    test_targets = list(dict.fromkeys(test_targets))
+
+    # Fail fast if pytest is unavailable
+    pytest_cmd = "pytest"
+    if await asyncio.to_thread(shutil.which, "pytest") is None:
+        console.print("[red]pytest is not available; aborting evolution.[/red]")
+        await repo._run_git("reset", "--hard", "main")
+        await repo._run_git("checkout", "main")
+        await repo._run_git("branch", "-D", branch_name)
+        return
+
+    test_args = " ".join(str(path.relative_to(root)) for path in test_targets) if test_targets else ""
+    test_command = f"{pytest_cmd} -q {test_args}".strip()
+    console.print(f"[cyan]Running verification tests: {test_command}[/cyan]")
+    test_result = await run_safe_shell(test_command, root, "evolve.verify", config=config)
+    if isinstance(test_result, Err):
+        console.print(f"[red]Test execution failed: {test_result.error}[/red]")
+        await repo._run_git("reset", "--hard", "main")
+        await repo._run_git("checkout", "main")
+        await repo._run_git("branch", "-D", branch_name)
+        await asyncio.to_thread(
+            save_memory,
+            f"Evolution aborted: tests could not run. Command: `{test_command}`. Error: {test_result.error}",
+            ["evolve", "failure", "tests"],
+            config=config,
+        )
+        return
+
+    result_payload = test_result.value
+    if result_payload.returncode != 0:
+        console.print(f"[red]Verification failed (exit {result_payload.returncode}).[/red]")
+        console.print(result_payload.stdout or result_payload.stderr)
+        await repo._run_git("reset", "--hard", "main")
+        await repo._run_git("checkout", "main")
+        await repo._run_git("branch", "-D", branch_name)
+        await asyncio.to_thread(
+            save_memory,
+            f"Evolution aborted: tests failed. Command: `{test_command}` exit={result_payload.returncode}. Output: {result_payload.stdout or result_payload.stderr}",
+            ["evolve", "failure", "tests"],
+            config=config,
+        )
+        return
+
+    console.print("[green]Verification tests passed.[/green]")
+
+    # Step 7: Create PR
+    await _create_evolution_pr(
+        repo,
+        target,
+        branch_name,
+        root,
+        config,
+        test_command,
+        result_payload.returncode,
+    )
 
 
 @app.command("run")
@@ -346,10 +448,10 @@ def evolve_report(
     state: AppState = ctx.obj
     root = Path(state.config.workspace_root).expanduser().resolve()
 
-async def _report() -> None:
+    async def _report() -> None:
         match await analyze_directory_complexity(root, state.config.ignore_dirs):
-            case Err(err):
-                console.print(f"[red]Analysis failed: {err}[/red]")
+            case Err(complexity_err):
+                console.print(f"[red]Analysis failed: {complexity_err}[/red]")
                 return
             case Ok(complexities):
                 pass
@@ -371,12 +473,12 @@ async def _report() -> None:
                     match result:
                         case Ok(value):
                             churn_by_path[fc.path] = value
-                        case Err(err):
-                            logger.debug("Churn lookup failed for %s: %s", fc.path, err)
+                        case Err(churn_err):
+                            logger.debug("Churn lookup failed for %s: %s", fc.path, churn_err)
                         case _:
                             logger.debug("Unexpected churn result for %s: %s", fc.path, result)
-            case Err(err):
-                logger.debug("Skipping churn lookup; git repo unavailable: %s", err)
+            case Err(repo_err):
+                logger.debug("Skipping churn lookup; git repo unavailable: %s", repo_err)
 
         table = Table(title="Complexity Report", box=box.ROUNDED)
         table.add_column("File", style="cyan")
@@ -445,8 +547,8 @@ def evolve_debt(
     async def _debt() -> None:
         console.print("[cyan]Calculating technical debt scores...[/cyan]")
         match await calculate_debt_scores(root, state.config):
-            case Err(err):
-                console.print(f"[red]Analysis failed: {err}[/red]")
+            case Err(debt_err):
+                console.print(f"[red]Analysis failed: {debt_err}[/red]")
                 return
             case Ok(scores):
                 pass

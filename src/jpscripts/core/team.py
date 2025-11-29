@@ -9,7 +9,8 @@ from typing import AsyncIterator, Iterable, Literal, Sequence, cast
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from ruamel.yaml import YAML, YAMLError
+from ruamel.yaml import YAML
+from ruamel.yaml.error import YAMLError
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger

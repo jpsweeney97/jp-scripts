@@ -18,7 +18,7 @@ from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.config import AppConfig
 from jpscripts.core.system import CommandResult, get_sandbox
 from jpscripts.core.result import Err
-from jpscripts.core.governance import check_compliance, format_violations_for_agent, has_fatal_violations, Violation
+from jpscripts.core.governance import check_compliance, format_violations_for_agent, has_fatal_violations
 from jpscripts.core.result import ToolExecutionError
 
 logger = get_logger(__name__)

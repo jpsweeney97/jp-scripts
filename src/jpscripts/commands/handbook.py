@@ -671,6 +671,19 @@ def verify_protocol(
             console.print("[red]Handbook is empty or unreadable.[/red]")
             return 1
 
+        agents_path = Path(_project_root()) / "AGENTS.md"
+        if not agents_path.exists():
+            console.print("[red]AGENTS.md is missing; cannot satisfy governance requirements.[/red]")
+            return 1
+        try:
+            agents_text = await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
+        except OSError:
+            console.print("[red]AGENTS.md is unreadable; fix repository state before proceeding.[/red]")
+            return 1
+        if "invariants" not in agents_text:
+            console.print("[red]AGENTS.md lacks the required Invariants section.[/red]")
+            return 1
+
         protocols = parse_protocols(content)
         commands = protocols.get(name.lower())
         if not commands:

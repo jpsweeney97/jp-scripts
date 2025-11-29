@@ -48,6 +48,12 @@ Result: slower per retry, higher precision, fewer insanity loops.
 
 Autonomous technical debt reduction that identifies, optimizes, and PRs improvements.
 
+### The Evolution Protocol
+- Autonomous refactoring is prohibited unless the test suite is green.
+- `jp evolve` must run targeted pytest verification after applying any patch and abort on failure.
+- Branches with failing tests must not be pushed or PR'd; reset to `main` on regression.
+- PR bodies must document the verification command and its exit code.
+
 ### How It Works
 
 1. **Debt Analysis**: Computes McCabe cyclomatic complexity for all Python files.
@@ -81,6 +87,10 @@ jp evolve debt
 - Respects all constitutional rules (AGENTS.md)
 - Preserves public interfaces (pure refactoring)
 - All changes must pass `mypy --strict`
+
+### Security Boundaries
+- Dynamic execution is banned. Do not use `eval`, `exec`, `compile`, `__import__`, or dynamic `importlib.import_module` without an explicit, reviewed `# safety: checked` override.
+- Shell execution stays tokenized and validated; `shell=True` and obfuscated commands are forbidden.
 
 ---
 
@@ -268,4 +278,3 @@ The governance check runs automatically in `AgentEngine.step()`:
 | `run_tests` | target: str='.', verbose: bool=False | Run pytest on a specific target (directory or file) and return the results. Use this to verify fixes. |
 | `search_codebase` | pattern: str, path: str='.' | Search the codebase using ripgrep (grep). Returns the raw text matches with line numbers. |
 | `write_file` | path: str, content: str, overwrite: bool=False | Create or overwrite a file with the given content. Enforces workspace sandbox. Requires overwrite=True to replace existing files. |
-

@@ -589,9 +589,12 @@ class LanceDBStore(MemoryStore):
             else:
                 self._table = db.open_table("memory")
                 try:
-                    if "related_files" not in getattr(self._table, "schema", {}).names:  # type: ignore[union-attr]
+                    schema = getattr(self._table, "schema", None)
+                    names_attr = getattr(schema, "names", None)
+                    existing_names = {str(name) for name in names_attr} if isinstance(names_attr, (list, tuple, set)) else set()
+                    if "related_files" not in existing_names:
                         try:
-                            self._table.add_column("related_files", list[str])  # type: ignore[call-arg]
+                            self._table.add_column("related_files", list[str])
                         except Exception:
                             logger.debug("Unable to add related_files column to LanceDB table; proceeding without schema update.")
                 except Exception:

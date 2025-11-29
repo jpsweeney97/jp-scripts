@@ -102,14 +102,19 @@ class ReplayProvider(LLMProvider):
             finish_reason="stop",
         )
 
-    async def stream(
+    def stream(
         self,
         messages: list[ProviderMessage],
         model: str | None = None,
         options: CompletionOptions | None = None,
     ) -> AsyncIterator[StreamChunk]:
         _ = messages, model, options
-        raise ReplayDivergenceError("ReplayProvider does not support streaming.")
+
+        async def _raise() -> AsyncIterator[StreamChunk]:
+            raise ReplayDivergenceError("ReplayProvider does not support streaming.")
+            yield  # pragma: no cover
+
+        return _raise()
 
     def supports_streaming(self) -> bool:
         return False
@@ -119,3 +124,7 @@ class ReplayProvider(LLMProvider):
 
     def supports_json_mode(self) -> bool:
         return True
+
+    def get_context_limit(self, model: str | None = None) -> int:
+        _ = model
+        return 0

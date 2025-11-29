@@ -19,8 +19,14 @@ from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.context_gatherer import gather_context, get_file_skeleton, resolve_files_from_output, smart_read_context
-from jpscripts.core.tokens import TokenBudgetManager
+from jpscripts.core.context_gatherer import (
+    gather_context,
+    get_file_skeleton,
+    read_file_context,
+    resolve_files_from_output,
+    smart_read_context,
+)
+from jpscripts.core.tokens import Priority, TokenBudgetManager
 from jpscripts.core.engine import (
     AgentEngine,
     AgentResponse,
@@ -161,6 +167,7 @@ async def prepare_agent_prompt(
         gathered_context = await gather_context(run_command, root)
         output = gathered_context.output
         detected_files = gathered_context.files
+        ordered_detected = list(gathered_context.ordered_files)
         trimmed = (
             output
             if len(output) <= max_command_output_chars
@@ -183,7 +190,8 @@ async def prepare_agent_prompt(
             except Exception as exc:
                 logger.debug("Memory query failed: %s", exc)
 
-        detected_paths = list(sorted(detected_files))[:5]
+        ordered_sources = ordered_detected if ordered_detected else sorted(detected_files)
+        detected_paths = list(dict.fromkeys(ordered_sources))[:5]
 
     elif attach_recent:
         match await scan_recent(root, 3, False, set(ignore_dirs)):
@@ -193,15 +201,8 @@ async def prepare_agent_prompt(
                 detected_paths = [entry.path for entry in recents[:5]]
 
     # === Priority 2: Git Diff Section (medium priority) ===
-    if include_diff:
-        diff_text = await _collect_git_diff(root, 10_000)
-        if diff_text:
-            git_diff_section = budget.allocate(2, diff_text)
-        else:
-            git_diff_section = "NO CHANGES"
-
-    # === Priority 3: File Context + Dependencies (Sequential Greedy) ===
-    # Files get what they need first, dependencies get whatever remains
+    # === Priority 2 & 3: File Context + Dependencies (Sequential Greedy) ===
+    # Files get what they need first (direct source prioritized), dependencies get leftovers
     combined_paths: list[Path] = detected_paths + extra_detected
     if budget.remaining() > 0 and combined_paths:
         file_context_section, attached = await _build_file_context_section(
@@ -213,6 +214,14 @@ async def prepare_agent_prompt(
             dependency_section = await _build_dependency_section(
                 combined_paths[:1], root, budget
             )
+
+    # Git diff is lowest priority after files and dependencies
+    if include_diff and budget.remaining() > 0:
+        diff_text = await _collect_git_diff(root, 10_000)
+        if diff_text:
+            git_diff_section = budget.allocate(3, diff_text)
+        else:
+            git_diff_section = "NO CHANGES"
 
     # Memory query fallback
     if not relevant_memories:
@@ -381,36 +390,50 @@ async def _build_file_context_section(
         except (OSError, UnicodeDecodeError):
             return 0
 
-    for path in paths:
+    for idx, path in enumerate(paths):
         # Check budget before reading each file
         remaining_tokens = budget.remaining()
         if remaining_tokens <= 0:
             break
         char_budget = budget.tokens_to_characters(remaining_tokens)
 
-        line_count = await asyncio.to_thread(_count_lines, path)
-        use_skeleton = path.suffix.lower() == ".py" and line_count > 200
+        priority: Priority = 3
+        label = ""
+        snippet = ""
 
-        if use_skeleton:
-            snippet = await asyncio.to_thread(get_file_skeleton, path)
-        else:
-            # Read file with syntax-aware truncation up to remaining budget
-            snippet = await asyncio.to_thread(
-                smart_read_context,
+        if idx == 0:
+            priority = 2
+            primary_text = await asyncio.to_thread(
+                read_file_context,
                 path,
                 char_budget,
-                remaining_tokens,
                 limit=budget.tokens_to_characters(budget.model_context_limit),
             )
+            snippet = primary_text or ""
+        else:
+            line_count = await asyncio.to_thread(_count_lines, path)
+            use_skeleton = path.suffix.lower() == ".py" and line_count > 200
+
+            if use_skeleton:
+                snippet = await asyncio.to_thread(get_file_skeleton, path)
+            else:
+                snippet = await asyncio.to_thread(
+                    smart_read_context,
+                    path,
+                    char_budget,
+                    remaining_tokens,
+                    limit=budget.tokens_to_characters(budget.model_context_limit),
+                )
+            if use_skeleton:
+                label = " (Skeleton - Request full content if needed)"
 
         if not snippet:
-            continue
+            snippet = "(content unavailable)"
 
-        label = " (Skeleton - Request full content if needed)" if use_skeleton else ""
         file_entry = f"Path: {path}{label}\n---\n{snippet}\n"
 
         # Allocate this file's content - may be truncated if over budget
-        allocated = budget.allocate(3, file_entry, source_path=path)
+        allocated = budget.allocate(priority, file_entry, source_path=path)
         if allocated:
             sections.append(allocated)
             attached.append(path)
@@ -446,12 +469,12 @@ async def _build_dependency_section(
         char_budget = budget.tokens_to_characters(remaining_tokens)
 
         snippet = await asyncio.to_thread(
-            smart_read_context,
+            get_file_skeleton,
             dep,
-            char_budget,
-            remaining_tokens,
-            limit=budget.tokens_to_characters(budget.model_context_limit),
+            limit=char_budget,
         )
+        if snippet and len(snippet) > char_budget:
+            snippet = snippet[:char_budget]
         if not snippet:
             continue
 
@@ -698,7 +721,8 @@ async def _expand_context_paths(
     """Derive additional context paths from the latest failure."""
     discovered: set[Path] = set()
     discovered.update(changed_files)
-    discovered.update(resolve_files_from_output(error_output, root))
+    _, resolved = await resolve_files_from_output(error_output, root)
+    discovered.update(resolved)
 
     dependencies: set[Path] = set()
     for path in discovered:

@@ -15,6 +15,7 @@ from rich.console import Console
 
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
+from jpscripts.core import structure
 from jpscripts.core.tokens import DEFAULT_MODEL_CONTEXT_LIMIT as _TOKEN_DEFAULT
 
 logger = get_logger(__name__)
@@ -35,6 +36,7 @@ class GatherContextResult(BaseModel):
 
     output: str
     files: set[Path]
+    ordered_files: tuple[Path, ...] = ()
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
@@ -70,22 +72,54 @@ async def run_and_capture(command: str, cwd: Path) -> str:
     return (stdout + stderr).decode("utf-8", errors="replace")
 
 
-def resolve_files_from_output(output: str, root: Path) -> set[Path]:
-    """Parse command output for file paths that exist in the workspace."""
-    found = set()
+async def resolve_files_from_output(output: str, root: Path) -> tuple[list[Path], set[Path]]:
+    """Parse command output for file paths that exist in the workspace and their dependencies."""
+    found: set[Path] = set()
+    ordered: list[Path] = []
+    python_candidates: set[Path] = set()
+    try:
+        workspace_root = root.resolve()
+    except OSError:
+        workspace_root = root
 
     for match in FILE_PATTERN.finditer(output):
         raw_path = match.group("path")
         clean_path = raw_path.strip(".'\"()")
-        candidate = (root / clean_path).resolve()
+        candidate = (workspace_root / clean_path).resolve()
 
         try:
-            if candidate.is_file() and root in candidate.parents:
+            if candidate.is_file() and workspace_root in candidate.parents:
+                if candidate not in found:
+                    ordered.append(candidate)
                 found.add(candidate)
+                if candidate.suffix.lower() == ".py":
+                    python_candidates.add(candidate)
         except OSError:
             continue
 
-    return found
+    dependencies: set[Path] = set()
+    for path in python_candidates:
+        try:
+            deps = await asyncio.to_thread(structure.get_import_dependencies, path, workspace_root)
+        except Exception as exc:
+            logger.debug("Dependency discovery failed for %s: %s", path, exc)
+            continue
+        for dep in deps:
+            try:
+                resolved_dep = dep.resolve()
+            except OSError:
+                continue
+            try:
+                if resolved_dep.is_file() and workspace_root in resolved_dep.parents:
+                    dependencies.add(resolved_dep)
+            except OSError:
+                continue
+
+    for dep in dependencies:
+        if dep not in found:
+            ordered.append(dep)
+
+    return ordered, found | dependencies
 
 
 def _warn_out_of_workspace_paths(command: str, root: Path) -> None:
@@ -120,8 +154,8 @@ async def gather_context(command: str, root: Path) -> GatherContextResult:
     """Run a command, capture output, and find relevant files."""
     _warn_out_of_workspace_paths(command, root)
     output = await run_and_capture(command, root)
-    files = resolve_files_from_output(output, root)
-    return GatherContextResult(output=output, files=files)
+    ordered, files = await resolve_files_from_output(output, root)
+    return GatherContextResult(output=output, files=files, ordered_files=tuple(ordered))
 
 
 def read_file_context(

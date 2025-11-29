@@ -327,12 +327,12 @@ async def calculate_debt_scores(
     match await AsyncRepo.open(root):
         case Ok(open_repo):
             repo = open_repo
-        case Err(err):
-            logger.debug("Git repository unavailable for churn calculation: %s", err)
+        case Err(repo_err):
+            logger.debug("Git repository unavailable for churn calculation: %s", repo_err)
 
     match await analyze_directory_complexity(root, config.ignore_dirs):
-        case Err(err):
-            return Err(err)
+        case Err(complexity_err):
+            return Err(complexity_err)
         case Ok(complexities):
             pass
 

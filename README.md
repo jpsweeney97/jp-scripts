@@ -55,7 +55,7 @@ jp evolve debt
 2. Queries memory for fix frequency (files that often need fixes)
 3. Calculates debt score: `Complexity × (1 + Fix_Frequency)`
 4. Launches "Optimizer" agent to reduce complexity in the top file
-5. Creates branch, applies changes, creates PR for review
+5. Creates branch, applies changes, and **verifies tests before any push/PR** (Verify-before-Push guarantee)
 
 All changes are validated against constitutional rules (AGENTS.md) and must pass `mypy --strict`.
 

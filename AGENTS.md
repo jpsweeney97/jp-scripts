@@ -51,6 +51,12 @@
         "rules": [
           "Destructive Python file operations (shutil.rmtree, os.remove, etc.) are forbidden unless the line contains `# safety: checked`. Enforced by AST."
         ]
+      },
+      {
+        "id": "dynamic-execution",
+        "rules": [
+          "Dynamic Execution: Usage of `eval`, `exec`, or dynamic imports is strictly forbidden to prevent obfuscated shell injection."
+        ]
       }
     ],
     "cognitive_standards": [

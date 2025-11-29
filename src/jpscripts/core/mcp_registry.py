@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import warnings
 from collections.abc import Awaitable, Callable
-from typing import ParamSpec, TypeVar, cast
+from typing import ParamSpec, TypeVar
 
 from pydantic import ValidationError, validate_call
 
