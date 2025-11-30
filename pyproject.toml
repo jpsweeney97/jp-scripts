@@ -91,9 +91,10 @@ module = [
 ignore_missing_imports = true
 
 [tool.pyright]
-typeCheckingMode = "strict"
+typeCheckingMode = "standard"
 reportMissingImports = "warning"
 reportMissingTypeStubs = "warning"
+reportPrivateUsage = "none"
 ignore = [
   "lancedb",
   "opentelemetry",

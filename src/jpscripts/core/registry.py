@@ -5,7 +5,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, cast
 
 import typer
 
@@ -87,7 +87,7 @@ def _build_function_commands(module_name: str, module: object) -> list[CommandSp
     for cmd_name, attr in mapping.items():
         handler = getattr(module, attr, None)
         if callable(handler):
-            specs.append(CommandSpec(name=cmd_name, handler=handler))
+            specs.append(CommandSpec(name=cmd_name, handler=cast(Callable[..., None], handler)))
         else:  # pragma: no cover - defensive
             logger.error("Command %s.%s not found or not callable", module_name, attr)
     return specs

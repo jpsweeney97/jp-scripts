@@ -219,6 +219,7 @@ class MergeConflictResolver:
 
                 i += 1
                 section = "ours"
+                end_line = 0
 
                 while i < len(lines):
                     line = lines[i]

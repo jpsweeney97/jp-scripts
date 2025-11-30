@@ -35,7 +35,9 @@ from jpscripts.providers import Message as ProviderMessage
 from jpscripts.providers.factory import get_provider
 
 if TYPE_CHECKING:
-    from lancedb.pydantic import LanceModel as LanceModelBase
+    from lancedb.pydantic import (
+        LanceModel as LanceModelBase,  # pyright: ignore[reportMissingTypeStubs]
+    )
     from sentence_transformers import SentenceTransformer
 else:  # pragma: no cover - runtime fallbacks when optional deps are missing
 

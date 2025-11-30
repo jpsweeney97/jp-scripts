@@ -10,8 +10,11 @@ import typer
 from typer.testing import CliRunner
 
 if TYPE_CHECKING:
+
     class AgentResponseProto(Protocol):
         final_message: str | None
+
+
 from jpscripts.commands.agent import codex_exec
 from jpscripts.core.agent import PreparedPrompt, parse_agent_response
 from jpscripts.core.config import AppConfig

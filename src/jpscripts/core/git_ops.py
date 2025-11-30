@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import cast
 
 from jpscripts.core.result import Err, GitError, Ok, Result
 
@@ -119,9 +120,9 @@ async def branch_statuses(repo: git_core.AsyncRepo) -> Result[list[BranchSummary
     legacy_runner = getattr(repo, "_run_git", None)
     git_call: Callable[..., Awaitable[Result[str, GitError]]] | None = None
     if callable(runner):
-        git_call = runner
+        git_call = cast(Callable[..., Awaitable[Result[str, GitError]]], runner)
     elif callable(legacy_runner):
-        git_call = legacy_runner
+        git_call = cast(Callable[..., Awaitable[Result[str, GitError]]], legacy_runner)
     else:
         return Err(GitError("Repository does not support git execution"))
 

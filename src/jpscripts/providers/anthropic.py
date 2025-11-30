@@ -87,6 +87,7 @@ class _MessagesAPI(Protocol):
 class AnthropicClientProtocol(Protocol):
     messages: _MessagesAPI
 
+
 # Model context limits (tokens)
 ANTHROPIC_CONTEXT_LIMITS: dict[str, int] = {
     "claude-opus-4-5": 200_000,
@@ -224,7 +225,7 @@ class AnthropicProvider(BaseLLMProvider):
             return self._client
 
         try:
-            import anthropic
+            import anthropic  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
             raise ProviderError(
                 "anthropic package not installed. Install with: pip install anthropic"
@@ -390,7 +391,7 @@ class AnthropicProvider(BaseLLMProvider):
     def _handle_api_error(self, exc: Exception) -> None:
         """Convert Anthropic exceptions to our error types."""
         try:
-            import anthropic
+            import anthropic  # pyright: ignore[reportMissingImports]
         except ImportError:
             raise ProviderError(str(exc)) from exc
 

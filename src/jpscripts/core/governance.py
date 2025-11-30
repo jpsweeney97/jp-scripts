@@ -223,7 +223,9 @@ class ConstitutionChecker(ast.NodeVisitor):
             if _has_safety_override():
                 return
             is_importlib = False
-            if (isinstance(func.value, ast.Name) and func.value.id == "importlib") or (isinstance(func.value, ast.Attribute) and func.value.attr == "importlib"):
+            if (isinstance(func.value, ast.Name) and func.value.id == "importlib") or (
+                isinstance(func.value, ast.Attribute) and func.value.attr == "importlib"
+            ):
                 is_importlib = True
 
             if is_importlib:
@@ -321,15 +323,11 @@ class ConstitutionChecker(ast.NodeVisitor):
         if not self._in_async_context:
             return
 
-        is_open_call = (
-            (isinstance(node.func, ast.Name)
-            and node.func.id == "open")
-            or (
-                isinstance(node.func, ast.Attribute)
-                and node.func.attr == "open"
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id in ("builtins", "io")
-            )
+        is_open_call = (isinstance(node.func, ast.Name) and node.func.id == "open") or (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "open"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in ("builtins", "io")
         )
 
         if is_open_call:

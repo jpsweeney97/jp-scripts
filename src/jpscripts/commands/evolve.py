@@ -331,9 +331,7 @@ async def _run_evolve(
         dependents: list[Path] = []
         for test_file in test_files:
             try:
-                deps: set[Path] = await asyncio.to_thread(
-                    get_import_dependencies, test_file, root
-                )
+                deps: set[Path] = await asyncio.to_thread(get_import_dependencies, test_file, root)
             except Exception:
                 deps = set()
             for changed in python_changes:
@@ -461,9 +459,9 @@ def evolve_report(
             return
 
         # Sort by max complexity
-        sorted_files: list[FileComplexity] = sorted(
-            complexities, key=lambda c: -c.max_cyclomatic
-        )[:limit]
+        sorted_files: list[FileComplexity] = sorted(complexities, key=lambda c: -c.max_cyclomatic)[
+            :limit
+        ]
 
         churn_by_path: dict[Path, int] = {fc.path: 0 for fc in sorted_files}
         match await git_core.AsyncRepo.open(root):

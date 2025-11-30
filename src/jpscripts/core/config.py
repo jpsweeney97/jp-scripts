@@ -115,6 +115,10 @@ class AppConfig(BaseSettings):
     otel_export_enabled: bool = Field(
         default=False, description="Enable OTLP tracing export when true."
     )
+    shell_rate_limit_calls: int = Field(default=100, description="Max shell calls per window.")
+    shell_rate_limit_window: float = Field(
+        default=60.0, description="Window size in seconds for rate limiting."
+    )
 
     @classmethod
     def settings_customise_sources(

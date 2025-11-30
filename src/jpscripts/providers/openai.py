@@ -101,6 +101,7 @@ class _ChatAPI(Protocol):
 class OpenAIClientProtocol(Protocol):
     chat: _ChatAPI
 
+
 # Model context limits (tokens)
 OPENAI_CONTEXT_LIMITS: dict[str, int] = {
     "gpt-4-turbo": 128_000,
@@ -277,7 +278,7 @@ class OpenAIProvider(BaseLLMProvider):
             return self._client
 
         try:
-            import openai
+            import openai  # pyright: ignore[reportMissingImports]
         except ImportError as exc:
             raise ProviderError(
                 "openai package not installed. Install with: pip install openai"
@@ -481,7 +482,7 @@ class OpenAIProvider(BaseLLMProvider):
     def _handle_api_error(self, exc: Exception) -> None:
         """Convert OpenAI exceptions to our error types."""
         try:
-            import openai
+            import openai  # pyright: ignore[reportMissingImports]
         except ImportError:
             raise ProviderError(str(exc)) from exc
 
