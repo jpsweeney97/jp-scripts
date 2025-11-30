@@ -155,6 +155,9 @@ class AsyncSerializer:
                         dirname
                         for dirname in sorted(dirnames)
                         if not self._is_ignored(rel_dir / dirname, gitignore)
+                        and not (
+                            gitignore and gitignore.match_file((rel_dir / dirname).as_posix() + "/")
+                        )
                     ]
                     for filename in sorted(filenames):
                         relative = rel_dir / filename
