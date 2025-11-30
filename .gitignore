@@ -6,3 +6,4 @@ tmp-repo-test/
 /*.py
 !/setup.py
 fake_*.py
+.hypothesis/
