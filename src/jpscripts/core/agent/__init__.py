@@ -31,7 +31,10 @@ from jpscripts.core.agent.execution import (
     ResponseFetcher,
     SecurityError,
     StrategyConfig,
+    apply_patch_text,
     run_repair_loop,
+    run_shell_command,
+    verify_syntax,
 )
 
 # Export from prompting module
@@ -57,6 +60,7 @@ __all__ = [
     "ResponseFetcher",
     "SecurityError",
     "StrategyConfig",
+    "apply_patch_text",
     "build_dependency_section",
     "build_file_context_section",
     "collect_git_context",
@@ -66,5 +70,7 @@ __all__ = [
     "parse_agent_response",
     "prepare_agent_prompt",
     "run_repair_loop",
+    "run_shell_command",
     "scan_recent",
+    "verify_syntax",
 ]

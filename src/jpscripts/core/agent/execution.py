@@ -207,8 +207,19 @@ def _build_repair_instruction(
     )
 
 
-async def _run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
-    """Executes command without shell interpolation."""
+async def run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
+    """Execute a shell command without shell interpolation.
+
+    This function safely executes shell commands by parsing them with shlex
+    and running them without shell interpolation to prevent injection attacks.
+
+    Args:
+        command: The shell command to execute
+        cwd: The working directory to run the command in
+
+    Returns:
+        A tuple of (exit_code, stdout, stderr)
+    """
     try:
         tokens = shlex.split(command)
     except ValueError as exc:
@@ -264,7 +275,19 @@ def _write_failed_patch(patch_text: str, root: Path) -> None:
         logger.debug("Unable to persist failed patch for inspection: %s", exc)
 
 
-async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
+async def apply_patch_text(patch_text: str, root: Path) -> list[Path]:
+    """Apply a unified diff patch to the repository.
+
+    Attempts to apply the patch using git apply first, falling back to
+    the standard patch command if git apply fails.
+
+    Args:
+        patch_text: The unified diff patch content
+        root: The root directory to apply the patch in
+
+    Returns:
+        List of paths that were successfully patched, or empty list on failure
+    """
     if not patch_text.strip():
         return []
 
@@ -314,8 +337,15 @@ async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
     return []
 
 
-async def _verify_syntax(files: list[Path]) -> str | None:
-    """Verify Python syntax for changed files using py_compile."""
+async def verify_syntax(files: list[Path]) -> str | None:
+    """Verify Python syntax for changed files using py_compile.
+
+    Args:
+        files: List of file paths to verify
+
+    Returns:
+        Error message if syntax check fails, None if all files pass
+    """
     py_files = [path for path in files if path.suffix == ".py"]
     if not py_files:
         return None
@@ -494,7 +524,7 @@ async def run_repair_loop(
             console.print(
                 f"[cyan]Attempt {attempt + 1}/{attempt_cap} ({strategy_cfg.label}): running `{command}`[/cyan]"
             )
-            exit_code, stdout, stderr = await _run_shell_command(command, root)
+            exit_code, stdout, stderr = await run_shell_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded. Exiting repair loop.[/green]")
                 if auto_archive:
@@ -629,8 +659,8 @@ async def run_repair_loop(
                     seen_patch_hashes.add(patch_hash)
 
                     console.print("[green]Agent proposed a fix.[/green]")
-                    applied_paths = await _apply_patch_text(patch_text, root)
-                    syntax_error = await _verify_syntax(applied_paths)
+                    applied_paths = await apply_patch_text(patch_text, root)
+                    syntax_error = await verify_syntax(applied_paths)
                     if syntax_error:
                         console.print(
                             f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}"
@@ -672,7 +702,7 @@ async def run_repair_loop(
                 )
                 break
 
-            exit_code, stdout, stderr = await _run_shell_command(command, root)
+            exit_code, stdout, stderr = await run_shell_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded after applying fixes.[/green]")
                 if auto_archive:
@@ -705,7 +735,7 @@ async def run_repair_loop(
             )
 
         console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
-        exit_code, stdout, stderr = await _run_shell_command(command, root)
+        exit_code, stdout, stderr = await run_shell_command(command, root)
         if exit_code == 0:
             console.print("[green]Command succeeded after final verification.[/green]")
             if auto_archive:
@@ -739,5 +769,8 @@ __all__ = [
     "ResponseFetcher",
     "SecurityError",
     "StrategyConfig",
+    "apply_patch_text",
     "run_repair_loop",
+    "run_shell_command",
+    "verify_syntax",
 ]

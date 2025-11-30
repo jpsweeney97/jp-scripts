@@ -120,6 +120,7 @@ async def prepare_agent_prompt(
     reasoning_effort: str | None = None,
     tool_history: str | None = None,
     extra_paths: Sequence[Path] | None = None,
+    workspace_override: Path | None = None,
 ) -> PreparedPrompt:
     """
     Builds a structured, JSON-oriented prompt for Codex.
@@ -131,7 +132,7 @@ async def prepare_agent_prompt(
     """
     runtime = get_runtime()
     config = runtime.config
-    root = runtime.workspace_root
+    root = workspace_override or runtime.workspace_root
     effective_ignore_dirs = (
         list(ignore_dirs) if ignore_dirs is not None else list(config.ignore_dirs)
     )

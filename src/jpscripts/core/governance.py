@@ -72,6 +72,7 @@ class ConstitutionChecker(ast.NodeVisitor):
         self.lines = source.splitlines()
         self.violations: list[Violation] = []
         self._async_depth: int = 0
+        self._imports: dict[str, str] = {}  # Maps alias -> "module" or "module.function"
 
     @property
     def _in_async_context(self) -> bool:
@@ -82,6 +83,25 @@ class ConstitutionChecker(ast.NodeVisitor):
         self._async_depth += 1
         self.generic_visit(node)
         self._async_depth -= 1
+
+    def visit_Import(self, node: ast.Import) -> None:
+        """Track module imports and aliases."""
+        for alias in node.names:
+            # alias.name is "subprocess", alias.asname is "sp" (or None)
+            name = alias.asname or alias.name
+            self._imports[name] = alias.name
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        """Track from-imports and aliases."""
+        module = node.module or ""
+        for alias in node.names:
+            name = alias.asname or alias.name
+            if alias.name == "*":
+                continue  # Can't track wildcard imports
+            # Store as "module.function" for function imports
+            self._imports[name] = f"{module}.{alias.name}" if module else alias.name
+        self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call) -> None:
         """Check for prohibited function calls."""
@@ -150,13 +170,12 @@ class ConstitutionChecker(ast.NodeVisitor):
                 )
 
     def _check_os_system(self, node: ast.Call) -> None:
-        """Detect os.system() usage (always forbidden)."""
-        if (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "system"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "os"
-        ):
+        """Detect os.system() usage (always forbidden).
+
+        Handles import aliasing (e.g., import os as o; o.system()).
+        """
+        module, func = self._resolve_call_target(node)
+        if module == "os" and func == "system":
             self.violations.append(
                 Violation(
                     type=ViolationType.OS_SYSTEM,
@@ -243,14 +262,14 @@ class ConstitutionChecker(ast.NodeVisitor):
                 )
 
     def _check_process_exit(self, node: ast.Call) -> None:
-        """Detect process exit calls (sys.exit, quit, exit)."""
-        # Check sys.exit()
-        if (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "exit"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "sys"
-        ):
+        """Detect process exit calls (sys.exit, quit, exit).
+
+        Handles import aliasing (e.g., import sys as s; s.exit()).
+        """
+        module, func = self._resolve_call_target(node)
+
+        # Check sys.exit() or alias
+        if module == "sys" and func == "exit":
             self.violations.append(
                 Violation(
                     type=ViolationType.PROCESS_EXIT,
@@ -265,7 +284,7 @@ class ConstitutionChecker(ast.NodeVisitor):
             )
             return
 
-        # Check quit() and exit()
+        # Check quit() and exit() (direct name calls, not aliased)
         if isinstance(node.func, ast.Name) and node.func.id in ("quit", "exit"):
             self.violations.append(
                 Violation(
@@ -281,8 +300,11 @@ class ConstitutionChecker(ast.NodeVisitor):
             )
 
     def _check_debug_leftover(self, node: ast.Call) -> None:
-        """Detect debug breakpoints (breakpoint, pdb.set_trace, ipdb.set_trace)."""
-        # Check breakpoint()
+        """Detect debug breakpoints (breakpoint, pdb.set_trace, ipdb.set_trace).
+
+        Handles import aliasing (e.g., import pdb as p; p.set_trace()).
+        """
+        # Check breakpoint() - direct name, no alias possible
         if isinstance(node.func, ast.Name) and node.func.id == "breakpoint":
             self.violations.append(
                 Violation(
@@ -298,13 +320,9 @@ class ConstitutionChecker(ast.NodeVisitor):
             )
             return
 
-        # Check pdb.set_trace() and ipdb.set_trace()
-        if (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "set_trace"
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id in ("pdb", "ipdb")
-        ):
+        # Check pdb.set_trace() and ipdb.set_trace() with alias support
+        module, func = self._resolve_call_target(node)
+        if module in ("pdb", "ipdb") and func == "set_trace":
             self.violations.append(
                 Violation(
                     type=ViolationType.DEBUG_LEFTOVER,
@@ -405,6 +423,33 @@ class ConstitutionChecker(ast.NodeVisitor):
                 return True
         return False
 
+    def _resolve_call_target(self, node: ast.Call) -> tuple[str | None, str | None]:
+        """Resolve a call to (module, function) tuple, handling import aliases.
+
+        Returns (module, function) where:
+        - sp.run() → ('subprocess', 'run') if sp is aliased to subprocess
+        - r() → ('subprocess', 'run') if r is aliased to subprocess.run
+        - subprocess.run() → ('subprocess', 'run')
+        """
+        func = node.func
+
+        # Case 1: name.attr (e.g., sp.run, subprocess.run)
+        if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name):
+            alias = func.value.id
+            resolved = self._imports.get(alias)
+            if resolved:
+                return (resolved, func.attr)
+            return (alias, func.attr)
+
+        # Case 2: direct name (e.g., run() after from subprocess import run)
+        if isinstance(func, ast.Name):
+            resolved = self._imports.get(func.id)
+            if resolved and "." in resolved:
+                parts = resolved.rsplit(".", 1)
+                return (parts[0], parts[1])
+
+        return (None, None)
+
     # Blocking subprocess functions that should be wrapped with asyncio.to_thread
     _BLOCKING_SUBPROCESS_FUNCS: frozenset[str] = frozenset(
         {
@@ -422,14 +467,11 @@ class ConstitutionChecker(ast.NodeVisitor):
         """Check if call is a blocking subprocess function.
 
         Returns the function name if it's a blocking subprocess call, None otherwise.
+        Handles import aliasing (e.g., import subprocess as sp).
         """
-        if (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr in self._BLOCKING_SUBPROCESS_FUNCS
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "subprocess"
-        ):
-            return node.func.attr
+        module, func = self._resolve_call_target(node)
+        if module == "subprocess" and func in self._BLOCKING_SUBPROCESS_FUNCS:
+            return func
         return None
 
     def _is_subprocess_run(self, node: ast.Call) -> bool:
@@ -437,27 +479,33 @@ class ConstitutionChecker(ast.NodeVisitor):
         return self._get_blocking_subprocess_func(node) == "run"
 
     def _is_subprocess_call(self, node: ast.Call) -> bool:
-        """Check if call is any subprocess module function."""
-        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
-            return node.func.value.id == "subprocess"
-        return False
+        """Check if call is any subprocess module function.
+
+        Handles import aliasing (e.g., import subprocess as sp).
+        """
+        module, _ = self._resolve_call_target(node)
+        return module == "subprocess"
 
     def _is_destructive_fs_call(self, node: ast.Call) -> bool:
-        """Check if call targets destructive filesystem operations."""
+        """Check if call targets destructive filesystem operations.
+
+        Handles import aliasing (e.g., import shutil as sh; sh.rmtree()).
+        """
+        # Use resolution helper for shutil.rmtree and os.remove/unlink
+        module, func_name = self._resolve_call_target(node)
+
+        if module == "shutil" and func_name == "rmtree":
+            return True
+
+        if module == "os" and func_name in ("remove", "unlink"):
+            return True
+
+        # Path.unlink() is a method on Path instances, needs special handling
         func = node.func
-        if not isinstance(func, ast.Attribute):
+        if not isinstance(func, ast.Attribute) or func.attr != "unlink":
             return False
 
         target = func.value
-        if func.attr == "rmtree" and isinstance(target, ast.Name):
-            return target.id == "shutil"
-
-        if func.attr in {"remove", "unlink"} and isinstance(target, ast.Name):
-            return target.id == "os"
-
-        if func.attr != "unlink":
-            return False
-
         if isinstance(target, ast.Name):
             return target.id == "Path"
 

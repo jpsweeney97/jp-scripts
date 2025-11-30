@@ -330,3 +330,88 @@ def debug_me():
 """
         violations = check_source_compliance(source, tmp_path / "test.py")
         assert any(v.type == ViolationType.DEBUG_LEFTOVER for v in violations)
+
+
+class TestImportAliasingBypass:
+    """Test that import aliasing cannot bypass governance checks."""
+
+    def test_subprocess_alias_detected(self, tmp_path: Path) -> None:
+        """import subprocess as sp should still detect sp.run()."""
+        source = """\
+import subprocess as sp
+async def unsafe():
+    sp.run(["ls"], shell=True)
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.SHELL_TRUE for v in violations)
+        assert any(v.type == ViolationType.SYNC_SUBPROCESS for v in violations)
+
+    def test_from_subprocess_import_run_detected(self, tmp_path: Path) -> None:
+        """from subprocess import run should detect run() calls."""
+        source = """\
+from subprocess import run
+async def unsafe():
+    run(["ls"])
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.SYNC_SUBPROCESS for v in violations)
+
+    def test_from_subprocess_import_run_as_alias_detected(self, tmp_path: Path) -> None:
+        """from subprocess import run as r should detect r() calls."""
+        source = """\
+from subprocess import run as r
+async def unsafe():
+    r(["ls"])
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.SYNC_SUBPROCESS for v in violations)
+
+    def test_os_alias_detected(self, tmp_path: Path) -> None:
+        """import os as o should detect o.system()."""
+        source = """\
+import os as o
+def unsafe():
+    o.system("ls")
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.OS_SYSTEM for v in violations)
+
+    def test_from_os_import_system_detected(self, tmp_path: Path) -> None:
+        """from os import system should detect system() calls."""
+        source = """\
+from os import system
+def unsafe():
+    system("ls")
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.OS_SYSTEM for v in violations)
+
+    def test_sys_exit_alias_detected(self, tmp_path: Path) -> None:
+        """import sys as s should detect s.exit()."""
+        source = """\
+import sys as s
+def unsafe():
+    s.exit(1)
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.PROCESS_EXIT for v in violations)
+
+    def test_pdb_alias_detected(self, tmp_path: Path) -> None:
+        """import pdb as p should detect p.set_trace()."""
+        source = """\
+import pdb as p
+def debug():
+    p.set_trace()
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.DEBUG_LEFTOVER for v in violations)
+
+    def test_shutil_alias_detected(self, tmp_path: Path) -> None:
+        """import shutil as sh should detect sh.rmtree()."""
+        source = """\
+import shutil as sh
+def cleanup():
+    sh.rmtree("/tmp/foo")
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.DESTRUCTIVE_FS for v in violations)
