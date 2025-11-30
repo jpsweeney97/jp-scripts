@@ -17,7 +17,8 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from jpscripts.providers import (
     AuthenticationError,
@@ -186,9 +187,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         api_key = os.environ.get("ANTHROPIC_API_KEY")
         if not api_key:
-            raise AuthenticationError(
-                "ANTHROPIC_API_KEY environment variable not set"
-            )
+            raise AuthenticationError("ANTHROPIC_API_KEY environment variable not set")
 
         self._client = anthropic.AsyncAnthropic(api_key=api_key)
         return self._client
@@ -221,9 +220,7 @@ class AnthropicProvider(BaseLLMProvider):
         opts = options or CompletionOptions()
 
         model_id = _resolve_model_id(model or self.default_model)
-        system, converted_messages = _convert_messages_to_anthropic(
-            messages, opts.system_prompt
-        )
+        system, converted_messages = _convert_messages_to_anthropic(messages, opts.system_prompt)
 
         # Build request parameters
         params: dict[str, Any] = {
@@ -292,9 +289,7 @@ class AnthropicProvider(BaseLLMProvider):
         opts = options or CompletionOptions()
 
         model_id = _resolve_model_id(model or self.default_model)
-        system, converted_messages = _convert_messages_to_anthropic(
-            messages, opts.system_prompt
-        )
+        system, converted_messages = _convert_messages_to_anthropic(messages, opts.system_prompt)
 
         params: dict[str, Any] = {
             "model": model_id,

@@ -6,11 +6,12 @@ These tests verify core invariants of the TokenBudgetManager:
 - Empty strings return empty without consuming budget
 - Zero budget returns empty strings
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hypothesis import given, settings, assume
+from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
 from jpscripts.core.tokens import TokenBudgetManager

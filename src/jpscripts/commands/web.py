@@ -2,21 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-import sys
-from pathlib import Path
-from urllib.parse import urlparse
 import re
-from urllib.parse import unquote
+import sys
 from collections.abc import Mapping
+from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import unquote, urlparse
 
 import typer
 import yaml
 from rich import box
 from rich.table import Table
 
-from jpscripts.core.console import console
 from jpscripts.core.config import AppConfig
+from jpscripts.core.console import console
 
 # TYPE_CHECKING block ensures MyPy still works, but runtime doesn't import
 if TYPE_CHECKING:
@@ -27,6 +26,7 @@ BROWSER_UA = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/120.0 Safari/537.36"
 )
+
 
 def _slugify_url(url: str, today: dt.date) -> str:
     parsed = urlparse(url)
@@ -46,6 +46,7 @@ def _slugify_url(url: str, today: dt.date) -> str:
         path_slug = "home"
 
     return f"{safe_domain}-{path_slug}_{today.isoformat()}.yaml"
+
 
 def _write_yaml(metadata: Mapping[str, object], content: str, dest: Path) -> None:
     docs = [
@@ -68,7 +69,7 @@ def web_snap(
     try:
         import trafilatura
     except ImportError:
-        console.print("[red]trafilatura not installed. Run `pip install \"jpscripts[ai]\"`[/red]")
+        console.print('[red]trafilatura not installed. Run `pip install "jpscripts[ai]"`[/red]')
         raise typer.Exit(code=1)
 
     state = ctx.obj
@@ -105,7 +106,7 @@ def web_snap(
     metadata = {
         "url": url,
         "domain": parsed.netloc,
-        "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
+        "timestamp": dt.datetime.now(dt.UTC).isoformat(),
         "title": title,
     }
 

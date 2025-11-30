@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import ast
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
-from typing import Sequence
 
 _SECRET_PATTERN = re.compile(
     r"""(?ix)
@@ -28,6 +28,7 @@ _SECRET_PATTERN = re.compile(
     (?P<quote>['"]?)(?P<value>[A-Za-z0-9+/=_\-]{16,})(?P=quote)
     """
 )
+
 
 class ViolationType(Enum):
     """Types of constitutional violations."""
@@ -41,6 +42,8 @@ class ViolationType(Enum):
     DESTRUCTIVE_FS = auto()  # Destructive filesystem call without safety override
     DYNAMIC_EXECUTION = auto()  # eval/exec/dynamic imports without safety override
     SECRET_LEAK = auto()  # Secret or token detected in diff
+    PROCESS_EXIT = auto()  # sys.exit(), quit(), exit()
+    DEBUG_LEFTOVER = auto()  # breakpoint(), pdb.set_trace(), ipdb.set_trace()
 
 
 @dataclass(frozen=True)
@@ -88,6 +91,8 @@ class ConstitutionChecker(ast.NodeVisitor):
         self._check_sync_open(node)
         self._check_destructive_fs(node)
         self._check_dynamic_execution(node)
+        self._check_process_exit(node)
+        self._check_debug_leftover(node)
         self.generic_visit(node)
 
     def _check_subprocess_run(self, node: ast.Call) -> None:
@@ -227,6 +232,78 @@ class ConstitutionChecker(ast.NodeVisitor):
                     )
                 )
 
+    def _check_process_exit(self, node: ast.Call) -> None:
+        """Detect process exit calls (sys.exit, quit, exit)."""
+        # Check sys.exit()
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr == "exit" and isinstance(node.func.value, ast.Name):
+                if node.func.value.id == "sys":
+                    self.violations.append(
+                        Violation(
+                            type=ViolationType.PROCESS_EXIT,
+                            file=self.file_path,
+                            line=node.lineno,
+                            column=node.col_offset,
+                            message="Direct process exit forbidden. Let the function return normally or raise an exception.",
+                            suggestion="Remove the exit call and use return or raise an appropriate exception.",
+                            severity="error",
+                            fatal=True,
+                        )
+                    )
+                    return
+
+        # Check quit() and exit()
+        if isinstance(node.func, ast.Name):
+            if node.func.id in ("quit", "exit"):
+                self.violations.append(
+                    Violation(
+                        type=ViolationType.PROCESS_EXIT,
+                        file=self.file_path,
+                        line=node.lineno,
+                        column=node.col_offset,
+                        message="Direct process exit forbidden. Let the function return normally or raise an exception.",
+                        suggestion="Remove the exit call and use return or raise an appropriate exception.",
+                        severity="error",
+                        fatal=True,
+                    )
+                )
+
+    def _check_debug_leftover(self, node: ast.Call) -> None:
+        """Detect debug breakpoints (breakpoint, pdb.set_trace, ipdb.set_trace)."""
+        # Check breakpoint()
+        if isinstance(node.func, ast.Name):
+            if node.func.id == "breakpoint":
+                self.violations.append(
+                    Violation(
+                        type=ViolationType.DEBUG_LEFTOVER,
+                        file=self.file_path,
+                        line=node.lineno,
+                        column=node.col_offset,
+                        message="Debug breakpoints are forbidden in production code.",
+                        suggestion="Remove the debugging statement before committing.",
+                        severity="error",
+                        fatal=True,
+                    )
+                )
+                return
+
+        # Check pdb.set_trace() and ipdb.set_trace()
+        if isinstance(node.func, ast.Attribute):
+            if node.func.attr == "set_trace" and isinstance(node.func.value, ast.Name):
+                if node.func.value.id in ("pdb", "ipdb"):
+                    self.violations.append(
+                        Violation(
+                            type=ViolationType.DEBUG_LEFTOVER,
+                            file=self.file_path,
+                            line=node.lineno,
+                            column=node.col_offset,
+                            message="Debug breakpoints are forbidden in production code.",
+                            suggestion="Remove the debugging statement before committing.",
+                            severity="error",
+                            fatal=True,
+                        )
+                    )
+
     def _check_sync_open(self, node: ast.Call) -> None:
         """Detect open() in async context without wrapping."""
         if not self._in_async_context:
@@ -254,9 +331,7 @@ class ConstitutionChecker(ast.NodeVisitor):
                         line=node.lineno,
                         column=node.col_offset,
                         message="Synchronous open() in async context",
-                        suggestion=(
-                            "Use aiofiles.open() or wrap with asyncio.to_thread()"
-                        ),
+                        suggestion=("Use aiofiles.open() or wrap with asyncio.to_thread()"),
                         severity="warning",
                     )
                 )
@@ -321,15 +396,17 @@ class ConstitutionChecker(ast.NodeVisitor):
         return False
 
     # Blocking subprocess functions that should be wrapped with asyncio.to_thread
-    _BLOCKING_SUBPROCESS_FUNCS: frozenset[str] = frozenset({
-        "run",
-        "call",
-        "check_call",
-        "check_output",
-        "Popen",
-        "getoutput",
-        "getstatusoutput",
-    })
+    _BLOCKING_SUBPROCESS_FUNCS: frozenset[str] = frozenset(
+        {
+            "run",
+            "call",
+            "check_call",
+            "check_output",
+            "Popen",
+            "getoutput",
+            "getstatusoutput",
+        }
+    )
 
     def _get_blocking_subprocess_func(self, node: ast.Call) -> str | None:
         """Check if call is a blocking subprocess function.

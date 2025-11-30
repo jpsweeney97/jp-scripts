@@ -238,9 +238,7 @@ class TestAnthropicProvider:
         from jpscripts.providers.anthropic import _convert_messages_to_anthropic
 
         messages = [Message(role="user", content="Hello")]
-        system, converted = _convert_messages_to_anthropic(
-            messages, system_prompt="Be concise"
-        )
+        system, converted = _convert_messages_to_anthropic(messages, system_prompt="Be concise")
         assert system == "Be concise"
 
     def test_tool_conversion(self) -> None:

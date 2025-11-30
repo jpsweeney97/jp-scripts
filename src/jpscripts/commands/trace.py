@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import time
-import difflib
 import asyncio
+import difflib
 import json
+import time
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 
 import typer
 from rich import box
@@ -19,9 +19,9 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.tree import Tree
 
-from jpscripts.core.engine import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
+from jpscripts.core.engine import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.core.replay import (
     RecordedAgentResponse,
     ReplayDivergenceError,
@@ -134,7 +134,9 @@ def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
 
     for idx, step in enumerate(steps, 1):
         persona_color = _get_persona_color(step.agent_persona)
-        step_node = execution_branch.add(f"[{persona_color}]Step {idx}: {step.agent_persona}[/{persona_color}]")
+        step_node = execution_branch.add(
+            f"[{persona_color}]Step {idx}: {step.agent_persona}[/{persona_color}]"
+        )
 
         thought = step.response.get("thought_process") or ""
         if thought:
@@ -156,16 +158,26 @@ def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
             tool_node = step_node.add(f"[cyan]Tool Call: {tool_name}[/cyan]")
             tool_node.add(Panel(tool_args, border_style="blue", padding=(0, 1)))
             if step.tool_output:
-                tool_node.add(Panel(step.tool_output, title="Output", border_style="dim", padding=(0, 1)))
+                tool_node.add(
+                    Panel(step.tool_output, title="Output", border_style="dim", padding=(0, 1))
+                )
 
         patch = step.response.get("file_patch")
         if patch:
             patches += 1
-            step_node.add(Panel(Syntax(patch, "diff", line_numbers=True), title="[green]File Patch[/green]", border_style="green"))
+            step_node.add(
+                Panel(
+                    Syntax(patch, "diff", line_numbers=True),
+                    title="[green]File Patch[/green]",
+                    border_style="green",
+                )
+            )
 
         final_msg = step.response.get("final_message")
         if final_msg:
-            step_node.add(Panel(final_msg, title="Final Message", border_style="magenta", padding=(0, 1)))
+            step_node.add(
+                Panel(final_msg, title="Final Message", border_style="magenta", padding=(0, 1))
+            )
 
     summary = Table.grid(padding=(0, 1))
     summary.add_column(style="bold")

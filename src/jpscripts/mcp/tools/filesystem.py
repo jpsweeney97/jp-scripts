@@ -184,7 +184,10 @@ def _detect_strip_level(diff_text: str) -> int:
 
 
 def _extract_conflict_lines(stderr_text: str, stdout_text: str = "") -> str:
-    combined = [*(stderr_text.splitlines() if stderr_text else []), *(stdout_text.splitlines() if stdout_text else [])]
+    combined = [
+        *(stderr_text.splitlines() if stderr_text else []),
+        *(stdout_text.splitlines() if stdout_text else []),
+    ]
     keywords = ("hunk", "failed", "reject", "error", "conflict", "No such file", "file not found")
     interesting: list[str] = []
     for line in combined:
@@ -229,7 +232,9 @@ async def _apply_patch_with_git(diff_text: str, root: Path, *, check_only: bool)
 async def _apply_patch_with_system_patch(diff_text: str, root: Path, *, check_only: bool) -> None:
     patch_binary = shutil.which("patch")
     if patch_binary is None:
-        raise ToolExecutionError("`patch` binary not found on PATH. Install patch to apply diffs outside git workspaces.")
+        raise ToolExecutionError(
+            "`patch` binary not found on PATH. Install patch to apply diffs outside git workspaces."
+        )
 
     strip_level = _detect_strip_level(diff_text)
     args = [

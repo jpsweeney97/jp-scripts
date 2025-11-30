@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-
 from jpscripts.core.notes_impl import append_to_daily_note
 from jpscripts.core.runtime import get_runtime
 from jpscripts.mcp import tool, tool_error_handler

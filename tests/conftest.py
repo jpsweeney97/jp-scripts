@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-
-import pytest
 import sys
 from pathlib import Path
 from typing import Any
+
+import pytest
 from rich.console import Console
 from typer.testing import CliRunner
 

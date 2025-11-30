@@ -16,9 +16,9 @@ from __future__ import annotations
 import ast
 import asyncio
 import math
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
@@ -346,9 +346,7 @@ async def calculate_debt_scores(
             continue
 
         # Query fix frequency from memory
-        fix_frequency = await asyncio.to_thread(
-            _query_fix_frequency, file_complexity.path, config
-        )
+        fix_frequency = await asyncio.to_thread(_query_fix_frequency, file_complexity.path, config)
 
         churn = 0
         if repo is not None:
@@ -367,17 +365,14 @@ async def calculate_debt_scores(
         if file_complexity.max_cyclomatic > 10:
             most_complex = file_complexity.functions[0]
             reasons.append(
-                f"High complexity function: {most_complex.name} "
-                f"(CC={most_complex.cyclomatic})"
+                f"High complexity function: {most_complex.name} (CC={most_complex.cyclomatic})"
             )
         if fix_frequency > 0:
             reasons.append(f"Fix frequency: {fix_frequency} related memory entries")
         if churn > 0:
             reasons.append(f"Churn: {churn} commits touch this file")
         if file_complexity.average_cyclomatic > 5:
-            reasons.append(
-                f"High average complexity: {file_complexity.average_cyclomatic:.1f}"
-            )
+            reasons.append(f"High average complexity: {file_complexity.average_cyclomatic:.1f}")
 
         scores.append(
             TechnicalDebtScore(

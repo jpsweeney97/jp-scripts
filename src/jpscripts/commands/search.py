@@ -76,17 +76,22 @@ def todo_scan(
 
     console.print(table)
 
+
 def loggrep(
     pattern: str = typer.Argument(..., help="Pattern to search for."),
     path: Path = typer.Option(Path("."), "--path", "-p", help="Path to search."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
-    follow: bool = typer.Option(False, "--follow", "-f", help="Stream new matches (rg --follow --pcre2)."),
+    follow: bool = typer.Option(
+        False, "--follow", "-f", help="Stream new matches (rg --follow --pcre2)."
+    ),
 ) -> None:
     """Friendly log search with optional follow mode."""
     use_fzf = shutil.which("fzf") and not no_fzf
 
     if use_fzf:
-        cmd = search_core.get_ripgrep_cmd(pattern, path, line_number=True, follow=follow, pcre2=True)
+        cmd = search_core.get_ripgrep_cmd(
+            pattern, path, line_number=True, follow=follow, pcre2=True
+        )
         try:
             asyncio.run(fzf_stream_with_command(cmd, prompt="loggrep> ", ansi=True))
         except RuntimeError as exc:

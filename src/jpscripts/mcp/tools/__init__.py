@@ -36,8 +36,7 @@ def _discover_tool_module_names() -> list[str]:
     package_path = getattr(package, "__path__", None)
     if package_path is None:
         warnings.warn(
-            f"Package {_PACKAGE_NAME} has no __path__. "
-            "Falling back to empty tool list.",
+            f"Package {_PACKAGE_NAME} has no __path__. Falling back to empty tool list.",
             RuntimeWarning,
             stacklevel=2,
         )

@@ -127,9 +127,7 @@ async def test_round_trip_serialization(tmp_path: Path) -> None:
         else:
             await asyncio.to_thread(
                 target_path.chmod,
-                current_mode.st_mode & ~(
-                    stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH
-                ),
+                current_mode.st_mode & ~(stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH),
             )
 
         restored_hash = hashlib.sha256(raw_bytes).hexdigest()

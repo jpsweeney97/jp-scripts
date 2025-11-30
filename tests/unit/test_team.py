@@ -4,16 +4,16 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from jpscripts.core.config import AppConfig
 from jpscripts.core.team import (
     AgentTurnResponse,
     Objective,
     PlanStep,
     SwarmState,
-    _render_swarm_prompt,
     _parse_agent_turn,
+    _render_swarm_prompt,
     get_default_swarm,
 )
-from jpscripts.core.config import AppConfig
 
 
 def test_compose_prompt_includes_schema_for_architect(tmp_path: Path) -> None:

@@ -179,9 +179,7 @@ class BudgetExceeded(Exception):
     def __init__(self, current_cost: Decimal, budget_limit: Decimal) -> None:
         self.current_cost = current_cost
         self.budget_limit = budget_limit
-        super().__init__(
-            f"Budget exceeded: ${current_cost:.4f} >= ${budget_limit:.4f}"
-        )
+        super().__init__(f"Budget exceeded: ${current_cost:.4f} >= ${budget_limit:.4f}")
 
 
 __all__ = [

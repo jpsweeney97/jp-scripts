@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from jpscripts.core.agent import prepare_agent_prompt
-from jpscripts.core.context import GatherContextResult
 from jpscripts.core.config import AppConfig
+from jpscripts.core.context import GatherContextResult
 from jpscripts.core.runtime import runtime_context
 
 
@@ -16,15 +16,19 @@ from jpscripts.core.runtime import runtime_context
 async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None:
     file_path = tmp_path / "sample.txt"
 
-    with patch(
-        "jpscripts.core.agent.prompting.collect_git_context",
-        AsyncMock(return_value=("feature/test", "abc1234", False)),
-    ), patch(
-        "jpscripts.core.agent.prompting.gather_context",
-        AsyncMock(return_value=GatherContextResult(output="log output", files={file_path})),
-    ), patch(
-        "jpscripts.core.agent.prompting.smart_read_context",
-        return_value="file snippet",
+    with (
+        patch(
+            "jpscripts.core.agent.prompting.collect_git_context",
+            AsyncMock(return_value=("feature/test", "abc1234", False)),
+        ),
+        patch(
+            "jpscripts.core.agent.prompting.gather_context",
+            AsyncMock(return_value=GatherContextResult(output="log output", files={file_path})),
+        ),
+        patch(
+            "jpscripts.core.agent.prompting.smart_read_context",
+            return_value="file snippet",
+        ),
     ):
         config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
         with runtime_context(config, workspace=tmp_path):
@@ -52,12 +56,15 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
 
 @pytest.mark.asyncio
 async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path: Path) -> None:
-    with patch(
-        "jpscripts.core.agent.prompting.collect_git_context",
-        AsyncMock(return_value=("main", "deadbee", True)),
-    ), patch(
-        "jpscripts.core.agent.prompting.collect_git_diff",
-        AsyncMock(return_value=None),
+    with (
+        patch(
+            "jpscripts.core.agent.prompting.collect_git_context",
+            AsyncMock(return_value=("main", "deadbee", True)),
+        ),
+        patch(
+            "jpscripts.core.agent.prompting.collect_git_diff",
+            AsyncMock(return_value=None),
+        ),
     ):
         config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
         with runtime_context(config, workspace=tmp_path):
@@ -79,7 +86,9 @@ async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path:
 @pytest.mark.asyncio
 async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -> None:
     (tmp_path / "AGENTS.md").write_text(
-        json.dumps({"constitution": {"invariants": [{"id": "test", "rules": ["Rule 1: Be helpful."]}]}}),
+        json.dumps(
+            {"constitution": {"invariants": [{"id": "test", "rules": ["Rule 1: Be helpful."]}]}}
+        ),
         encoding="utf-8",
     )
 

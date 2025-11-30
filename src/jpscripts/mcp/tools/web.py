@@ -23,5 +23,7 @@ def _fetch_content(url: str) -> str:
     downloaded = trafilatura.fetch_url(url)
     if not downloaded:
         return f"Error: Failed to download {url}"
-    text = trafilatura.extract(downloaded, include_comments=False, output_format="markdown", url=url)
+    text = trafilatura.extract(
+        downloaded, include_comments=False, output_format="markdown", url=url
+    )
     return text if text else "Error: Could not extract content."

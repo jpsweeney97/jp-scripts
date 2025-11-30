@@ -53,9 +53,7 @@ class TestToolDiscovery:
         mock_package = MagicMock()
         mock_package.__path__ = None
 
-        with patch(
-            "jpscripts.mcp.tools.import_module", return_value=mock_package
-        ):
+        with patch("jpscripts.mcp.tools.import_module", return_value=mock_package):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 result = _discover_tool_module_names()
@@ -88,9 +86,7 @@ class TestToolDiscovery:
         # Make __path__ raise TypeError when iterated
         mock_package.__path__ = 42  # Not iterable
 
-        with patch(
-            "jpscripts.mcp.tools.import_module", return_value=mock_package
-        ):
+        with patch("jpscripts.mcp.tools.import_module", return_value=mock_package):
             with warnings.catch_warnings(record=True) as caught:
                 warnings.simplefilter("always")
                 result = _discover_tool_module_names()
@@ -127,8 +123,6 @@ class TestToolDiscovery:
         mock_package = MagicMock()
         mock_package.__path__ = []
 
-        with patch(
-            "jpscripts.mcp.tools.import_module", return_value=mock_package
-        ):
+        with patch("jpscripts.mcp.tools.import_module", return_value=mock_package):
             result = _discover_tool_module_names()
             assert result == []

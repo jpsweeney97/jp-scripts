@@ -30,7 +30,8 @@ import asyncio
 import json
 import shutil
 import warnings
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from jpscripts.core.console import get_logger
 from jpscripts.providers import (
@@ -73,9 +74,7 @@ class CodexNotFoundError(ProviderError):
     """Raised when the Codex CLI binary is not found."""
 
     def __init__(self) -> None:
-        super().__init__(
-            "Codex CLI not found. Install via: npm install -g @openai/codex"
-        )
+        super().__init__("Codex CLI not found. Install via: npm install -g @openai/codex")
 
 
 def _find_codex_binary() -> str | None:

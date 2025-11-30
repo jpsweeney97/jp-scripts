@@ -4,40 +4,46 @@ import asyncio
 import re
 import shlex
 import uuid
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Generic, Mapping, Protocol, Sequence, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
 from jpscripts.core import runtime, security
 from jpscripts.core.command_validation import CommandVerdict, validate_command
-from jpscripts.core.cost_tracker import TokenUsage
-from jpscripts.core.console import get_logger
-from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.config import AppConfig
+from jpscripts.core.console import get_logger
+from jpscripts.core.cost_tracker import TokenUsage
+from jpscripts.core.governance import (
+    check_compliance,
+    format_violations_for_agent,
+    has_fatal_violations,
+)
+from jpscripts.core.mcp_registry import get_tool_registry
+from jpscripts.core.result import Err, ToolExecutionError
 from jpscripts.core.runtime import CircuitBreaker
 from jpscripts.core.system import CommandResult, get_sandbox
-from jpscripts.core.result import Err
-from jpscripts.core.governance import check_compliance, format_violations_for_agent, has_fatal_violations
-from jpscripts.core.result import ToolExecutionError
+
 try:
     from opentelemetry import trace as otel_trace
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
     try:
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
     except ImportError:  # pragma: no cover - optional dependency
-        OTLPSpanExporter = None  # type: ignore[assignment]
+        OTLPSpanExporter = None
 except ImportError:  # pragma: no cover - optional dependency
-    otel_trace = None  # type: ignore[assignment]
-    Resource = None  # type: ignore[assignment]
-    TracerProvider = None  # type: ignore[assignment]
-    BatchSpanProcessor = None  # type: ignore[assignment]
-    OTLPSpanExporter = None  # type: ignore[assignment]
+    otel_trace = None
+    Resource = None
+    TracerProvider = None
+    BatchSpanProcessor = None
+    OTLPSpanExporter = None
 
 _otel_tracer: Any | None = None
 _otel_provider_configured = False
@@ -50,11 +56,9 @@ THINKING_PATTERN = re.compile(r"<thinking>(.*?)</thinking>", flags=re.IGNORECASE
 
 
 class MemoryProtocol(Protocol):
-    def query(self, text: str, limit: int = 5) -> list[str]:
-        ...
+    def query(self, text: str, limit: int = 5) -> list[str]: ...
 
-    def save(self, content: str, tags: list[str] | None = None) -> None:
-        ...
+    def save(self, content: str, tags: list[str] | None = None) -> None: ...
 
 
 @dataclass
@@ -121,7 +125,9 @@ class TraceRecorder:
             fallback = (Path.cwd() / ".jpscripts" / "traces").resolve()
             try:
                 fallback.mkdir(parents=True, exist_ok=True)
-                logger.warning("TraceRecorder falling back to %s due to permission issues", fallback)
+                logger.warning(
+                    "TraceRecorder falling back to %s due to permission issues", fallback
+                )
                 return fallback
             except Exception as exc:  # pragma: no cover - best effort
                 logger.debug("Failed to create fallback trace dir %s: %s", fallback, exc)
@@ -243,9 +249,7 @@ def _build_black_box_report(
     persona: str,
     context: str,
 ) -> str:
-    file_lines = (
-        "\n".join(f"- {path}" for path in files_touched) if files_touched else "- (none)"
-    )
+    file_lines = "\n".join(f"- {path}" for path in files_touched) if files_touched else "- (none)"
     reason = breaker.last_failure_reason or "Unknown"
     return (
         "=== Black Box Crash Report ===\n"
@@ -288,7 +292,11 @@ def _get_tracer() -> Any | None:
         provider = TracerProvider(resource=resource) if resource is not None else TracerProvider()
         if BatchSpanProcessor is not None and OTLPSpanExporter is not None:
             try:
-                exporter = OTLPSpanExporter(endpoint=config.otel_endpoint) if config.otel_endpoint else OTLPSpanExporter()
+                exporter = (
+                    OTLPSpanExporter(endpoint=config.otel_endpoint)
+                    if config.otel_endpoint
+                    else OTLPSpanExporter()
+                )
                 provider.add_span_processor(BatchSpanProcessor(exporter))
             except Exception as exc:  # pragma: no cover - best effort
                 logger.debug("Failed to configure OTLP exporter: %s", exc)
@@ -325,7 +333,9 @@ class AgentEngine(Generic[ResponseT]):
         self._fetch_response = fetch_response
         self._parser = parser
         # Use unified tool registry if no tools provided
-        self._tools: Mapping[str, Callable[..., Awaitable[str]]] = tools if tools is not None else get_tool_registry()
+        self._tools: Mapping[str, Callable[..., Awaitable[str]]] = (
+            tools if tools is not None else get_tool_registry()
+        )
         self._memory = memory
         self._template_root = template_root
         self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
@@ -436,7 +446,8 @@ class AgentEngine(Generic[ResponseT]):
                 if attempt >= max_retries - 1:
                     fatal_msgs = [
                         f"{v.type.name} at {v.file.name}:{v.line}: {v.message}"
-                        for v in violations if v.fatal
+                        for v in violations
+                        if v.fatal
                     ]
                     raise ToolExecutionError(
                         f"Fatal governance violations after {max_retries} attempts:\n"
@@ -469,20 +480,18 @@ class AgentEngine(Generic[ResponseT]):
                     ) from exc
 
             # Non-fatal violations: warn and return (allow patch with warnings)
-            logger.warning(
-                "Non-fatal governance violations detected, proceeding with warnings"
-            )
+            logger.warning("Non-fatal governance violations detected, proceeding with warnings")
             return current_response, current_prepared, current_raw
 
         # Should not reach here, but fail safely
-        raise ToolExecutionError(
-            f"Governance enforcement exceeded {max_retries} attempts"
-        )
+        raise ToolExecutionError(f"Governance enforcement exceeded {max_retries} attempts")
 
-    async def _record_trace(self, history: Sequence[Message], response: BaseModel, tool_output: str | None = None) -> None:
+    async def _record_trace(
+        self, history: Sequence[Message], response: BaseModel, tool_output: str | None = None
+    ) -> None:
         try:
             step = AgentTraceStep(
-                timestamp=datetime.now(timezone.utc).isoformat(),
+                timestamp=datetime.now(UTC).isoformat(),
                 agent_persona=self.persona,
                 input_history=[{"role": msg.role, "content": msg.content} for msg in history],
                 response=response.model_dump(),
@@ -499,11 +508,20 @@ class AgentEngine(Generic[ResponseT]):
                         span.set_attribute("code.files_touched", files_touched)
                     if usage_snapshot is not None:
                         span.set_attribute("usage.prompt_tokens", usage_snapshot.prompt_tokens)
-                        span.set_attribute("usage.completion_tokens", usage_snapshot.completion_tokens)
+                        span.set_attribute(
+                            "usage.completion_tokens", usage_snapshot.completion_tokens
+                        )
                         span.set_attribute("usage.total_tokens", usage_snapshot.total_tokens)
                     tool_call = getattr(response, "tool_call", None)
                     if tool_call is not None:
-                        span.add_event("tool_call", {"tool_call": tool_call.model_dump() if hasattr(tool_call, "model_dump") else str(tool_call)})
+                        span.add_event(
+                            "tool_call",
+                            {
+                                "tool_call": tool_call.model_dump()
+                                if hasattr(tool_call, "model_dump")
+                                else str(tool_call)
+                            },
+                        )
                     if tool_output:
                         span.add_event("tool_output", {"output": tool_output})
         except Exception as exc:  # pragma: no cover - best effort
@@ -572,7 +590,9 @@ def load_template_environment(template_root: Path) -> Environment:
     return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
 
 
-async def run_safe_shell(command: str, root: Path, audit_prefix: str, config: AppConfig | None = None) -> str:
+async def run_safe_shell(
+    command: str, root: Path, audit_prefix: str, config: AppConfig | None = None
+) -> str:
     """
     Shared safe shell runner for AgentEngine and MCP.
 

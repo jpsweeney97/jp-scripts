@@ -1,4 +1,5 @@
 """Tests for memory content integrity and hash-based drift detection."""
+
 from __future__ import annotations
 
 from pathlib import Path

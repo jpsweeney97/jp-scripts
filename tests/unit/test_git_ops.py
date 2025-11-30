@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+
 from jpscripts.commands import git_ops as cmd_git_ops
 from jpscripts.core import git_ops as core_git_ops
 from jpscripts.core.result import Ok
@@ -16,9 +17,12 @@ async def test_fetch_repo_success() -> None:
     mock_process.returncode = 0
     mock_process.kill = AsyncMock()
 
-    with patch("jpscripts.commands.git_ops._has_remotes", return_value=True), patch(
-        "jpscripts.commands.git_ops.asyncio.create_subprocess_exec", return_value=mock_process
-    ) as mock_subproc:
+    with (
+        patch("jpscripts.commands.git_ops._has_remotes", return_value=True),
+        patch(
+            "jpscripts.commands.git_ops.asyncio.create_subprocess_exec", return_value=mock_process
+        ) as mock_subproc,
+    ):
         result = await cmd_git_ops._fetch_repo(Path("/tmp/repo"))
 
     assert result == "[green]fetched[/]"
@@ -33,8 +37,11 @@ async def test_fetch_repo_failure() -> None:
     mock_process.returncode = 1
     mock_process.kill = AsyncMock()
 
-    with patch("jpscripts.commands.git_ops._has_remotes", return_value=True), patch(
-        "jpscripts.commands.git_ops.asyncio.create_subprocess_exec", return_value=mock_process
+    with (
+        patch("jpscripts.commands.git_ops._has_remotes", return_value=True),
+        patch(
+            "jpscripts.commands.git_ops.asyncio.create_subprocess_exec", return_value=mock_process
+        ),
     ):
         result = await cmd_git_ops._fetch_repo(Path("/tmp/repo"))
 

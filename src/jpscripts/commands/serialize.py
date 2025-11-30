@@ -47,8 +47,12 @@ def snapshot(
         None,
         help="Directory to serialize. Defaults to configured workspace root.",
     ),
-    output: Path = typer.Option(Path("manifest.yaml"), "--output", "-o", help="Path to write the manifest."),
-    format: str = typer.Option("yaml", "--format", "-f", help="Output format (only 'yaml' is supported)."),
+    output: Path = typer.Option(
+        Path("manifest.yaml"), "--output", "-o", help="Path to write the manifest."
+    ),
+    format: str = typer.Option(
+        "yaml", "--format", "-f", help="Output format (only 'yaml' is supported)."
+    ),
 ) -> None:
     state: AppState = ctx.obj
     fmt = format.lower()

@@ -13,12 +13,11 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+from jpscripts.commands.ui import fzf_select_async
 from jpscripts.core import git as git_core
 from jpscripts.core import system as system_core
 from jpscripts.core.console import console
-from jpscripts.core.result import SystemResourceError
-from jpscripts.core.result import Err, Ok, Result, JPScriptsError
-from jpscripts.commands.ui import fzf_select_async
+from jpscripts.core.result import Err, JPScriptsError, Ok, Result, SystemResourceError
 
 T = TypeVar("T")
 
@@ -28,7 +27,9 @@ def _fzf_select(lines: list[str], prompt: str) -> str | list[str] | None:
     return asyncio.run(fzf_select_async(lines, prompt=prompt))
 
 
-def _select_process(matches: list[system_core.ProcessInfo], use_fzf: bool, prompt: str) -> int | None:
+def _select_process(
+    matches: list[system_core.ProcessInfo], use_fzf: bool, prompt: str
+) -> int | None:
     """Helper to handle the UI selection of a process."""
     if not matches:
         console.print("[yellow]No matching processes found.[/yellow]")
@@ -68,14 +69,20 @@ def _unwrap_result(result: Result[T, JPScriptsError] | Result[T, SystemResourceE
 
 def process_kill(
     ctx: typer.Context,
-    name: str = typer.Option("", "--name", "-n", help="Filter processes containing this substring."),
-    port: int | None = typer.Option(None, "--port", "-p", help="Filter processes listening on a port."),
+    name: str = typer.Option(
+        "", "--name", "-n", help="Filter processes containing this substring."
+    ),
+    port: int | None = typer.Option(
+        None, "--port", "-p", help="Filter processes listening on a port."
+    ),
     force: bool = typer.Option(False, "--force", "-f", help="Force kill (SIGKILL)."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Interactively select and kill a process."""
     # LOGIC: Delegate to core
-    matches = _unwrap_result(asyncio.run(system_core.find_processes(name_filter=name, port_filter=port)))
+    matches = _unwrap_result(
+        asyncio.run(system_core.find_processes(name_filter=name, port_filter=port))
+    )
 
     use_fzf = bool(shutil.which("fzf")) and not no_fzf
     pid = _select_process(matches, use_fzf, prompt="kill> ")
@@ -107,7 +114,9 @@ def port_kill(
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 
 
-def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available.")) -> None:
+def audioswap(
+    no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
+) -> None:
     """Switch audio output device using SwitchAudioSource."""
     devices = _unwrap_result(asyncio.run(system_core.get_audio_devices()))
 
@@ -127,7 +136,9 @@ def audioswap(no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf e
 
 
 def ssh_open(
-    host: str | None = typer.Option(None, "--host", "-h", help="Host alias to connect to. If omitted, opens fzf picker."),
+    host: str | None = typer.Option(
+        None, "--host", "-h", help="Host alias to connect to. If omitted, opens fzf picker."
+    ),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick an SSH host from ~/.ssh/config and connect."""
@@ -212,7 +223,9 @@ def brew_explorer(
         for item in items[:30]:
             table.add_row(item)
         console.print(table)
-        console.print(Panel("fzf not available; re-run with fzf for interactive selection.", style="yellow"))
+        console.print(
+            Panel("fzf not available; re-run with fzf for interactive selection.", style="yellow")
+        )
         return
 
     if not isinstance(selection, str) or not selection:
@@ -238,7 +251,9 @@ def update() -> None:
     src_path = project_root / "src" / "jpscripts"
 
     if not src_path.exists():
-        console.print("[yellow]Detected pipx or wheel install. Run `pipx upgrade jpscripts`.[/yellow]")
+        console.print(
+            "[yellow]Detected pipx or wheel install. Run `pipx upgrade jpscripts`.[/yellow]"
+        )
         return
 
     async def _run_update() -> None:
@@ -266,7 +281,9 @@ def update() -> None:
                 )
                 stdout, stderr = await proc.communicate()
                 if proc.returncode != 0:
-                    message = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+                    message = stderr.decode("utf-8", errors="replace") or stdout.decode(
+                        "utf-8", errors="replace"
+                    )
                     raise RuntimeError(message or "pip install failed")
         except Exception as exc:
             console.print(f"[red]Update failed: {exc}[/red]")
@@ -348,7 +365,10 @@ def panic(
 async def _run_git_reset_hard() -> int:
     """Execute git reset --hard HEAD."""
     proc = await asyncio.create_subprocess_exec(
-        "git", "reset", "--hard", "HEAD",
+        "git",
+        "reset",
+        "--hard",
+        "HEAD",
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )

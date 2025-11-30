@@ -19,7 +19,9 @@ from jpscripts.core.runtime import runtime_context
 
 
 @pytest.mark.slow
-def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_agent_prompt_includes_json_context(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     async def fake_git_context(_root: Path) -> tuple[str, str, bool]:
         return "main", "abcdef0", False
 
@@ -41,13 +43,15 @@ def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp
         nonlocal captured_prompt
         captured_prompt = prepared.prompt
         # Return a valid JSON response
-        return json.dumps({
-            "thought_process": "done",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": None,
-            "final_message": "Completed",
-        })
+        return json.dumps(
+            {
+                "thought_process": "done",
+                "criticism": None,
+                "tool_call": None,
+                "file_patch": None,
+                "final_message": "Completed",
+            }
+        )
 
     monkeypatch.setattr(agent_cmd, "_fetch_agent_response", fake_fetch_agent_response)
 
@@ -96,7 +100,9 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
 
     config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
 
-    async def fake_prepare_agent_prompt(base_prompt: str, **_kwargs: Any) -> agent_core.PreparedPrompt:
+    async def fake_prepare_agent_prompt(
+        base_prompt: str, **_kwargs: Any
+    ) -> agent_core.PreparedPrompt:
         return agent_core.PreparedPrompt(prompt=base_prompt, attached_files=[])
 
     monkeypatch.setattr(agent_core, "prepare_agent_prompt", fake_prepare_agent_prompt)
@@ -140,6 +146,8 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         )
 
     assert success
-    result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)
+    result = subprocess.run(
+        [sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True
+    )
     assert result.returncode == 0
     assert "ok" in result.stdout

@@ -33,9 +33,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from jpscripts.core import git as git_core
 from jpscripts.core.result import Err, Ok, Result, SecurityError, WorkspaceError
-
 
 # ---------------------------------------------------------------------------
 # Backward-compatible exception (alias)

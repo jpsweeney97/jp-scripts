@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
+from jpscripts.core import structure, system
 from jpscripts.core.config import AppConfig
-from jpscripts.core import structure
-from jpscripts.core import system
 
 
 def test_get_import_dependencies(tmp_path: Path) -> None:
@@ -22,8 +21,13 @@ def test_get_import_dependencies(tmp_path: Path) -> None:
 
 def test_kill_process_dry_run(tmp_path: Path) -> None:
     config = AppConfig(workspace_root=tmp_path, dry_run=True)
-    with patch("psutil.Process") as mock_process:
-        result = system.kill_process(1234, force=True, config=config)
+    mock_runtime = MagicMock()
+    mock_runtime.config = config
+    with (
+        patch("jpscripts.core.system.get_runtime", return_value=mock_runtime),
+        patch("psutil.Process") as mock_process,
+    ):
+        result = system.kill_process(1234, force=True)
 
     mock_process.assert_not_called()
     assert result.is_ok()

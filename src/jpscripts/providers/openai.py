@@ -17,7 +17,8 @@ Usage:
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from jpscripts.providers import (
     AuthenticationError,
@@ -72,15 +73,25 @@ MODEL_ALIASES: dict[str, str] = {
 }
 
 # Models that support different features
-MODELS_WITHOUT_SYSTEM_PROMPT: frozenset[str] = frozenset({
-    "o1", "o1-2024-12-17", "o1-mini", "o1-mini-2024-09-12",
-    "o3-mini",
-})
+MODELS_WITHOUT_SYSTEM_PROMPT: frozenset[str] = frozenset(
+    {
+        "o1",
+        "o1-2024-12-17",
+        "o1-mini",
+        "o1-mini-2024-09-12",
+        "o3-mini",
+    }
+)
 
-MODELS_WITHOUT_TEMPERATURE: frozenset[str] = frozenset({
-    "o1", "o1-2024-12-17", "o1-mini", "o1-mini-2024-09-12",
-    "o3-mini",
-})
+MODELS_WITHOUT_TEMPERATURE: frozenset[str] = frozenset(
+    {
+        "o1",
+        "o1-2024-12-17",
+        "o1-mini",
+        "o1-mini-2024-09-12",
+        "o3-mini",
+    }
+)
 
 
 def _resolve_model_id(model: str) -> str:
@@ -115,7 +126,7 @@ def _convert_messages_to_openai(
 
     system_prepend = system_prompt if (system_prompt and not supports_system) else None
 
-    for i, msg in enumerate(messages):
+    for _i, msg in enumerate(messages):
         if msg.role == "system":
             if supports_system:
                 converted.append({"role": "system", "content": msg.content})
@@ -214,9 +225,7 @@ class OpenAIProvider(BaseLLMProvider):
 
         api_key = os.environ.get("OPENAI_API_KEY")
         if not api_key:
-            raise AuthenticationError(
-                "OPENAI_API_KEY environment variable not set"
-            )
+            raise AuthenticationError("OPENAI_API_KEY environment variable not set")
 
         self._client = openai.AsyncOpenAI(api_key=api_key)
         return self._client
@@ -253,9 +262,7 @@ class OpenAIProvider(BaseLLMProvider):
         opts = options or CompletionOptions()
 
         model_id = _resolve_model_id(model or self.default_model)
-        converted_messages = _convert_messages_to_openai(
-            messages, opts.system_prompt, model_id
-        )
+        converted_messages = _convert_messages_to_openai(messages, opts.system_prompt, model_id)
 
         # Build request parameters
         params: dict[str, Any] = {
@@ -344,9 +351,7 @@ class OpenAIProvider(BaseLLMProvider):
         opts = options or CompletionOptions()
 
         model_id = _resolve_model_id(model or self.default_model)
-        converted_messages = _convert_messages_to_openai(
-            messages, opts.system_prompt, model_id
-        )
+        converted_messages = _convert_messages_to_openai(messages, opts.system_prompt, model_id)
 
         params: dict[str, Any] = {
             "model": model_id,

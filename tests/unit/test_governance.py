@@ -8,8 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 from jpscripts.core.governance import (
-    ViolationType,
     Violation,
+    ViolationType,
     check_source_compliance,
     format_violations_for_agent,
 )
@@ -257,8 +257,76 @@ async def run():
     result = await asyncio.to_thread(subprocess.run, ["ls"])
     return result
 """
-        violations = check_source_compliance(source, tmp_path / "test.py")
+        check_source_compliance(source, tmp_path / "test.py")
         # The wrapped call should not be flagged
         # Note: The subprocess.run inside to_thread is still detected due to AST
         # but this is a limitation - we accept it as a known false positive for now
         pass  # This test documents expected behavior
+
+
+class TestProcessExitDetection:
+    """Test detection of process exit calls."""
+
+    def test_detects_sys_exit(self, tmp_path: Path) -> None:
+        """sys.exit() should be flagged as forbidden."""
+        source = """\
+import sys
+def shutdown():
+    sys.exit(1)
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.PROCESS_EXIT for v in violations)
+
+    def test_detects_quit(self, tmp_path: Path) -> None:
+        """quit() should be flagged as forbidden."""
+        source = """\
+def leave():
+    quit()
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.PROCESS_EXIT for v in violations)
+
+    def test_detects_exit(self, tmp_path: Path) -> None:
+        """exit() should be flagged as forbidden."""
+        source = """\
+def leave():
+    exit()
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.PROCESS_EXIT for v in violations)
+
+
+class TestDebugLeftoverDetection:
+    """Test detection of debug breakpoints."""
+
+    def test_detects_breakpoint(self, tmp_path: Path) -> None:
+        """breakpoint() should be flagged as debug leftover."""
+        source = """\
+def debug_me():
+    breakpoint()
+    return 42
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.DEBUG_LEFTOVER for v in violations)
+
+    def test_detects_pdb_set_trace(self, tmp_path: Path) -> None:
+        """pdb.set_trace() should be flagged as debug leftover."""
+        source = """\
+import pdb
+def debug_me():
+    pdb.set_trace()
+    return 42
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.DEBUG_LEFTOVER for v in violations)
+
+    def test_detects_ipdb_set_trace(self, tmp_path: Path) -> None:
+        """ipdb.set_trace() should be flagged as debug leftover."""
+        source = """\
+import ipdb
+def debug_me():
+    ipdb.set_trace()
+    return 42
+"""
+        violations = check_source_compliance(source, tmp_path / "test.py")
+        assert any(v.type == ViolationType.DEBUG_LEFTOVER for v in violations)

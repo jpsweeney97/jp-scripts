@@ -5,7 +5,7 @@ import base64
 import hashlib
 import os
 import stat
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
 
@@ -82,7 +82,9 @@ class AsyncSerializer:
 
         file_paths = paths_result.value
         self._logger.debug(
-            "Collected %s files for serialization", len(file_paths), extra={"root": str(resolved_root)}
+            "Collected %s files for serialization",
+            len(file_paths),
+            extra={"root": str(resolved_root)},
         )
 
         try:
@@ -105,7 +107,7 @@ class AsyncSerializer:
 
         manifest = RepoManifest(
             root=str(resolved_root),
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
             file_count=len(file_nodes),
             total_size_bytes=sum(node.size for node in file_nodes),
             files=sorted(file_nodes, key=lambda node: node.path),
@@ -286,7 +288,9 @@ async def write_manifest_yaml(
             )
         )
 
-    output_parent = output.parent if output.is_absolute() else (Path.cwd() / output.parent).resolve()
+    output_parent = (
+        output.parent if output.is_absolute() else (Path.cwd() / output.parent).resolve()
+    )
     parent_result = await asyncio.to_thread(validate_workspace_root_safe, output_parent)
     if isinstance(parent_result, Err):
         workspace_err = parent_result.error

@@ -3,16 +3,16 @@
 This module provides functions for gathering git context, file context,
 and dependency information to build rich agent prompts.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 from jpscripts.core import git as git_core
-from jpscripts.core import git_ops
-from jpscripts.core import security
+from jpscripts.core import git_ops, security
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import (
     get_file_skeleton,
@@ -116,7 +116,7 @@ async def collect_git_diff(root: Path, max_chars: int) -> str | None:
 
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         proc.kill()
         await proc.communicate()
         return None
@@ -278,7 +278,9 @@ async def expand_context_paths(
             case Ok(recents):
                 discovered.update(entry.path for entry in recents[:3])
 
-    return {security.validate_path(path, root) for path in (discovered | dependencies) if path.exists()}
+    return {
+        security.validate_path(path, root) for path in (discovered | dependencies) if path.exists()
+    }
 
 
 # Re-export scan_recent for backwards compatibility with test patches

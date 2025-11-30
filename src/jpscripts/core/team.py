@@ -2,24 +2,27 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import AsyncIterator, Iterable, Literal, Sequence, cast
+from typing import Literal, cast
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
 from jpscripts.core.engine import AgentEngine, Message, PreparedPrompt
-from jpscripts.core import security
 from jpscripts.providers import (
     CompletionOptions,
     LLMProvider,
+)
+from jpscripts.providers import (
     Message as ProviderMessage,
 )
 from jpscripts.providers.factory import get_provider
@@ -252,7 +255,11 @@ def _render_swarm_prompt(
     except TemplateNotFound as exc:
         raise FileNotFoundError(f"Template {template_name} not found in {template_root}") from exc
 
-    context_section = f"\n\nRepository context (from git status):\n{context_log.strip()}" if context_log.strip() else ""
+    context_section = (
+        f"\n\nRepository context (from git status):\n{context_log.strip()}"
+        if context_log.strip()
+        else ""
+    )
     file_section = _format_file_snippets(context_files, max_chars=max_file_context_chars)
     handoff_guidance = (
         "Use `spawn_tasks` to launch parallel work (e.g., multiple Engineers on distinct files). "
@@ -277,13 +284,17 @@ def _render_swarm_prompt(
 async def _collect_fallback_context(repo_root: Path, timeout: float) -> tuple[str, list[Path]]:
     fallback_timeout = max(timeout / 2, 1.0)
     try:
-        context_result = await asyncio.wait_for(gather_context("ls -a", repo_root), timeout=fallback_timeout)
+        context_result = await asyncio.wait_for(
+            gather_context("ls -a", repo_root), timeout=fallback_timeout
+        )
         log = context_result.output
         files = context_result.files
         trimmed_log = log[-2000:] if len(log) > 2000 else log
         return f"Fallback directory listing:\n{trimmed_log}", sorted(files)
-    except asyncio.TimeoutError:
-        logger.warning("Fallback context collection timed out after %.2f seconds.", fallback_timeout)
+    except TimeoutError:
+        logger.warning(
+            "Fallback context collection timed out after %.2f seconds.", fallback_timeout
+        )
     except Exception as exc:
         logger.debug("Fallback context collection failed: %s", exc)
     return "", []
@@ -295,12 +306,14 @@ async def _collect_repo_context(repo_root: Path, config: AppConfig) -> tuple[str
     """
     timeout = max(config.git_status_timeout, 0.1)
     try:
-        context_result = await asyncio.wait_for(gather_context("git status --short", repo_root), timeout=timeout)
+        context_result = await asyncio.wait_for(
+            gather_context("git status --short", repo_root), timeout=timeout
+        )
         log = context_result.output
         files = context_result.files
         trimmed_log = log[-4000:] if len(log) > 4000 else log
         return trimmed_log, sorted(files)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Git status timed out after %.2f seconds; attempting fallback.", timeout)
         fallback_log, fallback_files = await _collect_fallback_context(repo_root, timeout)
         if fallback_log:
@@ -311,7 +324,9 @@ async def _collect_repo_context(repo_root: Path, config: AppConfig) -> tuple[str
         return f"Context error: {exc}", []
 
 
-def _parse_agent_turn_payload(payload: str, fallback: str = "") -> tuple[AgentTurnResponse | None, str]:
+def _parse_agent_turn_payload(
+    payload: str, fallback: str = ""
+) -> tuple[AgentTurnResponse | None, str]:
     last_error = ""
     for candidate in (payload, fallback):
         if not candidate:
@@ -411,7 +426,7 @@ class SwarmController:
         # Fallback to all roles minus architect to avoid recursive planning
         return [role for role in self.roles if role.name.lower() != "architect"]
 
-    def _create_subcontroller(self, request: SpawnRequest) -> "SwarmController":
+    def _create_subcontroller(self, request: SpawnRequest) -> SwarmController:
         sub_roles = self._select_roles_for_spawn(request.persona)
         controller = SwarmController(
             objective=request.objective,
@@ -502,7 +517,11 @@ class SwarmController:
         await self._initialize()
         current_role = self._starting_role()
         if current_role is None:
-            yield AgentUpdate(Persona(name="Unknown", style="", color="red"), "stderr", "No roles available for swarm.")
+            yield AgentUpdate(
+                Persona(name="Unknown", style="", color="red"),
+                "stderr",
+                "No roles available for swarm.",
+            )
             return
 
         yield AgentUpdate(current_role, "status", "context loaded")
@@ -515,16 +534,22 @@ class SwarmController:
                 controllers = [self._create_subcontroller(task) for task in self.pending_tasks]
                 self.pending_tasks = []
 
-                async def _collect_updates(controller: "SwarmController") -> list[AgentUpdate]:
+                async def _collect_updates(controller: SwarmController) -> list[AgentUpdate]:
                     collected: list[AgentUpdate] = []
                     async for upd in controller.run():
                         collected.append(upd)
                     return collected
 
-                results = await asyncio.gather(*[_collect_updates(ctrl) for ctrl in controllers], return_exceptions=True)
+                results = await asyncio.gather(
+                    *[_collect_updates(ctrl) for ctrl in controllers], return_exceptions=True
+                )
                 for result in results:
                     if isinstance(result, Exception):  # pragma: no cover - defensive
-                        yield AgentUpdate(Persona(name="Architect", style="", color="red"), "stderr", f"Sub-swarm error: {result}")
+                        yield AgentUpdate(
+                            Persona(name="Architect", style="", color="red"),
+                            "stderr",
+                            f"Sub-swarm error: {result}",
+                        )
                         continue
                     updates = cast(list[AgentUpdate], result)
                     for upd in updates:

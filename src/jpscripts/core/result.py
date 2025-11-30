@@ -23,8 +23,9 @@ Usage:
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Generic, NoReturn, TypeVar
+from typing import Any, Generic, NoReturn, TypeVar
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -230,7 +231,8 @@ class CapabilityMissingError(JPScriptsError):
 
 
 def try_result(
-    fn: Callable[[], T], error_type: type[E] = JPScriptsError  # type: ignore[assignment]
+    fn: Callable[[], T],
+    error_type: type[E] = JPScriptsError,  # type: ignore[assignment]
 ) -> Result[T, E]:
     """Execute a function and wrap the result in Ok/Err.
 

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Optional
-
 from jpscripts.core.console import get_logger
 
 logger = get_logger(__name__)
@@ -26,7 +24,7 @@ def fetch_page_content(url: str) -> str:
         return f"Failed to fetch {url}"
 
     try:
-        extracted: Optional[str] = trafilatura.extract(
+        extracted: str | None = trafilatura.extract(
             downloaded,
             include_comments=False,
             output_format="markdown",

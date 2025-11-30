@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import datetime
-import pytest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 from jpscripts.core import notes_impl
+
 
 def test_ensure_notes_dir_creates_directory(tmp_path: Path) -> None:
     """Verify it creates the directory if it doesn't exist."""
@@ -16,6 +18,7 @@ def test_ensure_notes_dir_creates_directory(tmp_path: Path) -> None:
 
     assert target.exists()
     assert target.is_dir()
+
 
 def test_get_today_path_format() -> None:
     """Verify the filename format matches YYYY-MM-DD.md."""
@@ -28,6 +31,7 @@ def test_get_today_path_format() -> None:
         result = notes_impl.get_today_path(fake_root)
 
     assert result == Path("/tmp/notes/2025-11-24.md")
+
 
 @pytest.mark.asyncio
 async def test_append_to_daily_note_creates_and_appends(tmp_path: Path) -> None:

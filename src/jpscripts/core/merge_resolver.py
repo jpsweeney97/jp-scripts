@@ -18,7 +18,7 @@ Key classes:
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 from typing import Final
@@ -292,7 +292,11 @@ class MergeConflictResolver:
             imports = sorted(import_pattern.findall(ours))
             return Ok("\n".join(imports))
 
-        return Err(ValidationError(f"Cannot trivially resolve conflict at {marker.file_path}:{marker.start_line}"))
+        return Err(
+            ValidationError(
+                f"Cannot trivially resolve conflict at {marker.file_path}:{marker.start_line}"
+            )
+        )
 
     async def resolve_conflicts(
         self,
@@ -382,12 +386,12 @@ class MergeConflictResolver:
         # Build regex to match this specific conflict block
         # Match from <<<<<<< to >>>>>>>
         pattern = re.compile(
-            rf"<<<<<<<[^\n]*\n"
-            rf"(?:.*?\n)*?"  # ours content
-            rf"(?:\|\|\|\|\|\|\|[^\n]*\n(?:.*?\n)*?)?"  # optional base
-            rf"=======\n"
-            rf"(?:.*?\n)*?"  # theirs content
-            rf">>>>>>>[^\n]*",
+            r"<<<<<<<[^\n]*\n"
+            r"(?:.*?\n)*?"  # ours content
+            r"(?:\|\|\|\|\|\|\|[^\n]*\n(?:.*?\n)*?)?"  # optional base
+            r"=======\n"
+            r"(?:.*?\n)*?"  # theirs content
+            r">>>>>>>[^\n]*",
             re.DOTALL,
         )
 

@@ -10,14 +10,15 @@ This module provides:
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol, Sequence, cast
+from typing import TYPE_CHECKING, Literal, Protocol, cast
 
 from jpscripts.core.console import get_logger
 
 if TYPE_CHECKING:
-    from jpscripts.core.dependency_walker import DependencyWalker
+    pass
 
 logger = get_logger(__name__)
 
@@ -26,16 +27,17 @@ TRUNCATION_MARKER = "[...truncated]"
 
 
 class _EncoderProtocol(Protocol):
-    def encode(self, text: str, *, disallowed_special: Sequence[str] | set[str] | tuple[str, ...] = ()) -> list[int]:
-        ...
+    def encode(
+        self, text: str, *, disallowed_special: Sequence[str] | set[str] | tuple[str, ...] = ()
+    ) -> list[int]: ...
 
-    def decode(self, tokens: Sequence[int]) -> str:
-        ...
+    def decode(self, tokens: Sequence[int]) -> str: ...
 
 
 class TruncationStrategy(Protocol):
-    def __call__(self, path: Path, max_chars: int, max_tokens: int | None = None, *, limit: int) -> str:
-        ...
+    def __call__(
+        self, path: Path, max_chars: int, max_tokens: int | None = None, *, limit: int
+    ) -> str: ...
 
 
 class TokenCounter:
@@ -95,7 +97,9 @@ class TokenCounter:
             tiktoken_module = importlib.import_module("tiktoken")
         except ImportError:
             if not self._warned_missing:
-                logger.warning("tiktoken is not installed; falling back to heuristic token estimates.")
+                logger.warning(
+                    "tiktoken is not installed; falling back to heuristic token estimates."
+                )
                 self._warned_missing = True
             self._encoders[model] = None
             return None
@@ -378,13 +382,9 @@ class SemanticSlicer:
                 # Slice for target symbols
                 for symbol in target_symbols:
                     if symbol in content:
-                        sliced = self.slice_for_context(
-                            content, symbol, remaining_tokens
-                        )
+                        sliced = self.slice_for_context(content, symbol, remaining_tokens)
                         if sliced:
-                            token_count = self._token_counter.count_tokens(
-                                sliced, self._model
-                            )
+                            token_count = self._token_counter.count_tokens(sliced, self._model)
                             results.append((file_path, sliced))
                             remaining_tokens -= token_count
                             break

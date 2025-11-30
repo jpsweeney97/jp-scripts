@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 
-
 INIT_REQUEST = {
     "jsonrpc": "2.0",
     "id": 1,

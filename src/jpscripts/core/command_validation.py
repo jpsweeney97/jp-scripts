@@ -23,7 +23,6 @@ from __future__ import annotations
 import shlex
 from enum import Enum, auto
 from pathlib import Path
-from typing import FrozenSet
 
 
 class CommandVerdict(Enum):
@@ -39,100 +38,237 @@ class CommandVerdict(Enum):
 
 
 # Binaries that are explicitly forbidden - these can cause damage
-FORBIDDEN_BINARIES: FrozenSet[str] = frozenset({
-    # Destructive file operations
-    "rm", "rmdir", "unlink", "shred",
-    "mv", "cp",  # Can overwrite files
-    "dd",  # Can destroy disks
-    # Permission/ownership changes
-    "chmod", "chown", "chgrp", "chattr",
-    # Privilege escalation
-    "sudo", "su", "doas", "pkexec",
-    # Interpreters (can execute arbitrary code)
-    "python", "python2", "python3", "python3.8", "python3.9", "python3.10", "python3.11", "python3.12",
-    "perl", "ruby", "node", "nodejs", "php", "lua",
-    "sh", "bash", "zsh", "fish", "csh", "tcsh", "ksh", "dash",
-    "awk", "gawk", "mawk", "nawk",
-    "sed",  # Can modify files
-    # System modification
-    "mkfs", "mount", "umount", "fdisk", "parted",
-    "systemctl", "service", "init",
-    "useradd", "userdel", "usermod", "groupadd", "groupdel",
-    "passwd", "chpasswd",
-    # Network (potential exfiltration)
-    "curl", "wget", "nc", "netcat", "ncat", "socat",
-    "ssh", "scp", "rsync", "ftp", "sftp",
-    # Package managers
-    "apt", "apt-get", "yum", "dnf", "pacman", "brew", "pip", "npm", "yarn",
-})
+FORBIDDEN_BINARIES: frozenset[str] = frozenset(
+    {
+        # Destructive file operations
+        "rm",
+        "rmdir",
+        "unlink",
+        "shred",
+        "mv",
+        "cp",  # Can overwrite files
+        "dd",  # Can destroy disks
+        # Permission/ownership changes
+        "chmod",
+        "chown",
+        "chgrp",
+        "chattr",
+        # Privilege escalation
+        "sudo",
+        "su",
+        "doas",
+        "pkexec",
+        # Interpreters (can execute arbitrary code)
+        "python",
+        "python2",
+        "python3",
+        "python3.8",
+        "python3.9",
+        "python3.10",
+        "python3.11",
+        "python3.12",
+        "perl",
+        "ruby",
+        "node",
+        "nodejs",
+        "php",
+        "lua",
+        "sh",
+        "bash",
+        "zsh",
+        "fish",
+        "csh",
+        "tcsh",
+        "ksh",
+        "dash",
+        "awk",
+        "gawk",
+        "mawk",
+        "nawk",
+        "sed",  # Can modify files
+        # System modification
+        "mkfs",
+        "mount",
+        "umount",
+        "fdisk",
+        "parted",
+        "systemctl",
+        "service",
+        "init",
+        "useradd",
+        "userdel",
+        "usermod",
+        "groupadd",
+        "groupdel",
+        "passwd",
+        "chpasswd",
+        # Network (potential exfiltration)
+        "curl",
+        "wget",
+        "nc",
+        "netcat",
+        "ncat",
+        "socat",
+        "ssh",
+        "scp",
+        "rsync",
+        "ftp",
+        "sftp",
+        # Package managers
+        "apt",
+        "apt-get",
+        "yum",
+        "dnf",
+        "pacman",
+        "brew",
+        "pip",
+        "npm",
+        "yarn",
+    }
+)
 
 # Binaries that are explicitly allowed - read-only operations
-ALLOWED_BINARIES: FrozenSet[str] = frozenset({
-    # Directory listing
-    "ls", "dir", "tree", "exa", "lsd",
-    # File reading
-    "cat", "head", "tail", "less", "more",
-    "bat", "batcat",  # Modern cat alternatives
-    # Search
-    "grep", "egrep", "fgrep", "rg", "ripgrep", "ag",
-    "find", "fd", "fdfind", "locate",
-    # Git (read operations only - validated separately)
-    "git",
-# Utilities
-"wc", "sort", "uniq", "cut", "tr", "column",
-"pwd", "realpath", "dirname", "basename",
-"which", "whereis", "type", "command",
-"file", "stat", "du", "df",
-"env", "printenv", "echo",
-"date", "cal",
-"true", "false",
-# JPScripts CLI - required for recursive protocol execution (e.g., jp verify-protocol -> jp status-all)
-"jp",
-# JSON processing
-"jq", "yq",
-# Testing commands
-"test", "[",
-})
+ALLOWED_BINARIES: frozenset[str] = frozenset(
+    {
+        # Directory listing
+        "ls",
+        "dir",
+        "tree",
+        "exa",
+        "lsd",
+        # File reading
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "bat",
+        "batcat",  # Modern cat alternatives
+        # Search
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "ripgrep",
+        "ag",
+        "find",
+        "fd",
+        "fdfind",
+        "locate",
+        # Git (read operations only - validated separately)
+        "git",
+        # Utilities
+        "wc",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "column",
+        "pwd",
+        "realpath",
+        "dirname",
+        "basename",
+        "which",
+        "whereis",
+        "type",
+        "command",
+        "file",
+        "stat",
+        "du",
+        "df",
+        "env",
+        "printenv",
+        "echo",
+        "date",
+        "cal",
+        "true",
+        "false",
+        # JPScripts CLI - required for recursive protocol execution (e.g., jp verify-protocol -> jp status-all)
+        "jp",
+        # JSON processing
+        "jq",
+        "yq",
+        # Testing commands
+        "test",
+        "[",
+    }
+)
 
 # Git subcommands that are safe (read-only)
-ALLOWED_GIT_SUBCOMMANDS: FrozenSet[str] = frozenset({
-    "status", "diff", "log", "show", "branch",
-    "ls-files", "ls-tree", "ls-remote",
-    "rev-parse", "rev-list",
-    "describe", "shortlog",
-    "blame", "annotate",
-    "tag", "stash",  # list only - push/pop blocked
-    "config", "--version", "version",
-    "remote",  # show only
-    "for-each-ref",
-    "cat-file",
-    "name-rev", "merge-base",
-})
+ALLOWED_GIT_SUBCOMMANDS: frozenset[str] = frozenset(
+    {
+        "status",
+        "diff",
+        "log",
+        "show",
+        "branch",
+        "ls-files",
+        "ls-tree",
+        "ls-remote",
+        "rev-parse",
+        "rev-list",
+        "describe",
+        "shortlog",
+        "blame",
+        "annotate",
+        "tag",
+        "stash",  # list only - push/pop blocked
+        "config",
+        "--version",
+        "version",
+        "remote",  # show only
+        "for-each-ref",
+        "cat-file",
+        "name-rev",
+        "merge-base",
+    }
+)
 
 # Git subcommands that are dangerous
-FORBIDDEN_GIT_SUBCOMMANDS: FrozenSet[str] = frozenset({
-    "push", "pull", "fetch",
-    "commit", "add", "rm", "mv",
-    "reset", "revert", "rebase", "merge",
-    "checkout", "switch", "restore",
-    "clean", "gc", "prune",
-    "filter-branch", "filter-repo",
-    "submodule",
-    "clone", "init",
-})
+FORBIDDEN_GIT_SUBCOMMANDS: frozenset[str] = frozenset(
+    {
+        "push",
+        "pull",
+        "fetch",
+        "commit",
+        "add",
+        "rm",
+        "mv",
+        "reset",
+        "revert",
+        "rebase",
+        "merge",
+        "checkout",
+        "switch",
+        "restore",
+        "clean",
+        "gc",
+        "prune",
+        "filter-branch",
+        "filter-repo",
+        "submodule",
+        "clone",
+        "init",
+    }
+)
 
 # Flags that are dangerous regardless of command
-DANGEROUS_FLAGS: FrozenSet[str] = frozenset({
-    "--exec", "-exec",
-    "--delete", "-delete",
-    "-rf", "-fr",  # rm -rf pattern
-    "--no-preserve-root",
-    "-i",  # interactive - won't work anyway
-    "--interactive",
-})
+DANGEROUS_FLAGS: frozenset[str] = frozenset(
+    {
+        "--exec",
+        "-exec",
+        "--delete",
+        "-delete",
+        "-rf",
+        "-fr",  # rm -rf pattern
+        "--no-preserve-root",
+        "-i",  # interactive - won't work anyway
+        "--interactive",
+    }
+)
 
 # These flags are only dangerous for specific commands
-CONTEXT_DANGEROUS_FLAGS: dict[str, FrozenSet[str]] = {
+CONTEXT_DANGEROUS_FLAGS: dict[str, frozenset[str]] = {
     "rm": frozenset({"-f", "--force", "-r", "-R", "--recursive"}),
     "cp": frozenset({"-f", "--force"}),
     "mv": frozenset({"-f", "--force"}),
@@ -140,21 +276,25 @@ CONTEXT_DANGEROUS_FLAGS: dict[str, FrozenSet[str]] = {
 
 # Shell metacharacters that indicate command chaining/injection
 # These are checked BEFORE shlex parsing to catch obvious injection attempts
-SHELL_METACHARS: FrozenSet[str] = frozenset({
-    "|",   # Pipe
-    ";",   # Command separator
-    "&",   # Background/AND
-    "`",   # Command substitution
-    ">>",  # Append redirect
-    ">",   # Output redirect (single)
-    "<",   # Input redirect
-    "<<",  # Here doc
-})
+SHELL_METACHARS: frozenset[str] = frozenset(
+    {
+        "|",  # Pipe
+        ";",  # Command separator
+        "&",  # Background/AND
+        "`",  # Command substitution
+        ">>",  # Append redirect
+        ">",  # Output redirect (single)
+        "<",  # Input redirect
+        "<<",  # Here doc
+    }
+)
 
 # These are only dangerous at the start of tokens (after parsing)
-TOKEN_METACHARS: FrozenSet[str] = frozenset({
-    "$(",  # Command substitution (in parsed tokens)
-})
+TOKEN_METACHARS: frozenset[str] = frozenset(
+    {
+        "$(",  # Command substitution (in parsed tokens)
+    }
+)
 
 
 def _get_binary_name(token: str) -> str:
@@ -273,7 +413,10 @@ def validate_command(
 
         # Check allowed
         if subcommand not in ALLOWED_GIT_SUBCOMMANDS:
-            return CommandVerdict.BLOCKED_NOT_ALLOWLISTED, f"Git subcommand not in allowlist: {subcommand}"
+            return (
+                CommandVerdict.BLOCKED_NOT_ALLOWLISTED,
+                f"Git subcommand not in allowlist: {subcommand}",
+            )
 
     # Check for dangerous flags (universal)
     for token in tokens[1:]:

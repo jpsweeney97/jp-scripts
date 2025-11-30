@@ -55,9 +55,7 @@ class ProviderConfig:
     codex_full_auto: bool = False
     codex_web_enabled: bool = False
     fallback_enabled: bool = True
-    _provider_cache: dict[ProviderType, BaseLLMProvider] = field(
-        default_factory=dict, repr=False
-    )
+    _provider_cache: dict[ProviderType, BaseLLMProvider] = field(default_factory=dict, repr=False)
 
 
 def _create_anthropic_provider(config: AppConfig) -> BaseLLMProvider:

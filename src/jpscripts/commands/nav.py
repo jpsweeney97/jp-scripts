@@ -10,18 +10,21 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+from jpscripts.commands.ui import fzf_select_async
+
 # Import core logic
 from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
-from jpscripts.core.result import Err, Ok, Result, NavigationError
-from jpscripts.commands.ui import fzf_select_async
+from jpscripts.core.result import Err, NavigationError, Ok, Result
 
 
 def _human_time(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
 
 
-def _fzf_select(lines: list[str], prompt: str, extra_args: list[str] | None = None) -> str | list[str] | None:
+def _fzf_select(
+    lines: list[str], prompt: str, extra_args: list[str] | None = None
+) -> str | list[str] | None:
     """Run fzf selection without blocking the main thread."""
     return asyncio.run(fzf_select_async(lines, prompt=prompt, extra_args=extra_args))
 
@@ -36,8 +39,12 @@ def recent(
     ),
     limit: int = typer.Option(50, "--limit", "-l", help="Maximum number of entries to consider."),
     max_depth: int = typer.Option(4, "--max-depth", help="Maximum depth to traverse."),
-    include_dirs: bool = typer.Option(True, "--include-dirs", help="Include directories in the results."),
-    files_only: bool = typer.Option(False, "--files-only", help="Only include files (no directories)."),
+    include_dirs: bool = typer.Option(
+        True, "--include-dirs", help="Include directories in the results."
+    ),
+    files_only: bool = typer.Option(
+        False, "--files-only", help="Only include files (no directories)."
+    ),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-jump to recently modified files or directories."""
@@ -56,10 +63,7 @@ def recent(
     async def run_scan() -> Result[list[nav_core.RecentEntry], NavigationError]:
         with console.status(f"Scanning {base_root}...", spinner="dots"):
             return await nav_core.scan_recent(
-                base_root,
-                max_depth=max_depth,
-                include_dirs=include_dirs,
-                ignore_dirs=ignore_dirs
+                base_root, max_depth=max_depth, include_dirs=include_dirs, ignore_dirs=ignore_dirs
             )
 
     # LOGIC: Delegate to async core
@@ -103,6 +107,7 @@ def proj(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Fuzzy-pick a project using zoxide + fzf and print the path."""
+
     async def run_query() -> Result[list[str], NavigationError]:
         return await nav_core.get_zoxide_projects()
 
@@ -132,7 +137,9 @@ def proj(
         for idx, path in enumerate(paths, start=1):
             table.add_row(str(idx), path)
         console.print(table)
-        console.print(Panel("fzf not available; re-run with fzf for interactive selection.", style="yellow"))
+        console.print(
+            Panel("fzf not available; re-run with fzf for interactive selection.", style="yellow")
+        )
         return
 
     if selection:

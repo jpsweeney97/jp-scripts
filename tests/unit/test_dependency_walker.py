@@ -7,13 +7,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-import pytest
 
 from jpscripts.core.dependency_walker import (
     DependencyWalker,
-    SymbolNode,
     SymbolKind,
-    CallGraph,
+    SymbolNode,
 )
 
 
@@ -389,7 +387,7 @@ def valid():
 class Incomplete:
 """
         walker = DependencyWalker(source)
-        symbols = walker.get_symbols()
+        walker.get_symbols()
 
         # May get some symbols from valid portion
         # Should not raise

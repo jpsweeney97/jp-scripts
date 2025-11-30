@@ -10,6 +10,7 @@ Verifies:
 - Constitution loading (_load_constitution)
 - Token budget management (TokenBudgetManager)
 """
+
 from __future__ import annotations
 
 import json
@@ -33,9 +34,7 @@ def integration_env(
     workspace.mkdir()
 
     # Initialize git repo with an initial commit
-    subprocess.run(
-        ["git", "init"], cwd=workspace, check=True, capture_output=True
-    )
+    subprocess.run(["git", "init"], cwd=workspace, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
         cwd=workspace,
@@ -51,18 +50,14 @@ def integration_env(
 
     # Create AGENTS.md (the Constitution)
     agents_md = workspace / "AGENTS.md"
-    agents_md.write_text(
-        "# Constitution\nAll code must pass mypy --strict.\n", encoding="utf-8"
-    )
+    agents_md.write_text("# Constitution\nAll code must pass mypy --strict.\n", encoding="utf-8")
 
     # Create buggy file with syntax error
     main_py = workspace / "main.py"
     main_py.write_text("def broken(:\n    pass\n", encoding="utf-8")
 
     # Initial commit so git diff works
-    subprocess.run(
-        ["git", "add", "."], cwd=workspace, check=True, capture_output=True
-    )
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "initial"],
         cwd=workspace,
@@ -157,9 +152,7 @@ def test_god_mode_cycle(
     monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
     )  # Prevent Codex auto-detection
-    monkeypatch.setattr(
-        "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
-    )
+    monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Run the fix command with --run to trigger gather_context
     result = runner.invoke(
@@ -172,9 +165,9 @@ def test_god_mode_cycle(
     assert result.exit_code == 0, f"Command failed: {result.output}"
 
     # Verify the prompt was captured
-    assert (
-        len(captured_prompts) >= 1
-    ), "No prompt was captured - prepare_agent_prompt might be mocked"
+    assert len(captured_prompts) >= 1, (
+        "No prompt was captured - prepare_agent_prompt might be mocked"
+    )
 
     # Verify AGENTS.md content was included (proves _load_constitution ran)
     prompt = captured_prompts[0]
@@ -188,9 +181,7 @@ def test_god_mode_cycle(
     )
 
     # Verify security check passed (command output should NOT be blocked)
-    assert "[SECURITY BLOCK]" not in result.output, (
-        "Security validation blocked the command"
-    )
+    assert "[SECURITY BLOCK]" not in result.output, "Security validation blocked the command"
 
     # Verify the fix was proposed (since we're in no-loop mode)
     assert "Fixed the syntax error" in result.output or "Thought process" in result.output
@@ -253,9 +244,7 @@ def test_repair_loop_integration(
     monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
     )  # Prevent Codex auto-detection
-    monkeypatch.setattr(
-        "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
-    )
+    monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Use python -m py_compile as the verification command
     result = runner.invoke(
@@ -294,16 +283,12 @@ def test_security_blocks_dangerous_commands_in_fix(
     async def fake_fetch_response(*args: Any, **kwargs: Any) -> str:
         nonlocal was_called
         was_called = True
-        return json.dumps(
-            {"thought_process": "x", "criticism": "x", "final_message": "x"}
-        )
+        return json.dumps({"thought_process": "x", "criticism": "x", "final_message": "x"})
 
     monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
     )  # Prevent Codex auto-detection
-    monkeypatch.setattr(
-        "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
-    )
+    monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Try to run with a dangerous command
     runner.invoke(
@@ -345,9 +330,7 @@ def function_{i}(arg1: int, arg2: str) -> bool:
     large_file.write_text(large_content, encoding="utf-8")
 
     # Commit the file
-    subprocess.run(
-        ["git", "add", "."], cwd=workspace, check=True, capture_output=True
-    )
+    subprocess.run(["git", "add", "."], cwd=workspace, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "add large file"],
         cwd=workspace,
@@ -378,9 +361,7 @@ def function_{i}(arg1: int, arg2: str) -> bool:
     monkeypatch.setattr(
         "jpscripts.commands.agent.is_codex_available", lambda: False
     )  # Prevent Codex auto-detection
-    monkeypatch.setattr(
-        "jpscripts.commands.agent._fetch_agent_response", fake_fetch_response
-    )
+    monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Run fix with a command that would detect the large file
     result = runner.invoke(

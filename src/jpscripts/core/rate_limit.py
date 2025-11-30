@@ -25,7 +25,7 @@ from collections import deque
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
 from time import monotonic
-from typing import Any, Deque, TypeVar
+from typing import Any, TypeVar
 
 _T = TypeVar("_T")
 
@@ -44,7 +44,7 @@ class RateLimiter:
 
     max_calls: int = 100
     window_seconds: float = 60.0
-    _timestamps: Deque[float] = field(default_factory=deque)
+    _timestamps: deque[float] = field(default_factory=deque)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     def __post_init__(self) -> None:
@@ -166,9 +166,7 @@ class RateLimitExceeded(Exception):
 
     def __init__(self, wait_seconds: float) -> None:
         self.wait_seconds = wait_seconds
-        super().__init__(
-            f"Rate limit exceeded. Try again in {wait_seconds:.1f} seconds."
-        )
+        super().__init__(f"Rate limit exceeded. Try again in {wait_seconds:.1f} seconds.")
 
 
 async def rate_limited_call(

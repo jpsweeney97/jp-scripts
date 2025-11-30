@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import importlib
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 import typer
 
@@ -92,7 +93,9 @@ def _build_function_commands(module_name: str, module: object) -> list[CommandSp
     return specs
 
 
-def discover_commands(package_path: Path, package: str = "jpscripts.commands") -> tuple[list[tuple[str, CommandModule]], list[CommandSpec]]:
+def discover_commands(
+    package_path: Path, package: str = "jpscripts.commands"
+) -> tuple[list[tuple[str, CommandModule]], list[CommandSpec]]:
     """
     Discover Typer command modules and standalone command callables.
 

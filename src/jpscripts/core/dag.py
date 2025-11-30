@@ -25,11 +25,11 @@ from pydantic import BaseModel, ConfigDict, Field
 class TaskStatus(Enum):
     """Lifecycle status for a task in the swarm."""
 
-    PENDING = auto()    # Not yet started
-    RUNNING = auto()    # Currently executing
+    PENDING = auto()  # Not yet started
+    RUNNING = auto()  # Currently executing
     COMPLETED = auto()  # Finished successfully
-    FAILED = auto()     # Finished with error
-    BLOCKED = auto()    # Waiting on failed dependency
+    FAILED = auto()  # Finished with error
+    BLOCKED = auto()  # Waiting on failed dependency
 
 
 class DAGTask(BaseModel):

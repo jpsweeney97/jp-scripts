@@ -3,10 +3,9 @@ from __future__ import annotations
 import asyncio
 import queue
 import threading
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Deque
-from collections import deque
 from typing import TYPE_CHECKING
 
 import typer
@@ -18,10 +17,10 @@ from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 from jpscripts.core.command_validation import CommandVerdict, validate_command
-from jpscripts.core.console import console, get_logger
-from jpscripts.core.config import AppConfig
-from jpscripts.core.memory import save_memory
 from jpscripts.core.complexity import analyze_file_complexity
+from jpscripts.core.config import AppConfig
+from jpscripts.core.console import console, get_logger
+from jpscripts.core.memory import save_memory
 from jpscripts.core.result import JPScriptsError
 from jpscripts.core.security import validate_path, validate_workspace_root
 
@@ -46,7 +45,7 @@ class _AsyncDispatchHandler(FileSystemEventHandler):
     def __init__(
         self,
         loop: asyncio.AbstractEventLoop,
-        event_queue: "queue.Queue[Path]",
+        event_queue: queue.Queue[Path],
         root: Path,
         ignore_dirs: set[str],
     ) -> None:
@@ -116,10 +115,12 @@ async def _run_ruff_syntax(path: Path) -> WatchEvent:
         )
 
     # Complexity analysis
-    complexity = await asyncio.to_thread(analyze_file_complexity, path)
+    complexity_result = await analyze_file_complexity(path)
     complexity_msg = ""
-    if complexity.max_cyclomatic > 15:
-        complexity_msg = "[yellow]Complexity Warning[/yellow]: max_cyclomatic > 15. Consider running jp evolve."
+    if complexity_result.is_ok() and complexity_result.unwrap().max_cyclomatic > 15:
+        complexity_msg = (
+            "[yellow]Complexity Warning[/yellow]: max_cyclomatic > 15. Consider running jp evolve."
+        )
 
     status_message = stdout.decode().strip()
     combined_message = (
@@ -135,13 +136,15 @@ async def _update_memory_for_file(path: Path, config: AppConfig) -> WatchEvent:
         return WatchEvent(path=path, event_type="memory", status="skipped", message=str(exc))
 
     try:
-        await asyncio.to_thread(save_memory, content, ["watcher"], config=config, source_path=str(path))
+        await asyncio.to_thread(
+            save_memory, content, ["watcher"], config=config, source_path=str(path)
+        )
     except JPScriptsError as exc:
         return WatchEvent(path=path, event_type="memory", status="error", message=str(exc))
     return WatchEvent(path=path, event_type="memory", status="ok", message="Embeddings refreshed")
 
 
-def _render_dashboard(events: Deque[WatchEvent]) -> Panel:
+def _render_dashboard(events: deque[WatchEvent]) -> Panel:
     table = Table(title="Recent Events", expand=True)
     table.add_column("Path", overflow="fold")
     table.add_column("Type")
@@ -161,15 +164,17 @@ def _render_dashboard(events: Deque[WatchEvent]) -> Panel:
     )
 
 
-async def _watch_loop(state: "AppState", debounce_seconds: float = 5.0) -> None:
+async def _watch_loop(state: AppState, debounce_seconds: float = 5.0) -> None:
     try:
-        root = await asyncio.to_thread(validate_workspace_root, state.config.workspace_root or state.config.notes_dir)
+        root = await asyncio.to_thread(
+            validate_workspace_root, state.config.workspace_root or state.config.notes_dir
+        )
     except Exception as exc:
         console.print(f"[red]Workspace validation failed:[/red] {exc}")
         return
     loop = asyncio.get_running_loop()
-    event_queue: "queue.Queue[Path]" = queue.Queue(maxsize=512)
-    events: Deque[WatchEvent] = deque(maxlen=50)
+    event_queue: queue.Queue[Path] = queue.Queue(maxsize=512)
+    events: deque[WatchEvent] = deque(maxlen=50)
     pending_memory: dict[Path, asyncio.Task[WatchEvent]] = {}
 
     handler = _AsyncDispatchHandler(loop, event_queue, root, set(state.config.ignore_dirs))
@@ -180,6 +185,7 @@ async def _watch_loop(state: "AppState", debounce_seconds: float = 5.0) -> None:
 
     try:
         with Live(_render_dashboard(events), console=console, refresh_per_second=4) as live:
+
             def _append_event(task: asyncio.Task[WatchEvent]) -> None:
                 try:
                     events.append(task.result())
@@ -187,7 +193,9 @@ async def _watch_loop(state: "AppState", debounce_seconds: float = 5.0) -> None:
                     return
                 except Exception as exc:  # pragma: no cover - defensive
                     events.append(
-                        WatchEvent(path=root, event_type="internal", status="error", message=str(exc))
+                        WatchEvent(
+                            path=root, event_type="internal", status="error", message=str(exc)
+                        )
                     )
                 live.update(_render_dashboard(events))
 

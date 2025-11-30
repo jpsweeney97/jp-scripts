@@ -8,11 +8,13 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 
+
 def _ensure_rg() -> str:
     binary = shutil.which("rg")
     if not binary:
         raise RuntimeError("ripgrep (rg) not found. Please install it.")
     return binary
+
 
 def run_ripgrep(
     pattern: str,
@@ -87,6 +89,7 @@ def run_ripgrep(
     except FileNotFoundError:
         raise RuntimeError("ripgrep execution failed.")
 
+
 def get_ripgrep_cmd(
     pattern: str,
     path: Path,
@@ -113,12 +116,14 @@ def get_ripgrep_cmd(
     cmd.append(str(path.expanduser()))
     return cmd
 
+
 @dataclass
 class TodoEntry:
     file: str
     line: int
     type: str
     text: str
+
 
 async def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[TodoEntry]:
     """
@@ -131,7 +136,10 @@ async def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[Tod
     # Use create_subprocess_exec for async streaming
     # We use --json to safely parse output
     proc = await asyncio.create_subprocess_exec(
-        binary, "--json", types, str(path),
+        binary,
+        "--json",
+        types,
+        str(path),
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
@@ -168,12 +176,7 @@ async def scan_todos(path: Path, types: str = "TODO|FIXME|HACK|BUG") -> list[Tod
             # Get full line text
             line_text = data_data.get("lines", {}).get("text", "").strip()
 
-            entries.append(TodoEntry(
-                file=file_path,
-                line=line_num,
-                type=tag_type,
-                text=line_text
-            ))
+            entries.append(TodoEntry(file=file_path, line=line_num, type=tag_type, text=line_text))
 
     await proc.wait()
 

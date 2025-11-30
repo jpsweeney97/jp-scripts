@@ -8,13 +8,14 @@ from pathlib import Path
 from textwrap import dedent
 
 import typer
-from rich.prompt import Prompt
 from rich import box
 from rich.panel import Panel
+from rich.prompt import Prompt
 
-from jpscripts.core.console import console
-from jpscripts.core.config import AppConfig
 from jpscripts.core import security
+from jpscripts.core.config import AppConfig
+from jpscripts.core.console import console
+
 
 def _write_config(path: Path, config: AppConfig) -> None:
     ignore_dirs_literal = ", ".join(json.dumps(item) for item in config.ignore_dirs)
@@ -27,8 +28,8 @@ def _write_config(path: Path, config: AppConfig) -> None:
         ignore_dirs = [{ignore_dirs_literal}]
         snapshots_dir = "{config.snapshots_dir}"
         log_level = "{config.log_level}"
-        worktree_root = "{config.worktree_root or ''}"
-        focus_audio_device = "{config.focus_audio_device or ''}"
+        worktree_root = "{config.worktree_root or ""}"
+        focus_audio_device = "{config.focus_audio_device or ""}"
         """
     ).strip()
     path.write_text(content + "\n", encoding="utf-8")
@@ -37,7 +38,9 @@ def _write_config(path: Path, config: AppConfig) -> None:
 def init(
     ctx: typer.Context,
     config_path: Path | None = typer.Option(None, help="Where to write config."),
-    install_hooks: bool = typer.Option(False, "--install-hooks", help="Install git hooks (pre-commit) to enforce protocols."),
+    install_hooks: bool = typer.Option(
+        False, "--install-hooks", help="Install git hooks (pre-commit) to enforce protocols."
+    ),
 ) -> None:
     """Interactive initializer that writes the active config file."""
     state = ctx.obj
@@ -46,14 +49,19 @@ def init(
 
     notes_dir = Path(Prompt.ask("Notes directory", default=str(defaults.notes_dir)))
     workspace_root = Path(Prompt.ask("Workspace root", default=str(defaults.workspace_root)))
-    worktree_root_input = Prompt.ask("Worktree root (optional)", default=str(defaults.worktree_root or ""))
+    worktree_root_input = Prompt.ask(
+        "Worktree root (optional)", default=str(defaults.worktree_root or "")
+    )
     worktree_root = Path(worktree_root_input).expanduser() if worktree_root_input else None
     editor = Prompt.ask("Editor command", default=defaults.editor)
     log_level = Prompt.ask("Log level", default=defaults.log_level)
     snapshots_dir = Path(Prompt.ask("Snapshots directory", default=str(defaults.snapshots_dir)))
-    focus_audio_device = Prompt.ask(
-        "Preferred audio device (optional)", default=defaults.focus_audio_device or ""
-    ).strip() or None
+    focus_audio_device = (
+        Prompt.ask(
+            "Preferred audio device (optional)", default=defaults.focus_audio_device or ""
+        ).strip()
+        or None
+    )
     ignore_dirs_input = Prompt.ask(
         "Ignore directories (comma separated)",
         default=",".join(defaults.ignore_dirs),
@@ -73,7 +81,12 @@ def init(
         ignore_dirs=ignore_dirs,
     )
 
-    for target in [config.notes_dir, config.workspace_root, config.snapshots_dir, config.worktree_root]:
+    for target in [
+        config.notes_dir,
+        config.workspace_root,
+        config.snapshots_dir,
+        config.worktree_root,
+    ]:
         if target:
             Path(target).expanduser().mkdir(parents=True, exist_ok=True)
 
@@ -83,6 +96,7 @@ def init(
 
     if install_hooks:
         _install_precommit_hook(config.workspace_root)
+
 
 def config_fix(ctx: typer.Context) -> None:
     """Attempt to fix a broken configuration file using Codex."""
@@ -154,7 +168,7 @@ def _install_precommit_hook(workspace_root: Path) -> None:
 
     try:
         hooks_dir.mkdir(parents=True, exist_ok=True)
-        script = '#!/bin/sh\njp verify-protocol --name pre-commit\n'
+        script = "#!/bin/sh\njp verify-protocol --name pre-commit\n"
         precommit.write_text(script, encoding="utf-8")
         precommit.chmod(0o755)
         console.print(f"[green]Installed pre-commit hook at {precommit}[/green]")

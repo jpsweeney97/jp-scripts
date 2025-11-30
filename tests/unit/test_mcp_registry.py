@@ -1,25 +1,23 @@
 from __future__ import annotations
 
 import sys
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Awaitable, Callable, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
 if TYPE_CHECKING:
-    class ToolValidationError(Exception):
-        ...
 
-    def strict_tool_validator(func: Callable[..., object]) -> Callable[..., object]:
-        ...
+    class ToolValidationError(Exception): ...
 
-    def tool() -> Callable[[Callable[..., object]], Callable[..., object]]:
-        ...
+    def strict_tool_validator(func: Callable[..., object]) -> Callable[..., object]: ...
 
-    def register_tools(mcp: object) -> object:
-        ...
+    def tool() -> Callable[[Callable[..., object]], Callable[..., object]]: ...
+
+    def register_tools(mcp: object) -> object: ...
 else:  # pragma: no cover - runtime imports
     from jpscripts.core.mcp_registry import ToolValidationError, strict_tool_validator
     from jpscripts.mcp import tool
@@ -39,7 +37,9 @@ def test_strict_tool_validator_raises_tool_error_on_invalid_input() -> None:
 def test_register_tools_rejects_untyped_arguments(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure tools with missing type hints cause RuntimeError during registration."""
 
-    typed_tool = cast(Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]], tool())
+    typed_tool = cast(
+        Callable[[Callable[..., Awaitable[str]]], Callable[..., Awaitable[str]]], tool()
+    )
 
     @typed_tool
     async def bad(x) -> str:  # type: ignore[no-untyped-def]

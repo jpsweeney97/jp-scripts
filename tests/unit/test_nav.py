@@ -1,13 +1,14 @@
 from __future__ import annotations
 
-import os
 import asyncio
+import os
 from datetime import datetime
 from pathlib import Path
 
+from jpscripts.commands.nav import _human_time
+
 # FIX: Import from the new core module location
 from jpscripts.core.nav import scan_recent
-from jpscripts.commands.nav import _human_time
 
 
 def test_human_time_formats_timestamp() -> None:
@@ -34,7 +35,9 @@ def test_scan_recent_sorts_and_ignores(tmp_path: Path) -> None:
     ignored_file.write_text("ignore")
 
     # FIX: Use public core function 'scan_recent'
-    entries_result = asyncio.run(scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"}))
+    entries_result = asyncio.run(
+        scan_recent(tmp_path, max_depth=2, include_dirs=False, ignore_dirs={"node_modules"})
+    )
     entries = entries_result.unwrap()
     names = [entry.path.name for entry in entries]
 

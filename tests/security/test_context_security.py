@@ -1,4 +1,5 @@
 """Security tests for context gathering subsystem."""
+
 from __future__ import annotations
 
 import subprocess
@@ -34,9 +35,7 @@ class TestContextSecurityBlocking:
     @pytest.mark.asyncio
     async def test_gather_context_blocks_python_exec(self, tmp_path: Path) -> None:
         """Verify interpreter execution is blocked."""
-        result = await gather_context(
-            "python -c 'import os; os.system(\"rm -rf /\")'", tmp_path
-        )
+        result = await gather_context("python -c 'import os; os.system(\"rm -rf /\")'", tmp_path)
         output = result.output
 
         assert "[SECURITY BLOCK]" in output
@@ -85,11 +84,7 @@ class TestContextSecurityAllowed:
 
         assert "[SECURITY BLOCK]" not in output
         # Git status output varies but should contain common phrases
-        assert (
-            "On branch" in output
-            or "No commits yet" in output
-            or "nothing to commit" in output
-        )
+        assert "On branch" in output or "No commits yet" in output or "nothing to commit" in output
 
     @pytest.mark.asyncio
     async def test_gather_context_allows_grep(self, tmp_path: Path) -> None:

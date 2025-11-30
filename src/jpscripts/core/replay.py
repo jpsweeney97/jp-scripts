@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import difflib
 import json
-from typing import AsyncIterator, Iterable, Sequence
+from collections.abc import AsyncIterator, Iterable, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
@@ -11,9 +11,11 @@ from jpscripts.providers import (
     CompletionOptions,
     CompletionResponse,
     LLMProvider,
-    Message as ProviderMessage,
     ProviderType,
     StreamChunk,
+)
+from jpscripts.providers import (
+    Message as ProviderMessage,
 )
 
 
@@ -38,10 +40,7 @@ def _normalize_messages(messages: Iterable[ProviderMessage]) -> list[tuple[str, 
 
 
 def _normalize_history(history: Sequence[dict[str, str]]) -> list[tuple[str, str]]:
-    return [
-        (entry.get("role", "") or "", entry.get("content", "") or "")
-        for entry in history
-    ]
+    return [(entry.get("role", "") or "", entry.get("content", "") or "") for entry in history]
 
 
 def _diff_histories(expected: Sequence[tuple[str, str]], actual: Sequence[tuple[str, str]]) -> str:

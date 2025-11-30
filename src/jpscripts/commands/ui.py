@@ -3,7 +3,8 @@ from __future__ import annotations
 import asyncio
 import shutil
 import subprocess
-from typing import IO, Sequence
+from collections.abc import Sequence
+from typing import IO
 
 from jpscripts.core.console import console
 
@@ -18,7 +19,9 @@ def fzf_select(
     Run fzf interactively. Returns the selected line(s) or None if cancelled.
     """
     if not shutil.which("fzf"):
-        console.print("[yellow]fzf not found. Please install it for interactive selection.[/yellow]")
+        console.print(
+            "[yellow]fzf not found. Please install it for interactive selection.[/yellow]"
+        )
         return None
 
     cmd = ["fzf", "--prompt", prompt]
@@ -67,7 +70,9 @@ def fzf_stream(
 ) -> str | list[str] | None:
     """Run fzf with a streaming stdin source (e.g., subprocess stdout)."""
     if not shutil.which("fzf"):
-        console.print("[yellow]fzf not found. Please install it for interactive selection.[/yellow]")
+        console.print(
+            "[yellow]fzf not found. Please install it for interactive selection.[/yellow]"
+        )
         return None
 
     cmd = ["fzf", "--prompt", prompt]
@@ -113,7 +118,9 @@ async def fzf_stream_with_command(
         with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
             if proc_rg.stdout is None:
                 raise RuntimeError("Failed to start command for fzf.")
-            selection = fzf_stream(proc_rg.stdout, prompt=prompt, multi=multi, ansi=ansi, extra_args=extra_args)
+            selection = fzf_stream(
+                proc_rg.stdout, prompt=prompt, multi=multi, ansi=ansi, extra_args=extra_args
+            )
             proc_rg.wait()
             return selection
 

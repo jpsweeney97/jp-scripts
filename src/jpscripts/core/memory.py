@@ -3,15 +3,16 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import re
 from collections import Counter
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from importlib import import_module
 from math import sqrt
-import os
 from pathlib import Path
-from typing import Any, Coroutine, Protocol, Sequence, TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
@@ -20,20 +21,30 @@ from uuid import uuid4
 from jpscripts.core import structure
 from jpscripts.core.config import AppConfig, ConfigError
 from jpscripts.core.console import get_logger
-from jpscripts.core.result import CapabilityMissingError, ConfigurationError, Err, JPScriptsError, Ok, Result
-from jpscripts.providers import CompletionOptions, Message as ProviderMessage, ProviderError
+from jpscripts.core.result import (
+    CapabilityMissingError,
+    ConfigurationError,
+    Err,
+    JPScriptsError,
+    Ok,
+    Result,
+)
+from jpscripts.providers import CompletionOptions, ProviderError
+from jpscripts.providers import Message as ProviderMessage
 from jpscripts.providers.factory import get_provider
 
 if TYPE_CHECKING:
-    from lancedb.pydantic import LanceModel as LanceModelBase  # type: ignore[import-untyped]
-    from lancedb.table import LanceTable  # type: ignore[import-untyped]
+    from lancedb.pydantic import LanceModel as LanceModelBase
+    from lancedb.table import LanceTable
     from sentence_transformers import SentenceTransformer
 else:  # pragma: no cover - runtime fallbacks when optional deps are missing
+
     class LanceModelBase:  # type: ignore[misc]
         pass
 
     class LanceTable:  # type: ignore[misc]
         ...
+
 
 logger = get_logger(__name__)
 T = TypeVar("T")
@@ -109,7 +120,7 @@ def _normalize_server_url(raw: str | None) -> str | None:
 async def _async_check_port(host: str, port: int, timeout: float = 1.0) -> bool:
     try:
         _, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout=timeout)
-    except (asyncio.TimeoutError, OSError):
+    except (TimeoutError, OSError):
         return False
     try:
         writer.close()
@@ -130,7 +141,13 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[
     try:
         with urllib_request.urlopen(req, timeout=timeout) as resp:
             raw = resp.read()
-    except (urllib_error.HTTPError, urllib_error.URLError, TimeoutError, OSError, ValueError) as exc:
+    except (
+        urllib_error.HTTPError,
+        urllib_error.URLError,
+        TimeoutError,
+        OSError,
+        ValueError,
+    ) as exc:
         logger.debug("Embedding HTTP request failed: %s", exc)
         return None
 
@@ -142,7 +159,9 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[
     return parsed if isinstance(parsed, dict) else None
 
 
-async def _async_post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
+async def _async_post_json(
+    url: str, payload: dict[str, Any], timeout: float = 2.0
+) -> dict[str, Any] | None:
     return await asyncio.to_thread(_post_json, url, payload, timeout)
 
 
@@ -195,8 +214,7 @@ class Pattern:
 
 
 class MemoryStore(Protocol):
-    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
-        ...
+    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]: ...
 
     def search(
         self,
@@ -204,23 +222,18 @@ class MemoryStore(Protocol):
         limit: int,
         *,
         query_tokens: list[str] | None = None,
-    ) -> Result[list[MemoryEntry], JPScriptsError]:
-        ...
+    ) -> Result[list[MemoryEntry], JPScriptsError]: ...
 
-    def prune(self, root: Path) -> Result[int, JPScriptsError]:
-        ...
+    def prune(self, root: Path) -> Result[int, JPScriptsError]: ...
 
 
 class EmbeddingClientProtocol(Protocol):
     @property
-    def dimension(self) -> int | None:
-        ...
+    def dimension(self) -> int | None: ...
 
-    def available(self) -> bool:
-        ...
+    def available(self) -> bool: ...
 
-    def embed(self, texts: list[str]) -> list[list[float]] | None:
-        ...
+    def embed(self, texts: list[str]) -> list[list[float]] | None: ...
 
 
 def _resolve_store(config: AppConfig | None = None, store_path: Path | None = None) -> Path:
@@ -261,7 +274,7 @@ def _compute_file_hash(path: Path) -> str | None:
                     break
                 digest.update(chunk)
         return digest.hexdigest()
-    except (OSError, IOError):
+    except OSError:
         return None
 
 
@@ -344,7 +357,9 @@ class _GlobalEmbeddingClient(EmbeddingClientProtocol):
         self._remote_available: bool | None = None
 
     @classmethod
-    def get_instance(cls, model_name: str, enabled: bool, server_url: str | None) -> _GlobalEmbeddingClient:
+    def get_instance(
+        cls, model_name: str, enabled: bool, server_url: str | None
+    ) -> _GlobalEmbeddingClient:
         normalized_url = _normalize_server_url(server_url)
         if cls._instance and cls._instance._matches(model_name, normalized_url):
             cls._instance.enabled = enabled
@@ -437,7 +452,9 @@ class _GlobalEmbeddingClient(EmbeddingClientProtocol):
         return [vector.tolist() for vector in vectors]
 
 
-def EmbeddingClient(model_name: str, *, enabled: bool, server_url: str | None = None) -> EmbeddingClientProtocol:
+def EmbeddingClient(
+    model_name: str, *, enabled: bool, server_url: str | None = None
+) -> EmbeddingClientProtocol:
     return _GlobalEmbeddingClient.get_instance(model_name, enabled, server_url)
 
 
@@ -494,7 +511,9 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                 else:
                     tokens = _tokenize(token_source)
                 embedding = raw.get("embedding")
-                embedding_list = [float(val) for val in embedding] if isinstance(embedding, list) else None
+                embedding_list = (
+                    [float(val) for val in embedding] if isinstance(embedding, list) else None
+                )
                 raw_source_path = raw.get("source_path")
                 source_path = str(raw_source_path) if raw_source_path else None
                 raw_content_hash = raw.get("content_hash")
@@ -564,7 +583,7 @@ def _load_lancedb_dependencies() -> tuple[Any, type[LanceModelBase]] | None:
     try:
         lancedb = import_module("lancedb")
         pydantic_module = import_module("lancedb.pydantic")
-        lance_model = cast(type[LanceModelBase], getattr(pydantic_module, "LanceModel"))
+        lance_model = cast(type[LanceModelBase], pydantic_module.LanceModel)
     except Exception as exc:
         logger.debug("LanceDB unavailable: %s", exc)
         return None
@@ -585,7 +604,9 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
 
 
 class LanceDBStore(MemoryStore):
-    def __init__(self, db_path: Path, lancedb_module: Any, lance_model_base: type[LanceModelBase]) -> None:
+    def __init__(
+        self, db_path: Path, lancedb_module: Any, lance_model_base: type[LanceModelBase]
+    ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
         self._lancedb = lancedb_module
@@ -597,7 +618,9 @@ class LanceDBStore(MemoryStore):
         if embedding_dim <= 0:
             raise ValueError("embedding_dim must be positive")
         if self._embedding_dim is not None and self._embedding_dim != embedding_dim:
-            raise ValueError(f"Embedding dimension mismatch: {self._embedding_dim} != {embedding_dim}")
+            raise ValueError(
+                f"Embedding dimension mismatch: {self._embedding_dim} != {embedding_dim}"
+            )
 
         if self._table is None or self._embedding_dim is None:
             db = self._lancedb.connect(str(self._db_path))
@@ -609,20 +632,32 @@ class LanceDBStore(MemoryStore):
                 try:
                     schema = getattr(self._table, "schema", None)
                     names_attr = getattr(schema, "names", None)
-                    existing_names = {str(name) for name in names_attr} if isinstance(names_attr, (list, tuple, set)) else set()
+                    existing_names = (
+                        {str(name) for name in names_attr}
+                        if isinstance(names_attr, (list, tuple, set))
+                        else set()
+                    )
                     if "related_files" not in existing_names:
                         try:
                             self._table.add_column("related_files", list[str])
                         except Exception:
-                            logger.debug("Unable to add related_files column to LanceDB table; proceeding without schema update.")
+                            logger.debug(
+                                "Unable to add related_files column to LanceDB table; proceeding without schema update."
+                            )
                 except Exception:
-                    logger.debug("Skipping related_files schema check; proceeding with existing LanceDB schema.")
+                    logger.debug(
+                        "Skipping related_files schema check; proceeding with existing LanceDB schema."
+                    )
             self._embedding_dim = embedding_dim
         return self._table
 
     def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
         if entry.embedding is None:
-            return Err(ConfigurationError("Embedding required for LanceDB insert", context={"id": entry.id}))
+            return Err(
+                ConfigurationError(
+                    "Embedding required for LanceDB insert", context={"id": entry.id}
+                )
+            )
 
         try:
             table = self._ensure_table(len(entry.embedding))
@@ -637,7 +672,11 @@ class LanceDBStore(MemoryStore):
             )
             table.add([model])
         except Exception as exc:  # pragma: no cover - defensive
-            return Err(ConfigurationError("Failed to persist memory to LanceDB", context={"error": str(exc)}))
+            return Err(
+                ConfigurationError(
+                    "Failed to persist memory to LanceDB", context={"error": str(exc)}
+                )
+            )
 
         return Ok(entry)
 
@@ -654,7 +693,9 @@ class LanceDBStore(MemoryStore):
         try:
             table = self._ensure_table(len(query_vec))
         except Exception as exc:
-            return Err(ConfigurationError("Failed to prepare LanceDB table", context={"error": str(exc)}))
+            return Err(
+                ConfigurationError("Failed to prepare LanceDB table", context={"error": str(exc)})
+            )
 
         try:
             results = table.search(query_vec).limit(limit).to_pydantic(self._model_cls)
@@ -679,7 +720,9 @@ class LanceDBStore(MemoryStore):
             )
         return Ok(matches)
 
-    def prune(self, root: Path) -> Result[int, JPScriptsError]:  # pragma: no cover - not required for LanceDB
+    def prune(
+        self, root: Path
+    ) -> Result[int, JPScriptsError]:  # pragma: no cover - not required for LanceDB
         _ = root
         return Ok(0)
 
@@ -745,7 +788,11 @@ class JsonlArchiver(MemoryStore):
             try:
                 if not source.exists():
                     pruned_count += 1
-                    logger.debug("Pruning stale memory entry: %s (file missing: %s)", entry.id, entry.source_path)
+                    logger.debug(
+                        "Pruning stale memory entry: %s (file missing: %s)",
+                        entry.id,
+                        entry.source_path,
+                    )
                     continue
 
                 # Check for content drift via hash mismatch
@@ -763,7 +810,11 @@ class JsonlArchiver(MemoryStore):
         try:
             _write_entries(self._path, kept)
         except OSError as exc:
-            return Err(ConfigurationError("Failed to rewrite pruned memory archive", context={"error": str(exc)}))
+            return Err(
+                ConfigurationError(
+                    "Failed to rewrite pruned memory archive", context={"error": str(exc)}
+                )
+            )
 
         return Ok(pruned_count)
 
@@ -866,8 +917,8 @@ def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
     try:
         timestamp = datetime.fromisoformat(entry.ts)
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=timezone.utc)
-        days_since = max((datetime.now(timezone.utc) - timestamp).days, 0)
+            timestamp = timestamp.replace(tzinfo=UTC)
+        days_since = max((datetime.now(UTC) - timestamp).days, 0)
         decay = 1 / (1 + 0.1 * float(days_since))
     except Exception:
         decay = 1.0
@@ -878,7 +929,7 @@ def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
 def _cosine_similarity(vec_a: Sequence[float], vec_b: Sequence[float]) -> float:
     if len(vec_a) != len(vec_b) or not vec_a:
         return 0.0
-    dot = sum(a * b for a, b in zip(vec_a, vec_b))
+    dot = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
     norm_a = sqrt(sum(a * a for a in vec_a))
     norm_b = sqrt(sum(b * b for b in vec_b))
     if norm_a == 0.0 or norm_b == 0.0:
@@ -900,7 +951,7 @@ def get_memory_store(
         if deps is None:
             return Err(
                 CapabilityMissingError(
-                    "LanceDB is required for semantic memory. Install with `pip install \"jpscripts[ai]\"`.",
+                    'LanceDB is required for semantic memory. Install with `pip install "jpscripts[ai]"`.',
                     context={"path": str(resolved_store)},
                 )
             )
@@ -908,7 +959,9 @@ def get_memory_store(
         try:
             vector_store = LanceDBStore(resolved_store, lancedb_module, lance_model_base)
         except Exception as exc:  # pragma: no cover - defensive
-            return Err(ConfigError(f"Failed to initialize LanceDB store at {resolved_store}: {exc}"))
+            return Err(
+                ConfigError(f"Failed to initialize LanceDB store at {resolved_store}: {exc}")
+            )
 
     return Ok(HybridMemoryStore(archiver, vector_store))
 
@@ -1036,7 +1089,7 @@ async def synthesize_cluster(
 
     new_entry = MemoryEntry(
         id=uuid4().hex,
-        ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        ts=datetime.now(UTC).isoformat(timespec="seconds"),
         content=synthesized_content,
         tags=aggregated_tags,
         tokens=_tokenize(token_source),
@@ -1094,7 +1147,7 @@ def save_memory(
 
     entry = MemoryEntry(
         id=uuid4().hex,
-        ts=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        ts=datetime.now(UTC).isoformat(timespec="seconds"),
         content=content_text,
         tags=normalized_tags,
         tokens=_tokenize(token_source),
@@ -1136,7 +1189,9 @@ def query_memory(
             raise err
         case Ok(store):
             use_semantic, model_name, server_url = _embedding_settings(config)
-            embedding_client = EmbeddingClient(model_name, enabled=use_semantic, server_url=server_url)
+            embedding_client = EmbeddingClient(
+                model_name, enabled=use_semantic, server_url=server_url
+            )
             query_vecs = embedding_client.embed([query]) if use_semantic else None
             query_vec = query_vecs[0] if query_vecs else None
             tokens = _tokenize(query)
@@ -1302,17 +1357,13 @@ class PatternStore:
             table = self._ensure_table(len(query_vec))
         except Exception as exc:
             return Err(
-                ConfigurationError(
-                    "Failed to prepare patterns table", context={"error": str(exc)}
-                )
+                ConfigurationError("Failed to prepare patterns table", context={"error": str(exc)})
             )
 
         try:
             results = table.search(query_vec).limit(limit).to_pydantic(self._model_cls)
         except Exception as exc:
-            return Err(
-                ConfigurationError("Pattern search failed", context={"error": str(exc)})
-            )
+            return Err(ConfigurationError("Pattern search failed", context={"error": str(exc)}))
 
         patterns: list[Pattern] = []
         for row in results:
@@ -1350,15 +1401,15 @@ class PatternStore:
                         solution=str(row.get("solution", "")),
                         source_traces=list(row.get("source_traces", [])),
                         confidence=float(row.get("confidence", 0.0)),
-                        embedding=list(row.get("embedding", [])) if row.get("embedding") is not None else None,
+                        embedding=list(row.get("embedding", []))
+                        if row.get("embedding") is not None
+                        else None,
                     )
                 )
             return Ok(patterns)
         except Exception as exc:
             return Err(
-                ConfigurationError(
-                    "Failed to retrieve patterns", context={"error": str(exc)}
-                )
+                ConfigurationError("Failed to retrieve patterns", context={"error": str(exc)})
             )
 
 
@@ -1370,7 +1421,7 @@ def get_pattern_store(config: AppConfig) -> Result[PatternStore, JPScriptsError]
     if deps is None:
         return Err(
             CapabilityMissingError(
-                "LanceDB is required for pattern storage. Install with `pip install \"jpscripts[ai]\"`.",
+                'LanceDB is required for pattern storage. Install with `pip install "jpscripts[ai]"`.',
                 context={"path": str(resolved_store)},
             )
         )
@@ -1413,7 +1464,9 @@ async def consolidate_patterns(
     """
     trace_dir = Path(config.trace_dir).expanduser()
     if not trace_dir.exists():
-        return Err(ConfigurationError("Trace directory not found", context={"path": str(trace_dir)}))
+        return Err(
+            ConfigurationError("Trace directory not found", context={"path": str(trace_dir)})
+        )
 
     # Load successful traces
     traces = await _load_successful_traces(trace_dir, trace_limit)
@@ -1585,7 +1638,7 @@ Respond in JSON format only:
         data = json.loads(content)
         return Pattern(
             id=uuid4().hex,
-            created_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            created_at=datetime.now(UTC).isoformat(timespec="seconds"),
             pattern_type=str(data.get("pattern_type", "fix_pattern")),
             description=str(data.get("description", "")),
             trigger=str(data.get("trigger", "")),

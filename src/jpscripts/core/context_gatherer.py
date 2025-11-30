@@ -6,16 +6,17 @@ import fnmatch
 import json
 import re
 import shlex
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict
 from rich.console import Console
 
+from jpscripts.core import structure
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
-from jpscripts.core import structure
 from jpscripts.core.tokens import DEFAULT_MODEL_CONTEXT_LIMIT as _TOKEN_DEFAULT
 
 logger = get_logger(__name__)
@@ -232,9 +233,7 @@ def smart_read_context(
     return text[:effective_limit]
 
 
-def get_file_skeleton(
-    path: Path, *, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
-) -> str:
+def get_file_skeleton(path: Path, *, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT) -> str:
     """Return a high-level AST skeleton of a Python file.
 
     The skeleton preserves imports, module-level assignments, class definitions,
@@ -272,7 +271,7 @@ def get_file_skeleton(
             body.append(doc_expr)
         body.append(ast.Pass())
         # Python 3.12+ requires type_params for FunctionDef/AsyncFunctionDef
-        new_node = type(node)(
+        new_node = type(node)(  # type: ignore[call-arg]  # typeshed missing type_params
             name=node.name,
             args=node.args,
             body=body,
@@ -298,7 +297,7 @@ def get_file_skeleton(
         if not new_body:
             new_body.append(ast.Pass())
         # Python 3.12+ requires type_params for ClassDef
-        new_node = ast.ClassDef(
+        new_node = ast.ClassDef(  # type: ignore[call-arg]  # typeshed missing type_params
             name=node.name,
             bases=node.bases,
             keywords=node.keywords,
@@ -344,9 +343,7 @@ def get_file_skeleton(
     return "\n\n".join(lines)[:limit]
 
 
-def _read_text_for_context(
-    path: Path, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT
-) -> str | None:
+def _read_text_for_context(path: Path, limit: int = DEFAULT_MODEL_CONTEXT_LIMIT) -> str | None:
     try:
         with path.open("r", encoding="utf-8") as fh:
             return fh.read(limit)

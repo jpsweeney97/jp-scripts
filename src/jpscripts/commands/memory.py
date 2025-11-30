@@ -10,9 +10,10 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
-from jpscripts.core.result import CapabilityMissingError, Err, JPScriptsError, Ok
 from jpscripts.core.memory import (
     HybridMemoryStore,
+    MemoryEntry,
+    _write_entries,
     cluster_memories,
     get_memory_store,
     prune_memory,
@@ -20,9 +21,8 @@ from jpscripts.core.memory import (
     reindex_memory,
     save_memory,
     synthesize_cluster,
-    _write_entries,
-    MemoryEntry,
 )
+from jpscripts.core.result import CapabilityMissingError, Err, JPScriptsError, Ok
 
 app = typer.Typer(help="Persistent memory store for ADRs and lessons learned.")
 
@@ -40,7 +40,12 @@ def add(
     except JPScriptsError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
-    console.print(Panel(f"[green]Saved[/green] at {entry.ts}\nTags: {', '.join(entry.tags) if entry.tags else '—'}", title="Memory"))
+    console.print(
+        Panel(
+            f"[green]Saved[/green] at {entry.ts}\nTags: {', '.join(entry.tags) if entry.tags else '—'}",
+            title="Memory",
+        )
+    )
 
 
 @app.command("search")
@@ -61,7 +66,9 @@ def search(
         console.print(Panel("No matching memories.", style="yellow"))
         return
 
-    table = Table(title=f"Top {min(limit, len(results))} memories", box=box.SIMPLE_HEAVY, expand=True)
+    table = Table(
+        title=f"Top {min(limit, len(results))} memories", box=box.SIMPLE_HEAVY, expand=True
+    )
     table.add_column("Entry", style="white")
     for line in results:
         table.add_row(line)
@@ -105,8 +112,12 @@ def vacuum(ctx: typer.Context) -> None:
 @app.command("consolidate")
 def consolidate(
     ctx: typer.Context,
-    model: str | None = typer.Option(None, "--model", "-m", help="Model used to synthesize canonical memories."),
-    threshold: float = typer.Option(0.85, "--threshold", help="Cosine similarity threshold for clustering."),
+    model: str | None = typer.Option(
+        None, "--model", "-m", help="Model used to synthesize canonical memories."
+    ),
+    threshold: float = typer.Option(
+        0.85, "--threshold", help="Cosine similarity threshold for clustering."
+    ),
 ) -> None:
     """Cluster similar memories and synthesize canonical truth entries."""
     state = ctx.obj
@@ -133,7 +144,9 @@ def consolidate(
 
     store = store_result.value
     if not isinstance(store, HybridMemoryStore):
-        console.print("[red]Consolidation requires the hybrid memory store with LanceDB enabled.[/red]")
+        console.print(
+            "[red]Consolidation requires the hybrid memory store with LanceDB enabled.[/red]"
+        )
         raise typer.Exit(code=1)
 
     archived_ids: set[str] = set()
@@ -166,7 +179,9 @@ def consolidate(
             if entry.embedding is not None:
                 add_result = store.vector_store.add(entry)
                 if isinstance(add_result, Err):
-                    console.print(f"[yellow]Vector insert failed for {entry.id}: {add_result.error}[/yellow]")
+                    console.print(
+                        f"[yellow]Vector insert failed for {entry.id}: {add_result.error}[/yellow]"
+                    )
 
     console.print(
         Panel(

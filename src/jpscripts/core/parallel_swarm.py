@@ -22,10 +22,10 @@ import re
 import shutil
 import tempfile
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -261,8 +261,7 @@ class WorktreeManager:
 
         def _scan() -> list[Path]:
             return [
-                d for d in self._worktree_root.iterdir()
-                if d.is_dir() and pattern.match(d.name)
+                d for d in self._worktree_root.iterdir() if d.is_dir() and pattern.match(d.name)
             ]
 
         candidates = await asyncio.to_thread(_scan)

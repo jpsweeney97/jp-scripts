@@ -3,34 +3,36 @@
 This module provides the core repair loop functionality, including
 command execution, patch application, and strategy management.
 """
+
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shlex
 import sys
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Awaitable, Callable, Literal, Sequence
+from typing import Literal
 
 from pydantic import ValidationError
 from rich import box
 from rich.panel import Panel
 
 from jpscripts.core import security
+from jpscripts.core.agent.context import expand_context_paths
+from jpscripts.core.agent.prompting import prepare_agent_prompt
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.engine import (
     AgentEngine,
     AgentResponse,
     Message,
     PreparedPrompt,
-    parse_agent_response,
     ToolCall,
+    parse_agent_response,
 )
 from jpscripts.core.memory import save_memory
 from jpscripts.core.runtime import get_runtime
-
-from jpscripts.core.agent.context import expand_context_paths
-from jpscripts.core.agent.prompting import prepare_agent_prompt
 
 logger = get_logger(__name__)
 
@@ -96,7 +98,9 @@ def _summarize_stack_trace(text: str, limit: int) -> str:
     if middle_lines:
         mid_idx = len(middle_lines) // 2
         window = middle_lines[max(0, mid_idx - 3) : min(len(middle_lines), mid_idx + 4)]
-        middle_summary = "\n[... middle truncated ...]\n" + "\n".join(window) + "\n[... resumes ...]\n"
+        middle_summary = (
+            "\n[... middle truncated ...]\n" + "\n".join(window) + "\n[... resumes ...]\n"
+        )
 
     assembled = "\n".join(head_lines) + middle_summary + "\n".join(tail_lines)
     if len(assembled) > limit:
@@ -113,6 +117,11 @@ def _append_history(history: list[Message], entry: Message, keep: int = 3) -> No
     history.append(entry)
     if len(history) > keep:
         del history[:-keep]
+
+
+def _compute_patch_hash(patch_text: str) -> str:
+    """Compute SHA256 hash of a patch for de-duplication."""
+    return hashlib.sha256(patch_text.encode("utf-8")).hexdigest()
 
 
 def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str:
@@ -181,11 +190,10 @@ def _build_repair_instruction(
 ) -> str:
     history_block = _build_history_summary(history, root)
     override_block = f"\n\nStrategy Override:\n{strategy_override}" if strategy_override else ""
-    reasoning_block = f"\n\nHigh reasoning effort requested: {reasoning_hint}" if reasoning_hint else ""
-    strategy_block = (
-        f"\n\n[Current Strategy: {strategy.label}]\n"
-        f"{strategy.description}"
+    reasoning_block = (
+        f"\n\nHigh reasoning effort requested: {reasoning_hint}" if reasoning_hint else ""
     )
+    strategy_block = f"\n\n[Current Strategy: {strategy.label}]\n{strategy.description}"
     if strategy.system_notice:
         strategy_block += f"\n{strategy.system_notice}"
     return (
@@ -329,7 +337,9 @@ async def _verify_syntax(files: list[Path]) -> str | None:
 
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
-            message = stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+            message = (
+                stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
+            )
             return f"Syntax error in {path}: {message or 'py_compile failed'}"
 
     return None
@@ -370,8 +380,14 @@ async def _archive_session_summary(
         pass
 
     try:
-        archive_config = config.model_copy(update={"use_semantic_search": False}) if hasattr(config, "model_copy") else config
-        await asyncio.to_thread(save_memory, summary_text, ["auto-fix", "agent"], config=archive_config)
+        archive_config = (
+            config.model_copy(update={"use_semantic_search": False})
+            if hasattr(config, "model_copy")
+            else config
+        )
+        await asyncio.to_thread(
+            save_memory, summary_text, ["auto-fix", "agent"], config=archive_config
+        )
     except Exception as exc:
         logger.debug("Failed to archive repair summary: %s", exc)
 
@@ -405,7 +421,9 @@ async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
 
     _, stderr = await proc.communicate()
     if proc.returncode != 0:
-        logger.debug("Failed to revert files after unsuccessful loop: %s", stderr.decode(errors="replace"))
+        logger.debug(
+            "Failed to revert files after unsuccessful loop: %s", stderr.decode(errors="replace")
+        )
 
 
 async def run_repair_loop(
@@ -433,6 +451,7 @@ async def run_repair_loop(
     changed_files: set[Path] = set()
     attempt_history: list[AttemptContext] = []
     history: list[Message] = []
+    seen_patch_hashes: set[str] = set()
     previous_active_root = _ACTIVE_ROOT
     _ACTIVE_ROOT = root
 
@@ -494,19 +513,27 @@ async def run_repair_loop(
 
             loop_detected = _detect_repeated_failure(attempt_history, current_error)
             strategy_override = STRATEGY_OVERRIDE_TEXT if loop_detected else None
-            reasoning_hint = "Increase temperature or reasoning effort to escape repetition." if loop_detected else None
+            reasoning_hint = (
+                "Increase temperature or reasoning effort to escape repetition."
+                if loop_detected
+                else None
+            )
             temperature_override = 0.7 if loop_detected else None
             if loop_detected:
-                console.print("[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]")
+                console.print(
+                    "[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]"
+                )
 
             dynamic_paths: set[Path] = set(changed_files)
             if strategy_cfg.name == "deep":
-                dynamic_paths = await expand_context_paths(current_error, root, changed_files, config.ignore_dirs)
+                dynamic_paths = await expand_context_paths(
+                    current_error, root, changed_files, config.ignore_dirs
+                )
             elif strategy_cfg.name == "step_back":
                 dynamic_paths = set(changed_files)
 
             applied_paths: list[Path] = []
-            for turn in range(5):
+            for _turn in range(5):
                 iteration_prompt = _build_repair_instruction(
                     base_prompt,
                     current_error,
@@ -523,9 +550,12 @@ async def run_repair_loop(
                 engine = AgentEngine[AgentResponse](
                     persona="Engineer",
                     model=model or config.default_model,
-                    prompt_builder=lambda msgs, ip=iteration_prompt, ld=loop_detected, temp=temperature_override, strat=strategy_cfg, paths=list(dynamic_paths): _prompt_builder(  # type: ignore[misc]
-                        msgs, ip, ld, temp, strat, paths
-                    ),
+                    prompt_builder=lambda msgs,  # type: ignore[misc]
+                    ip=iteration_prompt,
+                    ld=loop_detected,
+                    temp=temperature_override,
+                    strat=strategy_cfg,
+                    paths=list(dynamic_paths): _prompt_builder(msgs, ip, ld, temp, strat, paths),
                     fetch_response=_fetch,
                     parser=parse_agent_response,
                     tools={} if strategy_cfg.name == "step_back" else None,
@@ -559,7 +589,13 @@ async def run_repair_loop(
                 if tool_call:
                     tool_name = tool_call.tool
                     tool_args = tool_call.arguments
-                    console.print(Panel(f"Agent invoking {tool_name} with args {tool_args}", title="Tool Call", box=box.SIMPLE))
+                    console.print(
+                        Panel(
+                            f"Agent invoking {tool_name} with args {tool_args}",
+                            title="Tool Call",
+                            box=box.SIMPLE,
+                        )
+                    )
                     try:
                         output = await engine.execute_tool(tool_call)
                     except Exception as exc:
@@ -576,11 +612,29 @@ async def run_repair_loop(
                     continue
 
                 if patch_text:
+                    # Check for duplicate patch (loop prevention)
+                    patch_hash = _compute_patch_hash(patch_text)
+                    if patch_hash in seen_patch_hashes:
+                        console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
+                        _append_history(
+                            history,
+                            Message(
+                                role="user",
+                                content="<GovernanceViolation> You proposed a patch identical to a previous failed attempt. You are looping. Try a different approach. </GovernanceViolation>",
+                            ),
+                        )
+                        continue
+
+                    # New patch - add to seen set
+                    seen_patch_hashes.add(patch_hash)
+
                     console.print("[green]Agent proposed a fix.[/green]")
                     applied_paths = await _apply_patch_text(patch_text, root)
                     syntax_error = await _verify_syntax(applied_paths)
                     if syntax_error:
-                        console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
+                        console.print(
+                            f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}"
+                        )
                         _append_history(
                             history,
                             Message(
@@ -642,7 +696,13 @@ async def run_repair_loop(
                     strategy=strategy_cfg.name,
                 )
             )
-            _append_history(history, Message(role="system", content=f"Verification failure (attempt {attempt + 1}): {failure_msg}"))
+            _append_history(
+                history,
+                Message(
+                    role="system",
+                    content=f"Verification failure (attempt {attempt + 1}): {failure_msg}",
+                ),
+            )
 
         console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
         exit_code, stdout, stderr = await _run_shell_command(command, root)
@@ -659,7 +719,9 @@ async def run_repair_loop(
                 )
             return True
 
-        console.print(f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}")
+        console.print(
+            f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}"
+        )
         if changed_files and not keep_failed:
             console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
             await _revert_changed_files(list(changed_files), root)

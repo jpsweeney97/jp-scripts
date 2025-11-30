@@ -5,11 +5,12 @@ import contextvars
 import logging
 import signal
 import sys
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from types import FrameType
-from typing import Mapping, NoReturn
+from typing import NoReturn
 from uuid import uuid4
 
 import click
@@ -59,10 +60,7 @@ def _signal_handler(signum: int, frame: FrameType | None) -> NoReturn | None:
     if ctx:
         console.print("[dim]Note: Active worktrees will be cleaned on next run.[/dim]")
 
-    console.print(
-        "[yellow]If worktrees remain, run:[/yellow]\n"
-        "  git worktree prune"
-    )
+    console.print("[yellow]If worktrees remain, run:[/yellow]\n  git worktree prune")
     sys.exit(128 + signum)
 
 
@@ -101,7 +99,9 @@ def _establish_cli_runtime(config: AppConfig, dry_run: bool) -> RuntimeContext:
 @app.callback()
 def main(
     ctx: typer.Context,
-    config: Path | None = typer.Option(None, "--config", "-c", help="Path to a jp config file (TOML or JSON)."),
+    config: Path | None = typer.Option(
+        None, "--config", "-c", help="Path to a jp config file (TOML or JSON)."
+    ),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Enable dry-run mode (no side effects)."),
 ) -> None:
@@ -129,7 +129,7 @@ def main(
                 f"[bold red]Configuration Error - Safe Mode Active[/bold red]\n\n"
                 f"Failed to load {meta.path}:\n{meta.error}\n\n"
                 f"[yellow]Using default settings. Run `jp config-fix` to repair.[/yellow]",
-                border_style="red"
+                border_style="red",
             )
         )
     else:
@@ -139,6 +139,7 @@ def main(
             sorted(meta.env_overrides),
             runtime.trace_id,
         )
+
 
 @app.command("com")
 def command_catalog() -> None:
@@ -163,7 +164,9 @@ def command_catalog() -> None:
 @app.command("doctor")
 def doctor(
     ctx: typer.Context,
-    tool: list[str] | None = typer.Option(None, "--tool", "-t", help="Check only specific tools (name or binary)."),
+    tool: list[str] | None = typer.Option(
+        None, "--tool", "-t", help="Check only specific tools (name or binary)."
+    ),
 ) -> None:
     """Inspect external dependencies in parallel."""
     state: AppState = ctx.obj
@@ -188,7 +191,9 @@ def doctor(
     for result in tool_results:
         style = style_map.get(result.status, "white")
         message = result.version or result.message or result.tool.install_hint or ""
-        tools_branch.add(f"[{style}]{result.status}[/{style}] {result.tool.name} ({result.tool.binary}) {message}".strip())
+        tools_branch.add(
+            f"[{style}]{result.status}[/{style}] {result.tool.name} ({result.tool.binary}) {message}".strip()
+        )
 
     console.print(tree)
 
@@ -224,6 +229,7 @@ def show_config(ctx: typer.Context) -> None:
 def show_version() -> None:
     """Print the jpscripts version."""
     console.print(__version__)
+
 
 def _register_commands() -> None:
     commands_path = Path(__file__).resolve().parent / "commands"

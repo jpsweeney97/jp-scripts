@@ -22,12 +22,13 @@ Usage:
 from __future__ import annotations
 
 import contextvars
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Iterator
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 if TYPE_CHECKING:
@@ -97,7 +98,7 @@ class CircuitBreaker:
 
     @staticmethod
     def _count_unique_files(files_touched: list[Path]) -> int:
-        return len({path for path in files_touched})
+        return len(set(files_touched))
 
 
 @dataclass

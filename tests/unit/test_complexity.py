@@ -11,7 +11,7 @@ from jpscripts.core.complexity import (
     McCabeVisitor,
     analyze_file_complexity_sync,
 )
-from jpscripts.core.result import Ok, Err
+from jpscripts.core.result import Err, Ok
 
 
 class TestMcCabeVisitor:

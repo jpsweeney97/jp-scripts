@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 import os
 import tomllib
+from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 from unittest.mock import patch
 
 from pydantic import Field, ValidationError
@@ -42,16 +43,34 @@ class AppConfig(BaseSettings):
     notes_dir: Path = Field(default_factory=lambda: Path.home() / "Notes" / "quick-notes")
     workspace_root: Path = Field(default_factory=lambda: Path.home() / "Projects")
     default_model: str = Field(default="claude-opus-4-5", description="Default Codex/LLM model.")
-    memory_store: Path = Field(default_factory=lambda: Path.home() / ".jp_memory.sqlite", description="Path to the memory store file.")
-    memory_model: str = Field(default="all-MiniLM-L6-v2", description="Embedding model for semantic memory search.")
-    embedding_server_url: str | None = Field(default=None, description="Preferred local embedding HTTP endpoint, used before loading local weights.")
-    use_semantic_search: bool = Field(default=True, description="Enable semantic search with embeddings.")
+    memory_store: Path = Field(
+        default_factory=lambda: Path.home() / ".jp_memory.sqlite",
+        description="Path to the memory store file.",
+    )
+    memory_model: str = Field(
+        default="all-MiniLM-L6-v2", description="Embedding model for semantic memory search."
+    )
+    embedding_server_url: str | None = Field(
+        default=None,
+        description="Preferred local embedding HTTP endpoint, used before loading local weights.",
+    )
+    use_semantic_search: bool = Field(
+        default=True, description="Enable semantic search with embeddings."
+    )
     model_context_limits: dict[str, int] = Field(
-        default_factory=lambda: {"claude-opus-4-5": 200_000, "gpt-4-turbo": 32_000, "default": 50_000},
+        default_factory=lambda: {
+            "claude-opus-4-5": 200_000,
+            "gpt-4-turbo": 32_000,
+            "default": 50_000,
+        },
         description="Per-model soft context limits used for prompt construction.",
     )
-    max_file_context_chars: int = Field(default=50000, description="Maximum characters to read when attaching file context.")
-    max_command_output_chars: int = Field(default=20000, description="Maximum characters from captured command output for prompts.")
+    max_file_context_chars: int = Field(
+        default=50000, description="Maximum characters to read when attaching file context."
+    )
+    max_command_output_chars: int = Field(
+        default=20000, description="Maximum characters from captured command output for prompts."
+    )
     git_status_timeout: float = Field(default=5.0, description="Timeout for gathering git context.")
     ignore_dirs: list[str] = Field(
         default_factory=lambda: [
@@ -68,15 +87,34 @@ class AppConfig(BaseSettings):
     )
     snapshots_dir: Path = Field(default_factory=lambda: Path.home() / "snapshots")
     log_level: str = Field(default="INFO", description="Log level for jp output.")
-    worktree_root: Path | None = Field(default=None, description="Optional location for Git worktrees.")
-    focus_audio_device: str | None = Field(default=None, description="Preferred audio device for focus helpers.")
-    dry_run: bool = Field(default=False, description="If true, performs dry-run operations without side effects.")
-    trace_dir: Path = Field(default_factory=lambda: Path.home() / ".jpscripts" / "traces", description="Directory for agent trace logs.")
-    use_docker_sandbox: bool = Field(default=False, description="Execute safe shell commands inside a Docker sandbox.")
-    docker_image: str = Field(default="python:3.11-slim", description="Docker image used when sandboxing commands.")
-    otel_endpoint: str | None = Field(default=None, description="OTLP endpoint for exporting traces.")
-    otel_service_name: str = Field(default="jpscripts", description="Service name used for OpenTelemetry spans.")
-    otel_export_enabled: bool = Field(default=False, description="Enable OTLP tracing export when true.")
+    worktree_root: Path | None = Field(
+        default=None, description="Optional location for Git worktrees."
+    )
+    focus_audio_device: str | None = Field(
+        default=None, description="Preferred audio device for focus helpers."
+    )
+    dry_run: bool = Field(
+        default=False, description="If true, performs dry-run operations without side effects."
+    )
+    trace_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".jpscripts" / "traces",
+        description="Directory for agent trace logs.",
+    )
+    use_docker_sandbox: bool = Field(
+        default=False, description="Execute safe shell commands inside a Docker sandbox."
+    )
+    docker_image: str = Field(
+        default="python:3.11-slim", description="Docker image used when sandboxing commands."
+    )
+    otel_endpoint: str | None = Field(
+        default=None, description="OTLP endpoint for exporting traces."
+    )
+    otel_service_name: str = Field(
+        default="jpscripts", description="Service name used for OpenTelemetry spans."
+    )
+    otel_export_enabled: bool = Field(
+        default=False, description="Enable OTLP tracing export when true."
+    )
 
     @classmethod
     def settings_customise_sources(
@@ -152,7 +190,9 @@ def load_config(
     except ConfigError as exc:
         error = str(exc)
 
-    context_manager = patch.dict(os.environ, env_vars, clear=False) if env is not None else nullcontext()
+    context_manager = (
+        patch.dict(os.environ, env_vars, clear=False) if env is not None else nullcontext()
+    )
 
     try:
         with context_manager:

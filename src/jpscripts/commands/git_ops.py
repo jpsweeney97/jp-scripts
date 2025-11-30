@@ -11,8 +11,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core import git as git_core
-from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.console import console
+from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.result import Err, GitError, Ok, Result
 
 
@@ -67,11 +67,15 @@ def _render_status_table(ctx: _StatusContext, statuses: list[git_core.BranchStat
         dirty = "[yellow]dirty[/]" if status.dirty else "[green]clean[/]"
         upstream = status.upstream or "none"
         ahead_behind = f"{status.ahead}/{status.behind}"
-        changes = f"{status.staged} staged, {status.unstaged} unstaged, {status.untracked} untracked"
+        changes = (
+            f"{status.staged} staged, {status.unstaged} unstaged, {status.untracked} untracked"
+        )
 
         row_style = "red" if status.error else None
         branch_display = branch if not status.error else f"{branch} ({status.error})"
-        table.add_row(repo_name, branch_display, dirty, upstream, ahead_behind, changes, style=row_style)
+        table.add_row(
+            repo_name, branch_display, dirty, upstream, ahead_behind, changes, style=row_style
+        )
 
     return table
 
@@ -81,6 +85,7 @@ async def _collect_statuses(repo_paths: list[Path], root: Path) -> list[git_core
     results: list[git_core.BranchStatus] = []
 
     with Live(_render_status_table(ctx, results), console=console, refresh_per_second=4) as live:
+
         async def worker(path: Path) -> None:
             status = await _describe_repo(path)
             results.append(status)
@@ -100,7 +105,9 @@ def status_all(
         "-r",
         help="Root directory to scan for git repositories (defaults to worktree_root or workspace_root).",
     ),
-    max_depth: int = typer.Option(2, "--max-depth", help="Maximum depth to search for repositories."),
+    max_depth: int = typer.Option(
+        2, "--max-depth", help="Maximum depth to search for repositories."
+    ),
 ) -> None:
     """Summarize git status across repositories with a live-updating table."""
     state = ctx.obj
@@ -118,7 +125,9 @@ def status_all(
         case Ok(repo_paths):
             pass
     if not repo_paths:
-        console.print(f"[yellow]No git repositories found under {base_root} (max depth {max_depth}).[/yellow]")
+        console.print(
+            f"[yellow]No git repositories found under {base_root} (max depth {max_depth}).[/yellow]"
+        )
         return
 
     state.logger.debug("Scanning %s repositories under %s", len(repo_paths), base_root)
@@ -139,7 +148,9 @@ def whatpush(
     """Show what will be pushed to the upstream branch."""
     repo_path = repo_path.expanduser()
 
-    async def _collect() -> Result[tuple[git_core.BranchStatus, list[git_core.GitCommit], str], GitError]:
+    async def _collect() -> Result[
+        tuple[git_core.BranchStatus, list[git_core.GitCommit], str], GitError
+    ]:
         match await git_core.AsyncRepo.open(repo_path):
             case Err(err):
                 return Err(err)
@@ -190,13 +201,20 @@ def whatpush(
     console.print(summary)
 
     if status.behind:
-        console.print(Panel.fit(f"Behind upstream by {status.behind} commits. Pull or rebase recommended.", style="yellow"))
+        console.print(
+            Panel.fit(
+                f"Behind upstream by {status.behind} commits. Pull or rebase recommended.",
+                style="yellow",
+            )
+        )
 
     if not commits:
         console.print("[green]Nothing to push.[/green]")
         return
 
-    commits_table = Table(title=f"Commits to push (showing up to {max_commits})", box=box.SIMPLE_HEAVY, expand=True)
+    commits_table = Table(
+        title=f"Commits to push (showing up to {max_commits})", box=box.SIMPLE_HEAVY, expand=True
+    )
     commits_table.add_column("SHA", style="cyan", no_wrap=True)
     commits_table.add_column("Summary", style="white")
     commits_table.add_column("Author", style="white", no_wrap=True)
@@ -214,6 +232,7 @@ def whatpush(
 
     if diffstat.strip():
         console.print(Panel(diffstat, title="Diffstat", box=box.SIMPLE))
+
 
 async def _fetch_repo(path: Path) -> str:
     """Run git fetch on all remotes and return a status string."""
@@ -234,13 +253,16 @@ async def _fetch_repo(path: Path) -> str:
         )
         try:
             stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=10)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             process.kill()
             await process.communicate()
             return "[red]fetched (timeout)[/]"
 
         if process.returncode != 0:
-            message = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+            message = (
+                stderr.decode("utf-8", errors="replace").strip()
+                or stdout.decode("utf-8", errors="replace").strip()
+            )
             return f"[red]failed: {message or 'git fetch failed'}[/]"
 
         return "[green]fetched[/]"
@@ -296,7 +318,7 @@ def sync(
             async with sem:
                 try:
                     res = await asyncio.wait_for(_fetch_repo(path), timeout=10)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     res = "[red]fetched (timeout)[/]"
                 results.append((path, res))
 

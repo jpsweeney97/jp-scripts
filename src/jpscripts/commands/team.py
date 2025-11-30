@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 import typer
 from rich.layout import Layout
@@ -30,7 +31,13 @@ def _agent_panel(role: Persona, log_lines: list[str], status: str) -> Panel:
     return Panel(body, title=title, border_style=role.color or "white", padding=(1, 2))
 
 
-def _render_layout(objective: str, roles: Iterable[Persona], logs: dict[Persona, list[str]], statuses: dict[Persona, str], safe_mode: bool) -> Layout:
+def _render_layout(
+    objective: str,
+    roles: Iterable[Persona],
+    logs: dict[Persona, list[str]],
+    statuses: dict[Persona, str],
+    safe_mode: bool,
+) -> Layout:
     layout = Layout()
     header = Panel(
         f"[bold]Objective[/bold]: {objective}",
@@ -40,14 +47,19 @@ def _render_layout(objective: str, roles: Iterable[Persona], logs: dict[Persona,
     )
     layout.split_column(Layout(header, name="header", size=5), Layout(name="agents"))
 
-    agent_layouts = [Layout(_agent_panel(role, logs[role], statuses.get(role, "…")), name=role.name.lower()) for role in roles]
+    agent_layouts = [
+        Layout(_agent_panel(role, logs[role], statuses.get(role, "…")), name=role.name.lower())
+        for role in roles
+    ]
     layout["agents"].split_row(*agent_layouts)
     return layout
 
 
-async def _run_swarm(objective: str, roles: list[Persona], state: AppState, safe_mode: bool) -> None:
+async def _run_swarm(
+    objective: str, roles: list[Persona], state: AppState, safe_mode: bool
+) -> None:
     logs: dict[Persona, list[str]] = {role: [] for role in roles}
-    statuses: dict[Persona, str] = {role: "queued" for role in roles}
+    statuses: dict[Persona, str] = dict.fromkeys(roles, "queued")
 
     with Live(
         _render_layout(objective, roles, logs, statuses, safe_mode),
@@ -96,11 +108,15 @@ def swarm(
         try:
             content = codex_config.read_text(encoding="utf-8")
             if "jpscripts" not in content.lower():
-                console.print("[yellow]Warning: `jpscripts` MCP server may not be configured in Codex. Agents might lack tools. Run `codex mcp add jpscripts ...` to fix.[/yellow]")
+                console.print(
+                    "[yellow]Warning: `jpscripts` MCP server may not be configured in Codex. Agents might lack tools. Run `codex mcp add jpscripts ...` to fix.[/yellow]"
+                )
         except OSError:
             pass
     else:
-        console.print("[yellow]Warning: `jpscripts` MCP server may not be configured in Codex. Agents might lack tools. Run `codex mcp add jpscripts ...` to fix.[/yellow]")
+        console.print(
+            "[yellow]Warning: `jpscripts` MCP server may not be configured in Codex. Agents might lack tools. Run `codex mcp add jpscripts ...` to fix.[/yellow]"
+        )
 
     try:
         asyncio.run(_run_swarm(objective, roles, state, safe_mode_active))

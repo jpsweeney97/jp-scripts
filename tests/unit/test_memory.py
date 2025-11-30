@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-
 from typing import Any
 
 from jpscripts.core import memory as memory_core
@@ -11,13 +10,17 @@ from jpscripts.core.result import Ok
 
 
 def _dummy_config(store: Path, use_semantic: bool = False) -> AppConfig:
-    return AppConfig(memory_store=store, use_semantic_search=use_semantic, memory_model="fake-model")
+    return AppConfig(
+        memory_store=store, use_semantic_search=use_semantic, memory_model="fake-model"
+    )
 
 
 def test_save_memory_writes_fallback(tmp_path: Path) -> None:
     store = tmp_path / "mem.lance"
     fallback = store.with_suffix(".jsonl")
-    entry = memory_core.save_memory("Learned X", tags=["tag1"], config=_dummy_config(store), store_path=store)
+    entry = memory_core.save_memory(
+        "Learned X", tags=["tag1"], config=_dummy_config(store), store_path=store
+    )
 
     assert fallback.exists()
     content = fallback.read_text(encoding="utf-8").strip().splitlines()
@@ -53,7 +56,9 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
     memory_core._write_entries(fallback, [base_entry])
 
     class FakeEmbeddingClient:
-        def __init__(self, model_name: str, *, enabled: bool = True, server_url: str | None = None) -> None:
+        def __init__(
+            self, model_name: str, *, enabled: bool = True, server_url: str | None = None
+        ) -> None:
             self.called = False
             self.model_name = model_name
             self.enabled = enabled
@@ -77,7 +82,9 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
         def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
             return Ok(entry)
 
-        def search(self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None) -> Ok[list[memory_core.MemoryEntry]]:
+        def search(
+            self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None
+        ) -> Ok[list[memory_core.MemoryEntry]]:
             return Ok(
                 [
                     memory_core.MemoryEntry(
@@ -97,7 +104,9 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
     monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
     monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
 
-    results = memory_core.query_memory("vector", config=_dummy_config(store, use_semantic=True), store_path=store)
+    results = memory_core.query_memory(
+        "vector", config=_dummy_config(store, use_semantic=True), store_path=store
+    )
     assert results
     assert "vector match" in results[0]
 
@@ -126,7 +135,9 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
     memory_core._write_entries(fallback, [vector_entry, keyword_entry])
 
     class FakeEmbeddingClient:
-        def __init__(self, model_name: str, *, enabled: bool = True, server_url: str | None = None) -> None:
+        def __init__(
+            self, model_name: str, *, enabled: bool = True, server_url: str | None = None
+        ) -> None:
             self.model_name = model_name
             self.enabled = enabled
             self.server_url = server_url
@@ -148,7 +159,9 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
         def add(self, entry: memory_core.MemoryEntry) -> Ok[memory_core.MemoryEntry]:
             return Ok(entry)
 
-        def search(self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None) -> Ok[list[memory_core.MemoryEntry]]:
+        def search(
+            self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None
+        ) -> Ok[list[memory_core.MemoryEntry]]:
             return Ok([vector_entry])
 
         def prune(self, _root: Path) -> Ok[int]:
@@ -158,7 +171,9 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
     monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
     monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
 
-    results = memory_core.query_memory("banana", config=_dummy_config(store, use_semantic=True), store_path=store, limit=5)
+    results = memory_core.query_memory(
+        "banana", config=_dummy_config(store, use_semantic=True), store_path=store, limit=5
+    )
     assert results
     assert any("vector only" in item for item in results)
     assert any("keyword only" in item for item in results)

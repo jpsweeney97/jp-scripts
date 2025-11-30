@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator
 
 from jpscripts.core.result import Err, NavigationError, Ok, Result
 
@@ -17,7 +17,9 @@ class RecentEntry:
     is_dir: bool
 
 
-def _scan_recent_sync(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> list[RecentEntry]:
+def _scan_recent_sync(
+    root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]
+) -> list[RecentEntry]:
     """Synchronous implementation of the scan."""
     entries: list[RecentEntry] = []
     stack: list[tuple[Path, int]] = [(root, 0)]
@@ -37,7 +39,9 @@ def _scan_recent_sync(root: Path, max_depth: int, include_dirs: bool, ignore_dir
                         continue
 
                     if include_dirs or not is_dir:
-                        entries.append(RecentEntry(path=Path(entry.path), mtime=mtime, is_dir=is_dir))
+                        entries.append(
+                            RecentEntry(path=Path(entry.path), mtime=mtime, is_dir=is_dir)
+                        )
 
                     if is_dir and depth < max_depth:
                         stack.append((Path(entry.path), depth + 1))
@@ -91,7 +95,9 @@ async def _scan_recent_with_rg(
     rg = shutil.which("rg")
     if not rg:
         try:
-            scanned_entries = await asyncio.to_thread(_scan_recent_sync, root, max_depth, include_dirs, ignore_dirs)
+            scanned_entries = await asyncio.to_thread(
+                _scan_recent_sync, root, max_depth, include_dirs, ignore_dirs
+            )
         except OSError as exc:
             return Err(
                 NavigationError(
@@ -122,7 +128,11 @@ async def _scan_recent_with_rg(
     except FileNotFoundError:
         return Err(NavigationError("ripgrep executable not found", context={"root": str(root)}))
     except Exception as exc:
-        return Err(NavigationError("Failed to start ripgrep", context={"root": str(root), "error": str(exc)}))
+        return Err(
+            NavigationError(
+                "Failed to start ripgrep", context={"root": str(root), "error": str(exc)}
+            )
+        )
 
     if proc.stdout is None:
         return Err(NavigationError("ripgrep did not provide stdout", context={"root": str(root)}))
@@ -149,10 +159,16 @@ async def _scan_recent_with_rg(
 
         if include_dirs:
             parent = candidate.parent
-            if parent != root and parent not in entries and (len(parent.relative_to(root).parts) - 1) <= max_depth:
+            if (
+                parent != root
+                and parent not in entries
+                and (len(parent.relative_to(root).parts) - 1) <= max_depth
+            ):
                 try:
                     parent_stat = await asyncio.to_thread(parent.stat)
-                    entries[parent] = RecentEntry(path=parent, mtime=parent_stat.st_mtime, is_dir=True)
+                    entries[parent] = RecentEntry(
+                        path=parent, mtime=parent_stat.st_mtime, is_dir=True
+                    )
                 except OSError:
                     continue
 
@@ -162,12 +178,16 @@ async def _scan_recent_with_rg(
     await proc.wait()
     if proc.returncode not in (0, None):
         error_text = stderr.decode("utf-8", errors="replace").strip() or "ripgrep scan failed"
-        return Err(NavigationError(error_text, context={"root": str(root), "returncode": proc.returncode}))
+        return Err(
+            NavigationError(error_text, context={"root": str(root), "returncode": proc.returncode})
+        )
 
     return Ok(sorted(entries.values(), key=lambda e: e.mtime, reverse=True))
 
 
-async def scan_recent(root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]) -> Result[list[RecentEntry], NavigationError]:
+async def scan_recent(
+    root: Path, max_depth: int, include_dirs: bool, ignore_dirs: set[str]
+) -> Result[list[RecentEntry], NavigationError]:
     """
     Async wrapper for filesystem scanning using ripgrep when available.
     """

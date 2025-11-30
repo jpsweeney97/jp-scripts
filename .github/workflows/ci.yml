@@ -14,10 +14,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install ruff
-        run: pip install ruff
-      - name: Run ruff
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Check formatting
+        run: ruff format --check src tests
+      - name: Run ruff linter
         run: ruff check src tests
+      - name: Run mypy
+        run: mypy src
+
+  constitution:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Enforce Constitution
+        run: python scripts/enforce_constitution.py
 
   test:
     runs-on: ubuntu-latest
@@ -27,8 +43,7 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies
-        run: |
-          pip install -e ".[dev]"
+        run: pip install -e ".[dev]"
       - name: Run tests
         run: pytest tests/ -v --tb=short
 

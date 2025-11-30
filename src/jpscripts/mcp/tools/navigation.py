@@ -26,7 +26,10 @@ async def list_recent_files(limit: int = 20) -> str:
         case Err(err):
             return f"Error scanning recent files: {err.message}"
         case Ok(entries):
-            lines = [f"{e.path.relative_to(root) if e.path.is_relative_to(root) else e.path}" for e in entries[:limit]]
+            lines = [
+                f"{e.path.relative_to(root) if e.path.is_relative_to(root) else e.path}"
+                for e in entries[:limit]
+            ]
 
     query_hint = " ".join(Path(line).stem for line in lines[:5]) or Path.cwd().name
 

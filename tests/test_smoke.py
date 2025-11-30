@@ -5,34 +5,39 @@ from pathlib import Path
 from typing import Any
 
 import click
-from typer.testing import CliRunner
 from typer.main import get_command
+from typer.testing import CliRunner
 
-from jpscripts import __version__
 import jpscripts.commands.handbook as handbook_cmd
 import jpscripts.core.diagnostics as diagnostics
+from jpscripts import __version__
 from jpscripts.core.security import validate_path
 from jpscripts.main import app
 
 runner = CliRunner()
+
 
 def test_app_version() -> None:
     result = runner.invoke(app, ["version"])
     assert result.exit_code == 0
     assert __version__ in result.stdout
 
+
 def test_doctor_mocked(monkeypatch: Any) -> None:
     """Ensure doctor runs without crashing even if tools are missing."""
     tool = diagnostics.ExternalTool(name="mock", binary="mock-bin", required=False)
     fake = diagnostics.ToolCheck(tool=tool, status="ok", version="1.0.0")
 
-    async def fake_run(_tools: list[diagnostics.ExternalTool] | None = None) -> list[diagnostics.ToolCheck]:
+    async def fake_run(
+        _tools: list[diagnostics.ExternalTool] | None = None,
+    ) -> list[diagnostics.ToolCheck]:
         return [fake]
 
     monkeypatch.setattr(diagnostics, "_run_doctor", fake_run)
     result = runner.invoke(app, ["doctor"])
     assert result.exit_code == 0
     assert "mock" in result.stdout
+
 
 def test_all_commands_have_help() -> None:
     """
@@ -48,6 +53,7 @@ def test_all_commands_have_help() -> None:
             assert result.exit_code == 0, f"Command 'jp {name} --help' failed!"
             assert "Usage:" in result.stdout
 
+
 def test_init_command(isolate_config: Path) -> None:
     """Ensure init generates a config file."""
     # We pipe 'input' to simulate pressing Enter for all defaults
@@ -57,6 +63,7 @@ def test_init_command(isolate_config: Path) -> None:
     assert isolate_config.exists()
     content = isolate_config.read_text()
     assert 'editor = "code -w"' in content
+
 
 def test_handbook_semantic_query(monkeypatch: Any) -> None:
     """Ensure handbook semantic search runs without crashing and caches the index."""
@@ -106,5 +113,6 @@ def test_mcp_server_imports() -> None:
     This catches missing imports (like the Iterable bug) that would crash the server.
     """
     from jpscripts.mcp.server import create_server
+
     server = create_server()
     assert server is not None

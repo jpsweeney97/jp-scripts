@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Sequence
 
 from jpscripts.core.result import Err, GitError, Ok, Result
 
@@ -229,7 +229,7 @@ class AsyncRepo:
         return self._root
 
     @classmethod
-    async def open(cls, path: Path | str = ".") -> Result["AsyncRepo", GitError]:
+    async def open(cls, path: Path | str = ".") -> Result[AsyncRepo, GitError]:
         root = Path(path).expanduser()
         match await _resolve_worktree(root):
             case Ok(resolved_root):
@@ -259,7 +259,9 @@ class AsyncRepo:
             case Err(err):
                 return Err(err)
 
-    async def add(self, *, all: bool = False, paths: Sequence[Path] | None = None) -> Result[None, GitError]:
+    async def add(
+        self, *, all: bool = False, paths: Sequence[Path] | None = None
+    ) -> Result[None, GitError]:
         args: list[str] = ["add"]
         if all:
             args.append("--all")
@@ -511,11 +513,7 @@ class AsyncRepo:
         """
         match await _run_git(self._root, "diff", "--name-only", "--diff-filter=U"):
             case Ok(output):
-                files = [
-                    self._root / line.strip()
-                    for line in output.splitlines()
-                    if line.strip()
-                ]
+                files = [self._root / line.strip() for line in output.splitlines() if line.strip()]
                 return Ok(files)
             case Err(err):
                 return Err(err)
@@ -574,11 +572,16 @@ async def is_repo(path: Path | str = ".") -> Result[bool, GitError]:
     except FileNotFoundError:
         return Err(GitError("git executable not found on PATH", context={"path": str(target)}))
     except Exception as exc:
-        return Err(GitError("Failed to check repository", context={"path": str(target), "error": str(exc)}))
+        return Err(
+            GitError("Failed to check repository", context={"path": str(target), "error": str(exc)})
+        )
 
     stdout, stderr = await process.communicate()
     if process.returncode != 0:
-        message = stderr.decode("utf-8", errors="replace").strip() or stdout.decode("utf-8", errors="replace").strip()
+        message = (
+            stderr.decode("utf-8", errors="replace").strip()
+            or stdout.decode("utf-8", errors="replace").strip()
+        )
         return Err(GitError(message or "Not a git repository", context={"path": str(target)}))
     return Ok(stdout.decode("utf-8", errors="replace").strip() == "true")
 
@@ -606,6 +609,11 @@ async def iter_git_repos(root: Path, max_depth: int = 2) -> Result[list[Path], G
     try:
         repos = await asyncio.to_thread(_scan)
     except OSError as exc:
-        return Err(GitError("Failed to scan for git repositories", context={"root": str(root), "error": str(exc)}))
+        return Err(
+            GitError(
+                "Failed to scan for git repositories",
+                context={"root": str(root), "error": str(exc)},
+            )
+        )
 
     return Ok(repos)

@@ -5,9 +5,9 @@ import os
 import shutil
 import tomllib
 from abc import ABC, abstractmethod
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
 
 from pydantic import BaseModel, Field
 
@@ -57,7 +57,10 @@ class ConfigCheck(DiagnosticCheck):
         elif self.config_path:
             issues.append(f"Config file missing: {self.config_path}")
 
-        for label, path in (("workspace_root", self.config.workspace_root), ("notes_dir", self.config.notes_dir)):
+        for label, path in (
+            ("workspace_root", self.config.workspace_root),
+            ("notes_dir", self.config.notes_dir),
+        ):
             expanded = path.expanduser()
             if not expanded.exists():
                 issues.append(f"{label} missing: {expanded}")
@@ -131,12 +134,28 @@ class MCPCheck(DiagnosticCheck):
 
 
 DEFAULT_TOOLS: list[ExternalTool] = [
-    ExternalTool(name="Git", binary="git", install_hint="Install via your package manager (brew, apt, etc.)"),
-    ExternalTool(name="ripgrep", binary="rg", install_hint="Install via your package manager (brew, apt, etc.)"),
-    ExternalTool(name="fzf", binary="fzf", install_hint="Install via your package manager (brew, apt, etc.)"),
-    ExternalTool(name="GitHub CLI", binary="gh", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(
+        name="Git", binary="git", install_hint="Install via your package manager (brew, apt, etc.)"
+    ),
+    ExternalTool(
+        name="ripgrep",
+        binary="rg",
+        install_hint="Install via your package manager (brew, apt, etc.)",
+    ),
+    ExternalTool(
+        name="fzf", binary="fzf", install_hint="Install via your package manager (brew, apt, etc.)"
+    ),
+    ExternalTool(
+        name="GitHub CLI",
+        binary="gh",
+        install_hint="Install via your package manager (brew, apt, etc.)",
+    ),
     ExternalTool(name="Codex", binary="codex", install_hint="npm install -g @openai/codex"),
-    ExternalTool(name="Python", binary="python3", install_hint="Install via your package manager (brew, apt, etc.)"),
+    ExternalTool(
+        name="Python",
+        binary="python3",
+        install_hint="Install via your package manager (brew, apt, etc.)",
+    ),
     ExternalTool(name="Homebrew", binary="brew", install_hint="macOS: https://brew.sh"),
     ExternalTool(
         name="System Clipboard",
@@ -145,7 +164,12 @@ DEFAULT_TOOLS: list[ExternalTool] = [
         required=False,
     ),
     ExternalTool(name="SwitchAudioSource", binary="SwitchAudioSource", required=False),
-    ExternalTool(name="zoxide", binary="zoxide", install_hint="Install via your package manager (brew, apt, etc.)", required=False),
+    ExternalTool(
+        name="zoxide",
+        binary="zoxide",
+        install_hint="Install via your package manager (brew, apt, etc.)",
+        required=False,
+    ),
 ]
 
 
@@ -155,7 +179,9 @@ def _select_tools(names: Iterable[str] | None) -> list[ExternalTool]:
 
     requested = {name.lower() for name in names}
     selected = [
-        tool for tool in DEFAULT_TOOLS if tool.name.lower() in requested or tool.binary.lower() in requested
+        tool
+        for tool in DEFAULT_TOOLS
+        if tool.name.lower() in requested or tool.binary.lower() in requested
     ]
     return selected or DEFAULT_TOOLS
 
@@ -181,7 +207,9 @@ async def _check_tool(tool: ExternalTool) -> ToolCheck:
     version = output.splitlines()[0] if output else None
 
     if process.returncode != 0:
-        return ToolCheck(tool=tool, status="error", version=version, message=output or "version command failed")
+        return ToolCheck(
+            tool=tool, status="error", version=version, message=output or "version command failed"
+        )
 
     return ToolCheck(tool=tool, status="ok", version=version, message=None)
 
@@ -191,7 +219,9 @@ async def _run_doctor(tools: list[ExternalTool]) -> list[ToolCheck]:
     return await asyncio.gather(*tasks)
 
 
-async def _run_deep_checks(config: AppConfig, config_path: Path | None) -> list[tuple[str, str, str]]:
+async def _run_deep_checks(
+    config: AppConfig, config_path: Path | None
+) -> list[tuple[str, str, str]]:
     diag_checks: list[DiagnosticCheck] = [
         ConfigCheck(config, config_path),
         AuthCheck(config),
@@ -199,7 +229,10 @@ async def _run_deep_checks(config: AppConfig, config_path: Path | None) -> list[
         MCPCheck(),
     ]
     results = await asyncio.gather(*(check.run() for check in diag_checks))
-    return [(check.name, status, message) for check, (status, message) in zip(diag_checks, results, strict=True)]
+    return [
+        (check.name, status, message)
+        for check, (status, message) in zip(diag_checks, results, strict=True)
+    ]
 
 
 async def run_diagnostics_suite(

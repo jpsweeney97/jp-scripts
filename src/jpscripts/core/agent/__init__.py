@@ -9,19 +9,18 @@ Public API:
     - PreparedPrompt: Container for prepared prompts (from engine)
     - parse_agent_response: Parse JSON agent responses (from engine)
 """
+
 from __future__ import annotations
 
-# Re-export from engine for backwards compatibility
-from jpscripts.core.engine import (
-    PreparedPrompt,
-    parse_agent_response,
-)
-
-# Export from prompting module
-from jpscripts.core.agent.prompting import (
-    AGENT_TEMPLATE_NAME,
-    GOVERNANCE_ANTI_PATTERNS,
-    prepare_agent_prompt,
+# Export context helpers for internal use and test patching
+from jpscripts.core.agent.context import (
+    build_dependency_section,
+    build_file_context_section,
+    collect_git_context,
+    collect_git_diff,
+    expand_context_paths,
+    load_constitution,
+    scan_recent,
 )
 
 # Export from execution module
@@ -35,15 +34,17 @@ from jpscripts.core.agent.execution import (
     run_repair_loop,
 )
 
-# Export context helpers for internal use and test patching
-from jpscripts.core.agent.context import (
-    build_dependency_section,
-    build_file_context_section,
-    collect_git_context,
-    collect_git_diff,
-    expand_context_paths,
-    load_constitution,
-    scan_recent,
+# Export from prompting module
+from jpscripts.core.agent.prompting import (
+    AGENT_TEMPLATE_NAME,
+    GOVERNANCE_ANTI_PATTERNS,
+    prepare_agent_prompt,
+)
+
+# Re-export from engine for backwards compatibility
+from jpscripts.core.engine import (
+    PreparedPrompt,
+    parse_agent_response,
 )
 
 __all__ = [

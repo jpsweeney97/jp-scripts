@@ -6,7 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.context import TokenCounter, TokenBudgetManager, TRUNCATION_MARKER, get_file_skeleton, read_file_context, smart_read_context
+from jpscripts.core.context import (
+    TRUNCATION_MARKER,
+    TokenBudgetManager,
+    TokenCounter,
+    get_file_skeleton,
+    read_file_context,
+    smart_read_context,
+)
 
 
 class MockTokenCounter(TokenCounter):
@@ -40,13 +47,7 @@ def test_read_file_context_handles_binary(tmp_path: Path) -> None:
 
 
 def test_smart_read_context_aligns_to_definition(tmp_path: Path) -> None:
-    source = (
-        "def first():\n"
-        "    return 'a'\n"
-        "\n"
-        "def second():\n"
-        "    return 'b'\n"
-    )
+    source = "def first():\n    return 'a'\n\ndef second():\n    return 'b'\n"
     path = tmp_path / "module.py"
     path.write_text(source, encoding="utf-8")
 
@@ -170,7 +171,9 @@ class TestTokenBudgetManagerTruncation:
     """Tests for content truncation behavior."""
 
     def test_truncate_adds_marker(self) -> None:
-        mgr = TokenBudgetManager(total_budget=25, token_counter=MockTokenCounter())  # Less than content length
+        mgr = TokenBudgetManager(
+            total_budget=25, token_counter=MockTokenCounter()
+        )  # Less than content length
         content = "line1\nline2\nline3\nline4\nline5\n"  # 30 chars
         result = mgr.allocate(1, content)
         assert TRUNCATION_MARKER in result
@@ -183,7 +186,9 @@ class TestTokenBudgetManagerTruncation:
         assert result.startswith("short")
 
     def test_truncate_too_small_returns_empty(self) -> None:
-        mgr = TokenBudgetManager(total_budget=5, token_counter=MockTokenCounter())  # Less than marker length
+        mgr = TokenBudgetManager(
+            total_budget=5, token_counter=MockTokenCounter()
+        )  # Less than marker length
         result = mgr.allocate(1, "some content")
         assert result == ""
 
@@ -200,7 +205,9 @@ class TestTokenBudgetManagerTracking:
         assert mgr.remaining() == 90
 
     def test_reserved_reduces_available(self) -> None:
-        mgr = TokenBudgetManager(total_budget=100, reserved_budget=30, token_counter=MockTokenCounter())
+        mgr = TokenBudgetManager(
+            total_budget=100, reserved_budget=30, token_counter=MockTokenCounter()
+        )
         assert mgr.remaining() == 70
 
     def test_summary_tracks_by_priority(self) -> None:

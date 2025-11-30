@@ -70,7 +70,10 @@ def get_tool_metadata(obj: object) -> dict[str, Any] | None:
 
 
 def _extract_error_path(
-    exc: BaseException, args: tuple[Any, ...], kwargs: dict[str, Any], fn: Callable[..., Awaitable[str]]
+    exc: BaseException,
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    fn: Callable[..., Awaitable[str]],
 ) -> str:
     candidate: str | Path | None = None
 
@@ -124,11 +127,17 @@ def tool_error_handler(fn: ToolAsyncCallable[P]) -> ToolAsyncCallable[P]:
         except asyncio.CancelledError:
             raise
         except FileNotFoundError as exc:
-            return _format_error("FileNotFound", str(exc), _extract_error_path(exc, args, kwargs, fn))
+            return _format_error(
+                "FileNotFound", str(exc), _extract_error_path(exc, args, kwargs, fn)
+            )
         except PermissionError as exc:
-            return _format_error("PermissionDenied", str(exc), _extract_error_path(exc, args, kwargs, fn))
+            return _format_error(
+                "PermissionDenied", str(exc), _extract_error_path(exc, args, kwargs, fn)
+            )
         except IsADirectoryError as exc:
-            return _format_error("IsADirectory", str(exc), _extract_error_path(exc, args, kwargs, fn))
+            return _format_error(
+                "IsADirectory", str(exc), _extract_error_path(exc, args, kwargs, fn)
+            )
         except Exception as exc:
             logger.exception("Unhandled error in tool %s", fn.__name__)
             return _format_error(
@@ -137,7 +146,7 @@ def tool_error_handler(fn: ToolAsyncCallable[P]) -> ToolAsyncCallable[P]:
                 _extract_error_path(exc, args, kwargs, fn),
             )
 
-    setattr(wrapper, "__tool_error_handler__", True)
+    wrapper.__tool_error_handler__ = True  # type: ignore[attr-defined]  # custom marker attr
     return wrapper
 
 

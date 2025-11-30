@@ -12,21 +12,24 @@ from pydantic import BaseModel
 from rich import box
 from rich.table import Table
 
+from jpscripts.commands.ui import fzf_select_async
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core import security
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.result import Err, GitError, Ok, Result
-from jpscripts.commands.ui import fzf_select_async
 
 app = typer.Typer()
 T = TypeVar("T")
 
 
-def _pick_with_fzf(lines: list[str], prompt: str, extra_args: list[str] | None = None) -> str | list[str] | None:
+def _pick_with_fzf(
+    lines: list[str], prompt: str, extra_args: list[str] | None = None
+) -> str | list[str] | None:
     """Wrapper to run fzf selection without blocking the main thread."""
     return asyncio.run(fzf_select_async(lines, prompt=prompt, extra_args=extra_args))
+
 
 class PullRequest(BaseModel):
     number: int
@@ -67,7 +70,9 @@ async def _run_passthrough_command(*args: str) -> None:
     )
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        error_text = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+        error_text = stderr.decode("utf-8", errors="replace") or stdout.decode(
+            "utf-8", errors="replace"
+        )
         raise RuntimeError(error_text or f"{args[0]} command failed")
 
 
@@ -88,6 +93,7 @@ def gundo_last(
 
 
 app.command("gundo-last")(gundo_last)
+
 
 @handle_exceptions
 def gstage(
@@ -193,6 +199,7 @@ async def gpr(
 
 app.command("gpr")(gpr)
 
+
 async def _get_prs(limit: int) -> list[PullRequest]:
     if not shutil.which("gh"):
         raise RuntimeError("GitHub CLI (gh) is required.")
@@ -210,7 +217,9 @@ async def _get_prs(limit: int) -> list[PullRequest]:
 
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
-        error_text = stderr.decode("utf-8", errors="replace") or stdout.decode("utf-8", errors="replace")
+        error_text = stderr.decode("utf-8", errors="replace") or stdout.decode(
+            "utf-8", errors="replace"
+        )
         raise RuntimeError(f"gh failed: {error_text}")
 
     data = json.loads(stdout.decode("utf-8"))

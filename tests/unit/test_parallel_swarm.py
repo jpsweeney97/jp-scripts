@@ -7,16 +7,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-import asyncio
 import pytest
 
-from jpscripts.core.dag import DAGTask, DAGGraph, TaskStatus
-from jpscripts.core.parallel_swarm import (
-    WorktreeManager,
-    TaskResult,
-)
+from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus
 from jpscripts.core.git import AsyncRepo
-from jpscripts.core.result import Ok, Err
+from jpscripts.core.parallel_swarm import (
+    TaskResult,
+    WorktreeManager,
+)
+from jpscripts.core.result import Err, Ok
 
 
 @pytest.fixture
@@ -27,22 +26,23 @@ def temp_git_repo(tmp_path: Path) -> Path:
 
     # Initialize repo synchronously
     import subprocess
+
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=repo_path, check=True, capture_output=True
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "config", "user.name", "Test User"], cwd=repo_path, check=True, capture_output=True
     )
 
     # Create initial file and commit
     (repo_path / "README.md").write_text("# Test Repo\n")
     subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_path, check=True, capture_output=True
+        ["git", "commit", "-m", "Initial commit"], cwd=repo_path, check=True, capture_output=True
     )
 
     return repo_path
@@ -52,9 +52,7 @@ class TestWorktreeManager:
     """Test WorktreeManager class."""
 
     @pytest.mark.asyncio
-    async def test_create_and_cleanup_worktree(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_create_and_cleanup_worktree(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Create a worktree and verify cleanup."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -75,15 +73,15 @@ class TestWorktreeManager:
             assert ctx.task_id == "task-001"
             assert ctx.branch_name.startswith("swarm/")
             # Verify it's a valid git worktree
-            assert (ctx.worktree_path / ".git").exists() or (ctx.worktree_path / "README.md").exists()
+            assert (ctx.worktree_path / ".git").exists() or (
+                ctx.worktree_path / "README.md"
+            ).exists()
 
         # After context exit, worktree should be cleaned up
         # (unless preserve_on_failure is set)
 
     @pytest.mark.asyncio
-    async def test_preserve_on_failure(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_preserve_on_failure(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Worktrees should be preserved on failure when configured."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -113,9 +111,7 @@ class TestWorktreeManager:
             assert worktree_path.exists()
 
     @pytest.mark.asyncio
-    async def test_cleanup_all(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_cleanup_all(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Cleanup all worktrees."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -182,10 +178,12 @@ class TestDAGExecution:
 
     def test_detect_parallelizable_tasks(self) -> None:
         """Tasks with disjoint files should be parallelizable."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
-            DAGTask(id="task-002", objective="B", files_touched=["src/bar.py"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
+                DAGTask(id="task-002", objective="B", files_touched=["src/bar.py"]),
+            ]
+        )
 
         groups = graph.detect_disjoint_subgraphs()
         # Two disjoint groups - can run in parallel
@@ -193,10 +191,12 @@ class TestDAGExecution:
 
     def test_detect_sequential_tasks(self) -> None:
         """Tasks with overlapping files must be sequential."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
-            DAGTask(id="task-002", objective="B", files_touched=["src/foo.py"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
+                DAGTask(id="task-002", objective="B", files_touched=["src/foo.py"]),
+            ]
+        )
 
         groups = graph.detect_disjoint_subgraphs()
         # One group - must be sequential
@@ -205,10 +205,12 @@ class TestDAGExecution:
 
     def test_ready_tasks_respects_dependencies(self) -> None:
         """Only tasks with satisfied dependencies should be ready."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A"),
-            DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A"),
+                DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
+            ]
+        )
 
         # Initially only task-001 is ready
         ready = graph.get_ready_tasks(completed=set())
@@ -225,9 +227,7 @@ class TestWorktreeManagerInitialization:
     """Test WorktreeManager initialization."""
 
     @pytest.mark.asyncio
-    async def test_creates_worktree_root(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_creates_worktree_root(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Initialize should create the worktree root directory."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -248,9 +248,7 @@ class TestOrphanDetection:
     """Test orphan worktree detection and cleanup."""
 
     @pytest.mark.asyncio
-    async def test_detects_orphaned_worktrees(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_detects_orphaned_worktrees(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Orphan directories from crashed sessions are detected."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -279,9 +277,7 @@ class TestOrphanDetection:
         assert orphan2 in orphans
 
     @pytest.mark.asyncio
-    async def test_initialize_prunes_orphans(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_initialize_prunes_orphans(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Initialize() should auto-prune orphaned worktrees."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -305,9 +301,7 @@ class TestOrphanDetection:
         assert not orphan.exists()
 
     @pytest.mark.asyncio
-    async def test_active_worktrees_not_pruned(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_active_worktrees_not_pruned(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Active worktrees should not be detected as orphans."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):

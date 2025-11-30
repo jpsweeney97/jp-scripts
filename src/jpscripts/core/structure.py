@@ -3,9 +3,9 @@ from __future__ import annotations
 import ast
 import os
 import re
-from pathlib import Path
-from typing import Iterable
+from collections.abc import Iterable
 from functools import lru_cache
+from pathlib import Path
 
 from pathspec import PathSpec
 
@@ -132,7 +132,9 @@ def _summarize_js_ts(path: Path) -> list[str]:
 
     class_pattern = re.compile(r"^(?:export\s+)?class\s+(\w+)", re.MULTILINE)
     func_pattern = re.compile(r"^(?:export\s+)?function\s+(\w+)\s*\(([^)]*)", re.MULTILINE)
-    const_func_pattern = re.compile(r"^(?:export\s+)?const\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>", re.MULTILINE)
+    const_func_pattern = re.compile(
+        r"^(?:export\s+)?const\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>", re.MULTILINE
+    )
 
     symbols: list[str] = []
     for match in class_pattern.finditer(source):
@@ -207,12 +209,12 @@ def _cached_import_dependencies(path_str: str, root_str: str) -> tuple[str, ...]
     try:
         source = path.read_text(encoding="utf-8")
     except OSError:
-        return tuple()
+        return ()
 
     try:
         tree = ast.parse(source)
     except SyntaxError:
-        return tuple()
+        return ()
 
     dependencies: set[str] = set()
     for module in _iter_imported_modules(tree, path, root):

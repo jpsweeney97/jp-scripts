@@ -13,12 +13,12 @@ import typer
 from rich import box
 from rich.table import Table
 
+from jpscripts.commands.ui import fzf_select_async, fzf_stream_with_command
 from jpscripts.core import git as git_core
 from jpscripts.core import notes_impl
 from jpscripts.core import search as search_core
 from jpscripts.core.console import console
 from jpscripts.core.result import Err, Ok
-from jpscripts.commands.ui import fzf_select_async, fzf_stream_with_command
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"
@@ -27,7 +27,9 @@ CLIPHIST_DB = CLIPHIST_DIR / "history.db"
 
 def note(
     ctx: typer.Context,
-    message: str = typer.Option("", "--message", "-m", help="Message to append. If empty, opens editor."),
+    message: str = typer.Option(
+        "", "--message", "-m", help="Message to append. If empty, opens editor."
+    ),
 ) -> None:
     """Append to today's note or open it in the configured editor."""
     state = ctx.obj
@@ -51,6 +53,7 @@ def note(
     except FileNotFoundError:
         console.print(f"[red]Editor not found:[/red] {state.config.editor}")
         raise typer.Exit(code=1)
+
 
 def note_search(
     ctx: typer.Context,
@@ -90,7 +93,9 @@ def note_search(
         return
 
     try:
-        result = asyncio.run(asyncio.to_thread(search_core.run_ripgrep, query, notes_dir, line_number=True))
+        result = asyncio.run(
+            asyncio.to_thread(search_core.run_ripgrep, query, notes_dir, line_number=True)
+        )
     except RuntimeError as exc:
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
@@ -126,7 +131,8 @@ async def _collect_repo_commits(
                     filtered = [
                         commit
                         for commit in commits
-                        if commit.committed_date >= cutoff and (author_email is None or commit.author_email == author_email)
+                        if commit.committed_date >= cutoff
+                        and (author_email is None or commit.author_email == author_email)
                     ]
                     return RepoSummary(path=repo_path, commits=filtered)
 
@@ -169,7 +175,10 @@ def standup(
     async def _render_standup() -> None:
         user_email = await _detect_user_email(root)
         summaries = await asyncio.gather(
-            *(_collect_repo_commits(repo_path, since, user_email, commit_limit) for repo_path in repos)
+            *(
+                _collect_repo_commits(repo_path, since, user_email, commit_limit)
+                for repo_path in repos
+            )
         )
 
         table = Table(title=f"Commits since {since.date()}", box=box.SIMPLE_HEAVY, expand=True)
@@ -200,14 +209,17 @@ def standup(
     asyncio.run(_render_standup())
 
 
-def standup_note(ctx: typer.Context, days: int = typer.Option(3, "--days", "-d", help="Look back this many days.")) -> None:
+def standup_note(
+    ctx: typer.Context,
+    days: int = typer.Option(3, "--days", "-d", help="Look back this many days."),
+) -> None:
     """Run standup and append its output to today's note."""
     state = ctx.obj
     notes_dir = state.config.notes_dir.expanduser()
 
     # FIX: Use the core module instead of the deleted local helpers
-    notes_impl.ensure_notes_dir(notes_dir)     # Was _ensure_notes_dir(notes_dir)
-    note_path = notes_impl.get_today_path(notes_dir) # Was _today_path(notes_dir)
+    notes_impl.ensure_notes_dir(notes_dir)  # Was _ensure_notes_dir(notes_dir)
+    note_path = notes_impl.get_today_path(notes_dir)  # Was _today_path(notes_dir)
 
     with console.capture() as capture:
         standup(ctx, days=days)
@@ -222,6 +234,7 @@ def standup_note(ctx: typer.Context, days: int = typer.Option(3, "--days", "-d",
         f.write("\n" + heading + captured + "\n")
     console.print(f"[green]Appended standup to[/green] {note_path}")
     console.print(captured)
+
 
 def _init_db() -> sqlite3.Connection:
     """Initialize the clipboard history database and return a connection."""
@@ -255,7 +268,9 @@ def _migrate_legacy_history(conn: sqlite3.Connection) -> None:
         return
 
     try:
-        lines = [line for line in CLIPHIST_FILE.read_text(encoding="utf-8").splitlines() if line.strip()]
+        lines = [
+            line for line in CLIPHIST_FILE.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
     except OSError:
         return
 
@@ -267,12 +282,16 @@ def _migrate_legacy_history(conn: sqlite3.Connection) -> None:
 
     if records:
         conn.executemany("INSERT INTO history (timestamp, content) VALUES (?, ?)", records)
-        console.print(f"[green]Imported {len(records)} clipboard entries from legacy history.[/green]")
+        console.print(
+            f"[green]Imported {len(records)} clipboard entries from legacy history.[/green]"
+        )
 
 
 def cliphist(
     ctx: typer.Context,
-    action: str = typer.Option("add", "--action", "-a", help="add (save current clipboard), pick (fzf select), show"),
+    action: str = typer.Option(
+        "add", "--action", "-a", help="add (save current clipboard), pick (fzf select), show"
+    ),
     limit: int = typer.Option(50, "--limit", "-l", help="Max entries to show when picking."),
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:

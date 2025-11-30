@@ -3,17 +3,25 @@
 This module provides the core prompt preparation logic, including
 template rendering, context assembly, and token budget management.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Sequence
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 from jpscripts.core import security
+from jpscripts.core.agent.context import (
+    build_dependency_section,
+    build_file_context_section,
+    collect_git_context,
+    collect_git_diff,
+    load_constitution,
+)
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import gather_context, smart_read_context
 from jpscripts.core.engine import AgentResponse, PreparedPrompt
@@ -23,14 +31,6 @@ from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.core.structure import generate_map
 from jpscripts.core.tokens import TokenBudgetManager
-
-from jpscripts.core.agent.context import (
-    build_dependency_section,
-    build_file_context_section,
-    collect_git_context,
-    collect_git_diff,
-    load_constitution,
-)
 
 logger = get_logger(__name__)
 
@@ -60,7 +60,9 @@ def _render_prompt_from_template(context: dict[str, object], template_root: Path
         template = _get_template_environment(template_root).get_template(AGENT_TEMPLATE_NAME)
     except TemplateNotFound as exc:
         logger.error("Agent template %s missing in %s", AGENT_TEMPLATE_NAME, template_root)
-        raise FileNotFoundError(f"Template {AGENT_TEMPLATE_NAME} not found in {template_root}") from exc
+        raise FileNotFoundError(
+            f"Template {AGENT_TEMPLATE_NAME} not found in {template_root}"
+        ) from exc
     return template.render(**context)
 
 
@@ -88,7 +90,9 @@ def _summarize_stack_trace(text: str, limit: int) -> str:
     if middle_lines:
         mid_idx = len(middle_lines) // 2
         window = middle_lines[max(0, mid_idx - 3) : min(len(middle_lines), mid_idx + 4)]
-        middle_summary = "\n[... middle truncated ...]\n" + "\n".join(window) + "\n[... resumes ...]\n"
+        middle_summary = (
+            "\n[... middle truncated ...]\n" + "\n".join(window) + "\n[... resumes ...]\n"
+        )
 
     assembled = "\n".join(head_lines) + middle_summary + "\n".join(tail_lines)
     if len(assembled) > limit:
@@ -128,12 +132,18 @@ async def prepare_agent_prompt(
     runtime = get_runtime()
     config = runtime.config
     root = runtime.workspace_root
-    effective_ignore_dirs = list(ignore_dirs) if ignore_dirs is not None else list(config.ignore_dirs)
+    effective_ignore_dirs = (
+        list(ignore_dirs) if ignore_dirs is not None else list(config.ignore_dirs)
+    )
     file_context_limit = (
-        max_file_context_chars if max_file_context_chars is not None else config.max_file_context_chars
+        max_file_context_chars
+        if max_file_context_chars is not None
+        else config.max_file_context_chars
     )
     command_output_limit = (
-        max_command_output_chars if max_command_output_chars is not None else config.max_command_output_chars
+        max_command_output_chars
+        if max_command_output_chars is not None
+        else config.max_command_output_chars
     )
     active_model = model or config.default_model
     model_limit = config.model_context_limits.get(
@@ -210,15 +220,11 @@ async def prepare_agent_prompt(
     # Files get what they need first (direct source prioritized), dependencies get leftovers
     combined_paths: list[Path] = detected_paths + extra_detected
     if budget.remaining() > 0 and combined_paths:
-        file_context_section, attached = await build_file_context_section(
-            combined_paths, budget
-        )
+        file_context_section, attached = await build_file_context_section(combined_paths, budget)
 
         # Dependencies only get leftover budget after files
         if budget.remaining() > 0:
-            dependency_section = await build_dependency_section(
-                combined_paths[:1], root, budget
-            )
+            dependency_section = await build_dependency_section(combined_paths[:1], root, budget)
 
     # Git diff is lowest priority after files and dependencies
     if include_diff and budget.remaining() > 0:

@@ -4,12 +4,11 @@ import asyncio
 import json
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
-
-from typer.testing import CliRunner
+from unittest.mock import MagicMock, patch
 
 import typer
+from typer.testing import CliRunner
 
 sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
 
@@ -32,12 +31,13 @@ if TYPE_CHECKING:
 else:  # pragma: no cover - runtime imports
     from jpscripts.commands.agent import codex_exec
     from jpscripts.core.agent import parse_agent_response
-    from jpscripts.core.result import Ok
     from jpscripts.core.config import AppConfig
+    from jpscripts.core.result import Ok
     from jpscripts.core.runtime import RuntimeContext, _runtime_ctx, runtime_context
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
+
 
 @agent_app.callback()
 def main_callback(ctx: typer.Context) -> None:
@@ -63,14 +63,16 @@ def main_callback(ctx: typer.Context) -> None:
     mock_state.config = config
     ctx.obj = mock_state
 
+
 agent_app.command(name="fix")(codex_exec)
+
 
 def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
     """Verify jp fix invokes the provider correctly."""
     captured: list[str] = []
 
     async def fake_fetch_response(
-        prepared: "PreparedPrompt",
+        prepared: PreparedPrompt,
         config: Any,
         model: str,
         provider_type: Any,
@@ -78,17 +80,20 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
         web: bool = False,
     ) -> str:
         captured.append(prepared.prompt)
-        return json.dumps({
-            "thought_process": "done",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": None,
-            "final_message": "Completed",
-        })
+        return json.dumps(
+            {
+                "thought_process": "done",
+                "criticism": None,
+                "tool_call": None,
+                "file_patch": None,
+                "final_message": "Completed",
+            }
+        )
 
-    with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
-         patch("jpscripts.commands.agent.is_codex_available", return_value=False):
-
+    with (
+        patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response),
+        patch("jpscripts.commands.agent.is_codex_available", return_value=False),
+    ):
         result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
         assert result.exit_code == 0
@@ -97,6 +102,7 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
         # Verify prompt was captured
         prompt = captured[0]
         assert "Fix the bug" in prompt
+
 
 def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
     """Verify --recent flag scans and attaches files."""
@@ -113,7 +119,7 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
             return Ok([mock_entry])
 
         async def fake_fetch_response(
-            prepared: "PreparedPrompt",
+            prepared: PreparedPrompt,
             config: Any,
             model: str,
             provider_type: Any,
@@ -121,18 +127,23 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
             web: bool = False,
         ) -> str:
             captured.append(prepared.prompt)
-            return json.dumps({
-                "thought_process": "done",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": None,
-                "final_message": "Completed",
-            })
+            return json.dumps(
+                {
+                    "thought_process": "done",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": None,
+                    "final_message": "Completed",
+                }
+            )
 
-        with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
-             patch("jpscripts.commands.agent.is_codex_available", return_value=False), \
-             patch("jpscripts.core.agent.prompting.scan_recent", side_effect=fake_scan_recent):
-
+        with (
+            patch(
+                "jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response
+            ),
+            patch("jpscripts.commands.agent.is_codex_available", return_value=False),
+            patch("jpscripts.core.agent.prompting.scan_recent", side_effect=fake_scan_recent),
+        ):
             result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
             assert result.exit_code == 0

@@ -1,42 +1,43 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import math
 import re
 import shutil
-import inspect
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Iterable, Sequence
 
+import click
 import typer
 from rich.markdown import Markdown
 from rich.panel import Panel
 from typer.main import get_command
-import click
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
+from jpscripts.core.engine import AUDIT_PREFIX, run_safe_shell
 from jpscripts.core.memory import (
+    STOPWORDS,
     EmbeddingClient,
     EmbeddingClientProtocol,
     MemoryEntry,
-    STOPWORDS,
     get_memory_store,
 )
-from jpscripts.core.engine import run_safe_shell, AUDIT_PREFIX
-from jpscripts.core.security import validate_workspace_root
 from jpscripts.core.result import CapabilityMissingError, Err, Ok
-from jpscripts.core.security import validate_path
-from jpscripts.mcp.tools import discover_tools
+from jpscripts.core.security import validate_path, validate_workspace_root
 from jpscripts.mcp import get_tool_metadata
+from jpscripts.mcp.tools import discover_tools
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
 MAX_RESULTS = 3
-PROTOCOL_PATTERN = re.compile(r"\[Protocol:\s*(?P<name>[^\]]+)\]\s*->\s*run\s*\"(?P<command>[^\"]+)\"", re.IGNORECASE)
+PROTOCOL_PATTERN = re.compile(
+    r"\[Protocol:\s*(?P<name>[^\]]+)\]\s*->\s*run\s*\"(?P<command>[^\"]+)\"", re.IGNORECASE
+)
 CLI_REFERENCE_HEADING = "## CLI Reference"
 
 app = typer.Typer(invoke_without_command=True, no_args_is_help=False)
@@ -97,7 +98,9 @@ def _collect_cli_commands() -> list[CLICommandRef]:
             args = _format_click_params(command.params)
             summary_raw = (command.help or command.short_help or "").strip()
             summary = " ".join(summary_raw.split())
-            refs.append(CLICommandRef(name=prefix or command.name or "", args=args, summary=summary or "—"))
+            refs.append(
+                CLICommandRef(name=prefix or command.name or "", args=args, summary=summary or "—")
+            )
 
     if isinstance(click_app, click.Command):
         _walk(click_app, "")
@@ -141,7 +144,9 @@ def generate_reference() -> tuple[str, str]:
 
     mcp_lines = ["| Tool | Params | Description |", "| :--- | :--- | :--- |"]
     for tool_ref in mcp_refs:
-        mcp_lines.append(f"| `{tool_ref.name}` | {tool_ref.params or '—'} | {tool_ref.description or '—'} |")
+        mcp_lines.append(
+            f"| `{tool_ref.name}` | {tool_ref.params or '—'} | {tool_ref.description or '—'} |"
+        )
     mcp_table = "\n".join(mcp_lines)
 
     return cli_table, mcp_table
@@ -217,7 +222,9 @@ async def _read_entries(path: Path) -> list[MemoryEntry]:
                         content=str(raw.get("content", "")),
                         tags=[str(tag) for tag in raw.get("tags", []) if str(tag)],
                         tokens=[str(tok) for tok in raw.get("tokens", []) if str(tok)],
-                        embedding=[float(val) for val in raw.get("embedding", [])] if raw.get("embedding") else None,
+                        embedding=[float(val) for val in raw.get("embedding", [])]
+                        if raw.get("embedding")
+                        else None,
                     )
                     entries.append(entry)
         except OSError:
@@ -327,7 +334,9 @@ def _parse_sections(content: str) -> list[HandbookSection]:
 
 
 def _build_entries(sections: list[HandbookSection], source_mtime_ns: int) -> list[MemoryEntry]:
-    timestamp = datetime.fromtimestamp(source_mtime_ns / 1_000_000_000, tz=timezone.utc).isoformat(timespec="seconds")
+    timestamp = datetime.fromtimestamp(source_mtime_ns / 1_000_000_000, tz=UTC).isoformat(
+        timespec="seconds"
+    )
     entries: list[MemoryEntry] = []
     for section in sections:
         text = section.renderable()
@@ -345,11 +354,7 @@ def _build_entries(sections: list[HandbookSection], source_mtime_ns: int) -> lis
 
 def _render_cli_reference_section(cli_table: str, mcp_table: str) -> str:
     return (
-        f"{CLI_REFERENCE_HEADING}\n\n"
-        "### CLI Commands\n"
-        f"{cli_table}\n\n"
-        "### MCP Tools\n"
-        f"{mcp_table}\n"
+        f"{CLI_REFERENCE_HEADING}\n\n### CLI Commands\n{cli_table}\n\n### MCP Tools\n{mcp_table}\n"
     )
 
 
@@ -362,7 +367,9 @@ async def _replace_cli_reference(path: Path, cli_table: str, mcp_table: str) -> 
         except OSError:
             return False, ""
 
-        pattern = re.compile(rf"{re.escape(CLI_REFERENCE_HEADING)}.*?(?=^## |\Z)", re.DOTALL | re.MULTILINE)
+        pattern = re.compile(
+            rf"{re.escape(CLI_REFERENCE_HEADING)}.*?(?=^## |\Z)", re.DOTALL | re.MULTILINE
+        )
         if pattern.search(content):
             updated = pattern.sub(new_section.strip() + "\n\n", content)
         else:
@@ -451,14 +458,18 @@ async def _load_or_index_entries(
     await _reset_store(store_path)
     entries = _build_entries(sections, source_mtime_ns)
     semantic_ready = embedding_client.available()
-    vectors = embedding_client.embed([entry.content for entry in entries]) if semantic_ready else None
+    vectors = (
+        embedding_client.embed([entry.content for entry in entries]) if semantic_ready else None
+    )
     if semantic_ready and vectors is None:
-        console.print("[yellow]Semantic embeddings unavailable; falling back to keyword search.[/yellow]")
+        console.print(
+            "[yellow]Semantic embeddings unavailable; falling back to keyword search.[/yellow]"
+        )
     embedding_dim = 0
     if vectors:
         first = vectors[0] if vectors else []
         embedding_dim = len(first) if first else 0
-        for entry, vector in zip(entries, vectors):
+        for entry, vector in zip(entries, vectors, strict=False):
             entry.embedding = vector
 
     await _write_entries(entries_path, entries)
@@ -476,7 +487,7 @@ async def _load_or_index_entries(
 def _cosine_similarity(lhs: list[float], rhs: list[float]) -> float:
     if len(lhs) != len(rhs) or not lhs or not rhs:
         return 0.0
-    dot = sum(a * b for a, b in zip(lhs, rhs))
+    dot = sum(a * b for a, b in zip(lhs, rhs, strict=False))
     left_norm = math.sqrt(sum(a * a for a in lhs))
     right_norm = math.sqrt(sum(b * b for b in rhs))
     if left_norm == 0.0 or right_norm == 0.0:
@@ -484,7 +495,9 @@ def _cosine_similarity(lhs: list[float], rhs: list[float]) -> float:
     return dot / (left_norm * right_norm)
 
 
-def _local_vector_search(entries: list[MemoryEntry], query_vec: list[float], limit: int) -> list[MemoryEntry]:
+def _local_vector_search(
+    entries: list[MemoryEntry], query_vec: list[float], limit: int
+) -> list[MemoryEntry]:
     scored: list[tuple[float, MemoryEntry]] = []
     for entry in entries:
         if entry.embedding is None:
@@ -562,7 +575,13 @@ def _render_results(results: list[MemoryEntry]) -> None:
         return
 
     for entry in results:
-        title = entry.tags[0] if entry.tags else entry.content.splitlines()[0] if entry.content else "Handbook"
+        title = (
+            entry.tags[0]
+            if entry.tags
+            else entry.content.splitlines()[0]
+            if entry.content
+            else "Handbook"
+        )
         body = entry.content or "No content available."
         console.print(Panel(Markdown(body), title=title, expand=True))
 
@@ -624,7 +643,9 @@ def handbook(
 
         # Config required for memory store integration
         if config is None:
-            console.print("[yellow]Configuration unavailable; falling back to keyword search.[/yellow]")
+            console.print(
+                "[yellow]Configuration unavailable; falling back to keyword search.[/yellow]"
+            )
             entries = _build_entries(sections, source_mtime_ns)
             results = _keyword_search(entries, query, MAX_RESULTS)
             _render_results(results)
@@ -673,12 +694,16 @@ def verify_protocol(
 
         agents_path = Path(_project_root()) / "AGENTS.md"
         if not agents_path.exists():
-            console.print("[red]AGENTS.md is missing; cannot satisfy governance requirements.[/red]")
+            console.print(
+                "[red]AGENTS.md is missing; cannot satisfy governance requirements.[/red]"
+            )
             return 1
         try:
             agents_text = await asyncio.to_thread(agents_path.read_text, encoding="utf-8")
         except OSError:
-            console.print("[red]AGENTS.md is unreadable; fix repository state before proceeding.[/red]")
+            console.print(
+                "[red]AGENTS.md is unreadable; fix repository state before proceeding.[/red]"
+            )
             return 1
         if "invariants" not in agents_text:
             console.print("[red]AGENTS.md lacks the required Invariants section.[/red]")
@@ -702,7 +727,9 @@ def verify_protocol(
             return 1
 
         for cmd in commands:
-            output = await run_safe_shell(cmd, root, f"{AUDIT_PREFIX}.protocol.{name}", config=config)
+            output = await run_safe_shell(
+                cmd, root, f"{AUDIT_PREFIX}.protocol.{name}", config=config
+            )
             if output and output.startswith("SecurityError"):
                 console.print(f"[red]{output}[/red]")
                 return 1
@@ -731,10 +758,14 @@ def internal_update_reference(ctx: typer.Context) -> None:
                 console.print(f"[red]Failed to resolve {name}: {exc}[/red]")
                 return 1
 
-        updates = await asyncio.gather(*(_replace_cli_reference(path, cli_table, mcp_table) for path in targets))
+        updates = await asyncio.gather(
+            *(_replace_cli_reference(path, cli_table, mcp_table) for path in targets)
+        )
         updated_any = any(updates)
         if not updated_any:
-            console.print("[yellow]No CLI reference updates applied (already current or files missing).[/yellow]")
+            console.print(
+                "[yellow]No CLI reference updates applied (already current or files missing).[/yellow]"
+            )
             return 0
 
         console.print("[green]CLI references updated in README and HANDBOOK.[/green]")

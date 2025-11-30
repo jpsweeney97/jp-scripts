@@ -15,8 +15,8 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from collections.abc import Awaitable
 from pathlib import Path
-from typing import Awaitable
 
 import typer
 from rich import box
@@ -25,8 +25,6 @@ from rich.table import Table
 
 from jpscripts.core import git as git_core
 from jpscripts.core.agent import PreparedPrompt, run_repair_loop
-from jpscripts.core.memory import save_memory
-from jpscripts.core.system import run_safe_shell
 from jpscripts.core.complexity import (
     TechnicalDebtScore,
     analyze_directory_complexity,
@@ -34,8 +32,10 @@ from jpscripts.core.complexity import (
 )
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
+from jpscripts.core.memory import save_memory
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.structure import get_import_dependencies
+from jpscripts.core.system import run_safe_shell
 from jpscripts.main import AppState
 from jpscripts.providers import CompletionOptions, Message, ProviderType, infer_provider_type
 from jpscripts.providers.factory import get_provider
@@ -47,7 +47,9 @@ app = typer.Typer(help="Autonomous code evolution and optimization.")
 
 def _build_optimizer_prompt(target: TechnicalDebtScore) -> str:
     """Build the prompt for the Optimizer persona."""
-    reasons_text = "\n".join(f"- {r}" for r in target.reasons) if target.reasons else "High complexity"
+    reasons_text = (
+        "\n".join(f"- {r}" for r in target.reasons) if target.reasons else "High complexity"
+    )
 
     return f"""You are an Optimizer persona. Your task is to reduce technical debt in a specific file.
 
@@ -108,7 +110,7 @@ async def _create_evolution_pr(
 **Churn:** {target.churn}
 
 ### Reasons for Selection
-{chr(10).join('- ' + r for r in target.reasons) if target.reasons else '- High complexity'}
+{chr(10).join("- " + r for r in target.reasons) if target.reasons else "- High complexity"}
 
 ### Verification
 - `{verification_cmd}` -> exit {verification_exit}
@@ -189,9 +191,7 @@ async def _run_evolve(
             return
         case Ok(status):
             if status.dirty:
-                console.print(
-                    "[red]Workspace is dirty. Commit or stash changes first.[/red]"
-                )
+                console.print("[red]Workspace is dirty. Commit or stash changes first.[/red]")
                 return
 
     # Step 2: Calculate debt scores
@@ -238,8 +238,7 @@ async def _run_evolve(
             f"[bold]Debt Score:[/bold] {target.debt_score:.1f}\n"
             f"[bold]Complexity:[/bold] {target.complexity_score:.1f}\n"
             f"[bold]Fix Frequency:[/bold] {target.fix_frequency}\n\n"
-            f"[bold]Reasons:[/bold]\n"
-            + "\n".join(f"  - {r}" for r in target.reasons),
+            f"[bold]Reasons:[/bold]\n" + "\n".join(f"  - {r}" for r in target.reasons),
             title="Selected for Optimization",
             box=box.ROUNDED,
         )
@@ -314,9 +313,7 @@ async def _run_evolve(
             await repo._run_git("branch", "-D", branch_name)
             return
         case Ok(diff_output):
-            changed_paths = [
-                line.strip() for line in diff_output.splitlines() if line.strip()
-            ]
+            changed_paths = [line.strip() for line in diff_output.splitlines() if line.strip()]
 
     python_changes = [Path(root / p).resolve() for p in changed_paths if p.endswith(".py")]
     tests_root = root / "tests"
@@ -359,7 +356,9 @@ async def _run_evolve(
         await repo._run_git("branch", "-D", branch_name)
         return
 
-    test_args = " ".join(str(path.relative_to(root)) for path in test_targets) if test_targets else ""
+    test_args = (
+        " ".join(str(path.relative_to(root)) for path in test_targets) if test_targets else ""
+    )
     test_command = f"{pytest_cmd} -q {test_args}".strip()
     console.print(f"[cyan]Running verification tests: {test_command}[/cyan]")
     test_result = await run_safe_shell(test_command, root, "evolve.verify", config=config)
@@ -411,9 +410,7 @@ def evolve_run(
     dry_run: bool = typer.Option(
         False, "--dry-run", help="Analyze and show target without making changes."
     ),
-    model: str | None = typer.Option(
-        None, "--model", "-m", help="Model to use for optimization."
-    ),
+    model: str | None = typer.Option(None, "--model", "-m", help="Model to use for optimization."),
     threshold: float = typer.Option(
         10.0, "--threshold", "-t", help="Minimum debt score to trigger optimization."
     ),
@@ -468,7 +465,7 @@ def evolve_report(
                 churn_results = await asyncio.gather(
                     *(repo.get_file_churn(fc.path) for fc in sorted_files)
                 )
-                for fc, result in zip(sorted_files, churn_results):
+                for fc, result in zip(sorted_files, churn_results, strict=False):
                     match result:
                         case Ok(value):
                             churn_by_path[fc.path] = value

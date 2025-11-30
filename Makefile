@@ -3,19 +3,17 @@
 install:
 	pip install -e ".[dev,ai]"
 
+format:
+	ruff format .
+	ruff check --fix .
+
 lint:
-	mypy src tests
+	ruff format --check .
+	ruff check .
+	mypy src
 
 test: lint
 	pytest
-
-format:
-	@if command -v ruff >/dev/null 2>&1; then \
-		echo "Running ruff --fix ..."; \
-		ruff check --fix .; \
-	else \
-		echo "ruff not installed; skipping format"; \
-	fi
 
 clean:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} + || true

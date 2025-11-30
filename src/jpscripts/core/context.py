@@ -3,9 +3,9 @@ from __future__ import annotations
 from jpscripts.core.context_gatherer import (
     DEFAULT_MODEL_CONTEXT_LIMIT,
     FILE_PATTERN,
+    SENSITIVE_PATTERNS,
     STRUCTURED_EXTENSIONS,
     SYNTAX_WARNING,
-    SENSITIVE_PATTERNS,
     GatherContextResult,
     gather_context,
     get_file_skeleton,

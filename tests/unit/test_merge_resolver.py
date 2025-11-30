@@ -14,7 +14,7 @@ from jpscripts.core.merge_resolver import (
     ConflictMarker,
     MergeConflictResolver,
 )
-from jpscripts.core.result import Ok, Err
+from jpscripts.core.result import Err, Ok
 
 
 class TestConflictCategory:

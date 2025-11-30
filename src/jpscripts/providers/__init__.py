@@ -25,9 +25,10 @@ Usage:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from jpscripts.core.config import AppConfig
@@ -90,9 +91,7 @@ class TokenUsage:
 
     def __post_init__(self) -> None:
         if self.total_tokens is None:
-            object.__setattr__(
-                self, "total_tokens", self.prompt_tokens + self.completion_tokens
-            )
+            object.__setattr__(self, "total_tokens", self.prompt_tokens + self.completion_tokens)
 
 
 @dataclass(slots=True)

@@ -8,10 +8,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 import asyncio
+
 import pytest
 
 from jpscripts.core.git import AsyncRepo, WorktreeInfo
-from jpscripts.core.result import Ok, Err
+from jpscripts.core.result import Err, Ok
 
 
 @pytest.fixture
@@ -32,20 +33,17 @@ async def _init_repo(path: Path) -> None:
     # Use subprocess directly for setup (not part of SUT)
     subprocess.run(["git", "init"], cwd=path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
-        cwd=path, check=True, capture_output=True
+        ["git", "config", "user.email", "test@test.com"], cwd=path, check=True, capture_output=True
     )
     subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=path, check=True, capture_output=True
+        ["git", "config", "user.name", "Test User"], cwd=path, check=True, capture_output=True
     )
 
     # Create initial file and commit
     (path / "README.md").write_text("# Test Repo\n")
     subprocess.run(["git", "add", "."], cwd=path, check=True, capture_output=True)
     subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=path, check=True, capture_output=True
+        ["git", "commit", "-m", "Initial commit"], cwd=path, check=True, capture_output=True
     )
 
 
@@ -71,9 +69,7 @@ class TestWorktreeAdd:
                 pytest.fail(f"Failed to create worktree: {err}")
 
     @pytest.mark.asyncio
-    async def test_add_worktree_with_start_point(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_add_worktree_with_start_point(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Create a worktree starting from a specific commit."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -123,9 +119,7 @@ class TestWorktreeRemove:
                 pytest.fail(f"Failed to remove worktree: {err}")
 
     @pytest.mark.asyncio
-    async def test_force_remove_dirty_worktree(
-        self, temp_git_repo: Path, tmp_path: Path
-    ) -> None:
+    async def test_force_remove_dirty_worktree(self, temp_git_repo: Path, tmp_path: Path) -> None:
         """Force remove a worktree with uncommitted changes."""
         match await AsyncRepo.open(temp_git_repo):
             case Ok(repo):
@@ -225,19 +219,20 @@ class TestMerge:
 
         # Create a branch with changes
         import subprocess
+
         subprocess.run(
-            ["git", "checkout", "-b", "feature"],
-            cwd=temp_git_repo, check=True, capture_output=True
+            ["git", "checkout", "-b", "feature"], cwd=temp_git_repo, check=True, capture_output=True
         )
         (temp_git_repo / "feature.txt").write_text("feature content")
         subprocess.run(["git", "add", "."], cwd=temp_git_repo, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "Feature commit"],
-            cwd=temp_git_repo, check=True, capture_output=True
+            cwd=temp_git_repo,
+            check=True,
+            capture_output=True,
         )
         subprocess.run(
-            ["git", "checkout", base_branch],
-            cwd=temp_git_repo, check=True, capture_output=True
+            ["git", "checkout", base_branch], cwd=temp_git_repo, check=True, capture_output=True
         )
 
         match await repo.merge("feature"):

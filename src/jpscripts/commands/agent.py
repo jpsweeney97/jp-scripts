@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Awaitable
+from collections.abc import Awaitable
+from typing import Any
 
 import typer
 from pydantic import ValidationError
@@ -38,7 +39,6 @@ from jpscripts.providers import (
 )
 from jpscripts.providers.codex import is_codex_available
 from jpscripts.providers.factory import ProviderConfig, get_provider
-
 
 # ---------------------------------------------------------------------------
 # Provider-based response fetching
@@ -344,9 +344,7 @@ def codex_exec(
         console.print(Panel(raw_response, title="Raw agent response", box=box.SIMPLE))
         return
 
-    console.print(
-        Panel(agent_response.thought_process, title="Thought process", box=box.SIMPLE)
-    )
+    console.print(Panel(agent_response.thought_process, title="Thought process", box=box.SIMPLE))
     if agent_response.tool_call:
         console.print(
             Panel(
@@ -356,10 +354,6 @@ def codex_exec(
             )
         )
     if agent_response.file_patch:
-        console.print(
-            Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE)
-        )
+        console.print(Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE))
     if agent_response.final_message:
-        console.print(
-            Panel(agent_response.final_message, title="Final message", box=box.SIMPLE)
-        )
+        console.print(Panel(agent_response.final_message, title="Final message", box=box.SIMPLE))

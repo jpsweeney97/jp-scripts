@@ -7,12 +7,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-import pytest
 from jpscripts.core.dag import (
-    DAGTask,
     DAGGraph,
-    WorktreeContext,
+    DAGTask,
     TaskStatus,
+    WorktreeContext,
 )
 
 
@@ -61,22 +60,26 @@ class TestDAGGraph:
 
     def test_get_ready_tasks_no_dependencies(self) -> None:
         """Tasks with no dependencies should all be ready."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A"),
-            DAGTask(id="task-002", objective="B"),
-            DAGTask(id="task-003", objective="C"),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A"),
+                DAGTask(id="task-002", objective="B"),
+                DAGTask(id="task-003", objective="C"),
+            ]
+        )
         ready = graph.get_ready_tasks(completed=set())
         assert len(ready) == 3
         assert {t.id for t in ready} == {"task-001", "task-002", "task-003"}
 
     def test_get_ready_tasks_with_dependencies(self) -> None:
         """Only tasks with satisfied dependencies should be ready."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A"),
-            DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
-            DAGTask(id="task-003", objective="C", depends_on=["task-002"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A"),
+                DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
+                DAGTask(id="task-003", objective="C", depends_on=["task-002"]),
+            ]
+        )
 
         # Initially only task-001 is ready
         ready = graph.get_ready_tasks(completed=set())
@@ -95,83 +98,99 @@ class TestDAGGraph:
 
     def test_get_ready_tasks_respects_priority(self) -> None:
         """Ready tasks should be sorted by priority (descending)."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="Low", priority=1),
-            DAGTask(id="task-002", objective="High", priority=10),
-            DAGTask(id="task-003", objective="Medium", priority=5),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="Low", priority=1),
+                DAGTask(id="task-002", objective="High", priority=10),
+                DAGTask(id="task-003", objective="Medium", priority=5),
+            ]
+        )
         ready = graph.get_ready_tasks(completed=set())
         assert [t.id for t in ready] == ["task-002", "task-003", "task-001"]
 
     def test_validate_acyclic_valid(self) -> None:
         """Valid DAG should pass validation."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A"),
-            DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
-            DAGTask(id="task-003", objective="C", depends_on=["task-001"]),
-            DAGTask(id="task-004", objective="D", depends_on=["task-002", "task-003"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A"),
+                DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
+                DAGTask(id="task-003", objective="C", depends_on=["task-001"]),
+                DAGTask(id="task-004", objective="D", depends_on=["task-002", "task-003"]),
+            ]
+        )
         assert graph.validate_acyclic() is True
 
     def test_validate_acyclic_detects_cycle(self) -> None:
         """DAG with cycle should fail validation."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", depends_on=["task-003"]),
-            DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
-            DAGTask(id="task-003", objective="C", depends_on=["task-002"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", depends_on=["task-003"]),
+                DAGTask(id="task-002", objective="B", depends_on=["task-001"]),
+                DAGTask(id="task-003", objective="C", depends_on=["task-002"]),
+            ]
+        )
         assert graph.validate_acyclic() is False
 
     def test_validate_acyclic_self_cycle(self) -> None:
         """Task depending on itself should fail validation."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", depends_on=["task-001"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", depends_on=["task-001"]),
+            ]
+        )
         assert graph.validate_acyclic() is False
 
     def test_detect_disjoint_subgraphs_single_group(self) -> None:
         """Tasks with overlapping files should be in the same group."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
-            DAGTask(id="task-002", objective="B", files_touched=["src/foo.py", "src/bar.py"]),
-            DAGTask(id="task-003", objective="C", files_touched=["src/bar.py"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
+                DAGTask(id="task-002", objective="B", files_touched=["src/foo.py", "src/bar.py"]),
+                DAGTask(id="task-003", objective="C", files_touched=["src/bar.py"]),
+            ]
+        )
         groups = graph.detect_disjoint_subgraphs()
         assert len(groups) == 1
         assert groups[0] == {"task-001", "task-002", "task-003"}
 
     def test_detect_disjoint_subgraphs_multiple_groups(self) -> None:
         """Tasks with non-overlapping files should be in separate groups."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
-            DAGTask(id="task-002", objective="B", files_touched=["src/bar.py"]),
-            DAGTask(id="task-003", objective="C", files_touched=["src/baz.py"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
+                DAGTask(id="task-002", objective="B", files_touched=["src/bar.py"]),
+                DAGTask(id="task-003", objective="C", files_touched=["src/baz.py"]),
+            ]
+        )
         groups = graph.detect_disjoint_subgraphs()
         assert len(groups) == 3
         # Each task in its own group
-        group_sets = [g for g in groups]
+        group_sets = list(groups)
         assert {"task-001"} in group_sets
         assert {"task-002"} in group_sets
         assert {"task-003"} in group_sets
 
     def test_detect_disjoint_subgraphs_empty_files(self) -> None:
         """Tasks with no files_touched should be isolated."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", files_touched=[]),
-            DAGTask(id="task-002", objective="B", files_touched=[]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", files_touched=[]),
+                DAGTask(id="task-002", objective="B", files_touched=[]),
+            ]
+        )
         groups = graph.detect_disjoint_subgraphs()
         assert len(groups) == 2
 
     def test_detect_disjoint_mixed(self) -> None:
         """Mixed scenario with some overlapping and some disjoint."""
-        graph = DAGGraph(tasks=[
-            DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
-            DAGTask(id="task-002", objective="B", files_touched=["src/foo.py"]),
-            DAGTask(id="task-003", objective="C", files_touched=["src/bar.py"]),
-            DAGTask(id="task-004", objective="D", files_touched=["src/bar.py"]),
-        ])
+        graph = DAGGraph(
+            tasks=[
+                DAGTask(id="task-001", objective="A", files_touched=["src/foo.py"]),
+                DAGTask(id="task-002", objective="B", files_touched=["src/foo.py"]),
+                DAGTask(id="task-003", objective="C", files_touched=["src/bar.py"]),
+                DAGTask(id="task-004", objective="D", files_touched=["src/bar.py"]),
+            ]
+        )
         groups = graph.detect_disjoint_subgraphs()
         assert len(groups) == 2
         # task-001 and task-002 should be together
@@ -210,10 +229,12 @@ class TestWorktreeContext:
         assert ctx.status == TaskStatus.RUNNING
 
         # Create new context with completed status
-        completed_ctx = ctx.model_copy(update={
-            "status": TaskStatus.COMPLETED,
-            "commit_sha": "abc123",
-        })
+        completed_ctx = ctx.model_copy(
+            update={
+                "status": TaskStatus.COMPLETED,
+                "commit_sha": "abc123",
+            }
+        )
         assert completed_ctx.status == TaskStatus.COMPLETED
         assert completed_ctx.commit_sha == "abc123"
 

@@ -4,16 +4,18 @@ import asyncio
 import functools
 import http.server
 import os
-import shutil
 import shlex
+import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Protocol
+from typing import Protocol
 
 import psutil
+
+from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.result import Err, Ok, Result, SystemResourceError
 from jpscripts.core.runtime import get_runtime
 
@@ -45,8 +47,7 @@ class SandboxProtocol(Protocol):
         tokens: list[str],
         cwd: Path,
         env: dict[str, str] | None = None,
-    ) -> Result[CommandResult, SystemResourceError]:
-        ...
+    ) -> Result[CommandResult, SystemResourceError]: ...
 
 
 class LocalSandbox:
@@ -65,9 +66,15 @@ class LocalSandbox:
                 env=env,
             )
         except FileNotFoundError as exc:
-            return Err(SystemResourceError("Command not found", context={"error": str(exc), "cmd": tokens}))
+            return Err(
+                SystemResourceError("Command not found", context={"error": str(exc), "cmd": tokens})
+            )
         except Exception as exc:  # pragma: no cover - defensive
-            return Err(SystemResourceError("Failed to start command", context={"error": str(exc), "cmd": tokens}))
+            return Err(
+                SystemResourceError(
+                    "Failed to start command", context={"error": str(exc), "cmd": tokens}
+                )
+            )
 
         stdout_bytes, stderr_bytes = await proc.communicate()
         return Ok(
@@ -92,7 +99,9 @@ class DockerSandbox:
     ) -> Result[CommandResult, SystemResourceError]:
         docker_binary = shutil.which("docker")
         if not docker_binary:
-            return Err(SystemResourceError("Docker binary not found", context={"image": self.image}))
+            return Err(
+                SystemResourceError("Docker binary not found", context={"image": self.image})
+            )
 
         mount_root = self.workspace_root.expanduser().resolve()
         workdir = "/workspace"
@@ -130,9 +139,15 @@ class DockerSandbox:
                 stderr=asyncio.subprocess.PIPE,
             )
         except FileNotFoundError:
-            return Err(SystemResourceError("Docker binary not found", context={"image": self.image}))
+            return Err(
+                SystemResourceError("Docker binary not found", context={"image": self.image})
+            )
         except Exception as exc:
-            return Err(SystemResourceError("Failed to start docker command", context={"error": str(exc), "cmd": docker_cmd}))
+            return Err(
+                SystemResourceError(
+                    "Failed to start docker command", context={"error": str(exc), "cmd": docker_cmd}
+                )
+            )
 
         stdout_bytes, stderr_bytes = await proc.communicate()
         return Ok(
@@ -157,7 +172,9 @@ def _format_cmdline(proc: psutil.Process) -> str:
         return proc.name()
 
 
-async def find_processes(name_filter: str | None = None, port_filter: int | None = None) -> Result[list[ProcessInfo], SystemResourceError]:
+async def find_processes(
+    name_filter: str | None = None, port_filter: int | None = None
+) -> Result[list[ProcessInfo], SystemResourceError]:
     def _collect() -> list[ProcessInfo]:
         matches: list[ProcessInfo] = []
         for proc in psutil.process_iter(["pid", "name", "username"]):
@@ -165,7 +182,9 @@ async def find_processes(name_filter: str | None = None, port_filter: int | None
                 if port_filter is not None:
                     has_port = False
                     for conn in proc.connections(kind="inet"):
-                        if conn.laddr.port == port_filter or (conn.raddr and conn.raddr.port == port_filter):
+                        if conn.laddr.port == port_filter or (
+                            conn.raddr and conn.raddr.port == port_filter
+                        ):
                             has_port = True
                             break
                     if not has_port:
@@ -191,7 +210,9 @@ async def find_processes(name_filter: str | None = None, port_filter: int | None
     try:
         matches = await asyncio.to_thread(_collect)
     except Exception as exc:
-        return Err(SystemResourceError("Failed to enumerate processes", context={"error": str(exc)}))
+        return Err(
+            SystemResourceError("Failed to enumerate processes", context={"error": str(exc)})
+        )
 
     return Ok(matches)
 
@@ -224,9 +245,15 @@ async def kill_process_async(pid: int, force: bool = False) -> Result[str, Syste
         except psutil.NoSuchProcess:
             return Err(SystemResourceError("Process not found", context={"pid": pid}))
         except psutil.AccessDenied:
-            return Err(SystemResourceError("Permission denied to kill process", context={"pid": pid}))
+            return Err(
+                SystemResourceError("Permission denied to kill process", context={"pid": pid})
+            )
         except Exception as exc:
-            return Err(SystemResourceError("Failed to kill process", context={"pid": pid, "error": str(exc)}))
+            return Err(
+                SystemResourceError(
+                    "Failed to kill process", context={"pid": pid, "error": str(exc)}
+                )
+            )
 
     return await asyncio.to_thread(_terminate)
 
@@ -246,12 +273,20 @@ async def run_safe_shell(
     """Validate and execute a shell command asynchronously using the sandbox."""
     verdict, reason = validate_command(command, root)
     if verdict != CommandVerdict.ALLOWED:
-        return Err(SystemResourceError("Command blocked by policy", context={"reason": reason, "command": command}))
+        return Err(
+            SystemResourceError(
+                "Command blocked by policy", context={"reason": reason, "command": command}
+            )
+        )
 
     try:
         tokens = shlex.split(command)
     except ValueError as exc:
-        return Err(SystemResourceError("Failed to parse command", context={"command": command, "error": str(exc)}))
+        return Err(
+            SystemResourceError(
+                "Failed to parse command", context={"command": command, "error": str(exc)}
+            )
+        )
 
     if not tokens:
         return Err(SystemResourceError("Invalid command", context={"command": command}))
@@ -309,12 +344,18 @@ async def set_audio_device(device_name: str) -> Result[None, SystemResourceError
     except FileNotFoundError:
         return Err(SystemResourceError("SwitchAudioSource binary not found"))
     except Exception as exc:
-        return Err(SystemResourceError("Failed to switch audio device", context={"error": str(exc)}))
+        return Err(
+            SystemResourceError("Failed to switch audio device", context={"error": str(exc)})
+        )
 
     stdout, stderr = await proc.communicate()
     if proc.returncode != 0:
         message = stderr.decode().strip() or stdout.decode().strip()
-        return Err(SystemResourceError("Failed to switch device", context={"stderr": message, "device": device_name}))
+        return Err(
+            SystemResourceError(
+                "Failed to switch device", context={"stderr": message, "device": device_name}
+            )
+        )
 
     return Ok(None)
 
@@ -339,14 +380,22 @@ async def get_ssh_hosts(config_path: Path | None = None) -> Result[list[str], Sy
     try:
         hosts = await asyncio.to_thread(_read_hosts)
     except OSError as exc:
-        return Err(SystemResourceError("Failed to read SSH config", context={"path": str(target), "error": str(exc)}))
+        return Err(
+            SystemResourceError(
+                "Failed to read SSH config", context={"path": str(target), "error": str(exc)}
+            )
+        )
 
     return Ok(hosts)
 
 
 async def run_temp_server(directory: Path, port: int) -> Result[None, SystemResourceError]:
     if not directory.is_dir():
-        return Err(SystemResourceError("Serve directory is not a folder", context={"directory": str(directory)}))
+        return Err(
+            SystemResourceError(
+                "Serve directory is not a folder", context={"directory": str(directory)}
+            )
+        )
 
     def _serve() -> None:
         handler: Callable[..., http.server.SimpleHTTPRequestHandler] = functools.partial(
@@ -361,7 +410,12 @@ async def run_temp_server(directory: Path, port: int) -> Result[None, SystemReso
     try:
         await asyncio.to_thread(_serve)
     except OSError as exc:
-        return Err(SystemResourceError("Failed to start HTTP server", context={"directory": str(directory), "error": str(exc)}))
+        return Err(
+            SystemResourceError(
+                "Failed to start HTTP server",
+                context={"directory": str(directory), "error": str(exc)},
+            )
+        )
 
     return Ok(None)
 
@@ -390,7 +444,9 @@ async def search_brew(query: str | None) -> Result[list[str], SystemResourceErro
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        return Err(SystemResourceError("brew search failed", context={"stderr": stderr.decode().strip()}))
+        return Err(
+            SystemResourceError("brew search failed", context={"stderr": stderr.decode().strip()})
+        )
 
     return Ok([line.strip() for line in stdout.decode().splitlines() if line.strip()])
 
@@ -417,6 +473,8 @@ async def get_brew_info(name: str) -> Result[str, SystemResourceError]:
     stdout, stderr = await proc.communicate()
 
     if proc.returncode != 0:
-        return Err(SystemResourceError("brew info failed", context={"stderr": stderr.decode().strip()}))
+        return Err(
+            SystemResourceError("brew info failed", context={"stderr": stderr.decode().strip()})
+        )
 
     return Ok(stdout.decode().strip())
