@@ -13,7 +13,7 @@ from jpscripts.core.console import console
 from jpscripts.core.memory import (
     HybridMemoryStore,
     MemoryEntry,
-    _write_entries,
+    _write_entries,  # pyright: ignore[reportPrivateUsage]
     cluster_memories,
     get_memory_store,
     prune_memory,
@@ -164,8 +164,10 @@ def consolidate(
         console.print("[yellow]No synthesized entries were created.[/yellow]")
         return
 
-    existing_entries = asyncio.run(asyncio.to_thread(store.archiver.load_entries))
-    updated_entries = []
+    existing_entries: list[MemoryEntry] = asyncio.run(
+        asyncio.to_thread(store.archiver.load_entries)
+    )
+    updated_entries: list[MemoryEntry] = []
     for entry in existing_entries:
         if entry.id in archived_ids and "archived" not in entry.tags:
             entry.tags.append("archived")

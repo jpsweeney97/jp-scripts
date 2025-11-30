@@ -296,7 +296,9 @@ async def prepare_agent_prompt(
         ),
     }
 
-    prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
+    prompt = await asyncio.to_thread(
+        _render_prompt_from_template, context, template_root
+    )  # pyright: ignore[reportArgumentType]
 
     return PreparedPrompt(
         prompt=prompt,

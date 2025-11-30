@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from typing import Protocol, cast
 
+from jpscripts.core.config import AppConfig
 from jpscripts.providers import (
     AuthenticationError,
     BaseLLMProvider,
@@ -38,11 +39,67 @@ from jpscripts.providers import (
     ToolDefinition,
 )
 
-if TYPE_CHECKING:
-    from openai import AsyncOpenAI
-    from openai.types.chat import ChatCompletionMessageToolCall
 
-    from jpscripts.core.config import AppConfig
+class _ToolFunction(Protocol):
+    name: str
+    arguments: str
+
+
+class _ChatToolCall(Protocol):
+    id: str
+    function: _ToolFunction
+
+
+class _CompletionMessage(Protocol):
+    content: str | None
+    tool_calls: list[_ChatToolCall] | None
+
+
+class _CompletionChoice(Protocol):
+    message: _CompletionMessage
+    finish_reason: str | None
+
+
+class _Usage(Protocol):
+    prompt_tokens: int
+    completion_tokens: int
+
+
+class _CompletionResponse(Protocol):
+    choices: list[_CompletionChoice]
+    usage: _Usage | None
+    model: str
+
+
+class _Delta(Protocol):
+    content: str | None
+
+
+class _StreamChoice(Protocol):
+    delta: _Delta | None
+    finish_reason: str | None
+
+
+class _StreamUsage(Protocol):
+    prompt_tokens: int
+    completion_tokens: int
+
+
+class _StreamChunk(Protocol):
+    choices: list[_StreamChoice]
+    usage: _StreamUsage | None
+
+
+class _CompletionsAPI(Protocol):
+    async def create(self, **kwargs: object) -> object: ...
+
+
+class _ChatAPI(Protocol):
+    completions: _CompletionsAPI
+
+
+class OpenAIClientProtocol(Protocol):
+    chat: _ChatAPI
 
 # Model context limits (tokens)
 OPENAI_CONTEXT_LIMITS: dict[str, int] = {
@@ -178,7 +235,7 @@ def _convert_tools_to_openai(
 
 
 def _parse_tool_calls(
-    tool_calls: list[ChatCompletionMessageToolCall] | None,
+    tool_calls: list[_ChatToolCall] | None,
 ) -> list[ToolCall]:
     """Parse tool calls from OpenAI response."""
     if not tool_calls:
@@ -212,15 +269,15 @@ class OpenAIProvider(BaseLLMProvider):
 
     def __init__(self, config: AppConfig) -> None:
         super().__init__(config)
-        self._client: AsyncOpenAI | None = None
+        self._client: OpenAIClientProtocol | None = None
 
-    def _get_client(self) -> AsyncOpenAI:
+    def _get_client(self) -> OpenAIClientProtocol:
         """Lazy-initialize the OpenAI client."""
         if self._client is not None:
             return self._client
 
         try:
-            import openai  # type: ignore[import-not-found]
+            import openai
         except ImportError as exc:
             raise ProviderError(
                 "openai package not installed. Install with: pip install openai"
@@ -230,7 +287,8 @@ class OpenAIProvider(BaseLLMProvider):
         if not api_key:
             raise AuthenticationError("OPENAI_API_KEY environment variable not set")
 
-        self._client = openai.AsyncOpenAI(api_key=api_key)
+        client = openai.AsyncOpenAI(api_key=api_key)
+        self._client = cast(OpenAIClientProtocol, client)
         return self._client
 
     @property
@@ -312,9 +370,12 @@ class OpenAIProvider(BaseLLMProvider):
             params["reasoning_effort"] = opts.reasoning_effort
 
         try:
-            response = await client.chat.completions.create(**params)  # type: ignore[arg-type]
+            response_obj = await client.chat.completions.create(**params)
         except Exception as exc:
             self._handle_api_error(exc)
+            raise AssertionError("unreachable")
+
+        response = cast(_CompletionResponse, response_obj)
 
         # Parse response
         choice = response.choices[0] if response.choices else None
@@ -386,7 +447,8 @@ class OpenAIProvider(BaseLLMProvider):
             params["tools"] = tools
 
         try:
-            stream = await client.chat.completions.create(**params)  # type: ignore[arg-type]
+            stream_obj = await client.chat.completions.create(**params)
+            stream = cast(AsyncIterator[_StreamChunk], stream_obj)
             async for chunk in stream:
                 if not chunk.choices:
                     # Final chunk with usage

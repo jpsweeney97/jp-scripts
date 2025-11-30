@@ -90,7 +90,7 @@ class DAGGraph(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    tasks: list[DAGTask] = Field(default_factory=list)
+    tasks: list[DAGTask] = Field(default_factory=list)  # pyright: ignore[reportUnknownVariableType]
     metadata: dict[str, str] = Field(
         default_factory=dict,
         description="Arbitrary metadata (e.g., architect reasoning)",

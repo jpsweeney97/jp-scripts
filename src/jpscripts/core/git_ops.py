@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from jpscripts.core.result import Err, GitError, Ok, Result
@@ -114,7 +115,20 @@ def _parse_ref_line(line: str) -> tuple[str, str | None, int, int]:
 
 async def branch_statuses(repo: git_core.AsyncRepo) -> Result[list[BranchSummary], GitError]:
     """Return ahead/behind information for all branches in a repo using async plumbing."""
-    match await repo.run_git(
+    runner = getattr(repo, "run_git", None)
+    legacy_runner = getattr(repo, "_run_git", None)
+    git_call: Callable[..., Awaitable[Result[str, GitError]]] | None = None
+    if callable(runner):
+        git_call = runner
+    elif callable(legacy_runner):
+        git_call = legacy_runner
+    else:
+        return Err(GitError("Repository does not support git execution"))
+
+    if git_call is None:
+        return Err(GitError("Repository does not support git execution"))
+
+    match await git_call(
         "for-each-ref",
         "--format=%(refname:short) %(upstream:short) %(upstream:track)",
         "refs/heads",

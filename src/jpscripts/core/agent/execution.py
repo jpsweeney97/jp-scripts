@@ -130,7 +130,7 @@ def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str
 
     lines: list[str] = []
     for attempt in history:
-        relative_files = []
+        relative_files: list[str] = []
         for path in attempt.files_changed:
             try:
                 relative_files.append(str(path.relative_to(root)))
@@ -453,7 +453,7 @@ async def run_repair_loop(
     history: list[Message] = []
     seen_patch_hashes: set[str] = set()
     previous_active_root = _ACTIVE_ROOT
-    _ACTIVE_ROOT = root
+    _ACTIVE_ROOT = root  # pyright: ignore[reportConstantRedefinition]
 
     async def _prompt_builder(
         history_messages: Sequence[Message],
@@ -728,7 +728,7 @@ async def run_repair_loop(
 
         return False
     finally:
-        _ACTIVE_ROOT = previous_active_root
+        _ACTIVE_ROOT = previous_active_root  # pyright: ignore[reportConstantRedefinition]
 
 
 __all__ = [

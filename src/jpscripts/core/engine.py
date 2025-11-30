@@ -41,13 +41,13 @@ class TracerProtocol(Protocol):
 
 
 if TYPE_CHECKING:
-    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-        OTLPSpanExporter,  # type: ignore[import-not-found]
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # pyright: ignore[reportMissingImports]
+        OTLPSpanExporter,
     )
-    from opentelemetry.sdk.resources import Resource  # type: ignore[import-not-found]
-    from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import-not-found]
-    from opentelemetry.sdk.trace.export import (
-        BatchSpanProcessor,  # type: ignore[import-not-found]
+    from opentelemetry.sdk.resources import Resource  # pyright: ignore[reportMissingImports]
+    from opentelemetry.sdk.trace import TracerProvider  # pyright: ignore[reportMissingImports]
+    from opentelemetry.sdk.trace.export import (  # pyright: ignore[reportMissingImports]
+        BatchSpanProcessor,
     )
 else:  # pragma: no cover - optional dependency
     OTLPSpanExporter = None
@@ -312,13 +312,13 @@ def _build_black_box_report(
     )
 
 
-def _load_otel_deps() -> (
+def _load_otel_deps() -> tuple[
     TraceModuleProtocol | None,
     type[ResourceProtocol] | None,
     type[TracerProviderProtocol] | None,
     type[BatchSpanProcessorProtocol] | None,
     type[OTLPSpanExporterProtocol] | None,
-):
+]:
     """Dynamically import opentelemetry components if available."""
     try:
         import importlib

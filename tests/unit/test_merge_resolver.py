@@ -221,11 +221,12 @@ x = 0
 =======
 x = 2
 >>>>>>> feature
-"""
+        """
         markers = await resolver.parse_conflict_markers(content, Path("test.py"))
         assert len(markers) == 1
         assert "x = 1" in markers[0].ours
-        assert "x = 0" in markers[0].base or markers[0].base is None
+        base_section = markers[0].base
+        assert base_section is None or "x = 0" in base_section
         assert "x = 2" in markers[0].theirs
 
 

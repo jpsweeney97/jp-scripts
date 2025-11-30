@@ -293,7 +293,9 @@ class TestOpenAIProvider:
         # o1 doesn't support system messages, so it should be merged
         assert len(converted) == 1
         assert converted[0]["role"] == "user"
-        assert "Be helpful" in converted[0]["content"]
+        content_value = converted[0]["content"]
+        assert isinstance(content_value, str)
+        assert "Be helpful" in content_value
 
     def test_tool_conversion(self) -> None:
         from jpscripts.providers.openai import _convert_tools_to_openai
@@ -309,7 +311,11 @@ class TestOpenAIProvider:
         assert converted is not None
         assert len(converted) == 1
         assert converted[0]["type"] == "function"
-        assert converted[0]["function"]["name"] == "search"
+        function_payload = converted[0]["function"]
+        assert isinstance(function_payload, dict)
+        name_value = function_payload.get("name")
+        assert isinstance(name_value, str)
+        assert name_value == "search"
 
 
 class TestCodexProvider:

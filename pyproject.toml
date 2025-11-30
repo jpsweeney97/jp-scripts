@@ -35,6 +35,7 @@ dev = [
   "types-psutil>=5.9.5.20240819",
   "types-PyYAML>=6.0.12.20240917",
   "types-pyperclip>=1.8.2.7",
+  "pandas-stubs>=2.0.0",
   "ruff>=0.4.0",
 ]
 ai = [
@@ -84,9 +85,26 @@ module = [
   "pathspec.*",
   "ruamel.*",
   "opentelemetry.*",
+  "openai.*",
+  "anthropic.*",
 ]
 ignore_missing_imports = true
 
+[tool.pyright]
+typeCheckingMode = "strict"
+reportMissingImports = "warning"
+reportMissingTypeStubs = "warning"
+ignore = [
+  "lancedb",
+  "opentelemetry",
+  "ruamel",
+  "sentence_transformers",
+  "trafilatura",
+  "mcp",
+  "watchdog",
+  "tiktoken",
+  "pathspec",
+]
 
 [tool.ruff]
 target-version = "py311"

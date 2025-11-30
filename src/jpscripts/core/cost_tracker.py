@@ -93,7 +93,7 @@ class CostTracker:
     total_input_tokens: int = field(default=0, init=False)
     total_output_tokens: int = field(default=0, init=False)
     request_count: int = field(default=0, init=False)
-    _usage_history: list[TokenUsage] = field(default_factory=list, init=False)
+    _usage_history: list[TokenUsage] = field(default_factory=lambda: [], init=False)
 
     def record_usage(self, usage: TokenUsage) -> None:
         """Record token usage from a request."""

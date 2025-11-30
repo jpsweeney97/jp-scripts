@@ -116,7 +116,7 @@ def _diff_states(expected: dict[str, object], actual: dict[str, object]) -> str:
 
 def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
     if not steps:
-        return Group(Panel("No steps recorded.", title="Trace", border_style="red"))
+        return Group(Panel("No steps recorded.", title="Trace", border_style="red"))  # pyright: ignore[reportArgumentType]
 
     first = steps[0]
     root_label = f"{trace_id} / {first.timestamp} / {first.agent_persona}"
@@ -139,20 +139,20 @@ def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
             f"[{persona_color}]Step {idx}: {step.agent_persona}[/{persona_color}]"
         )
 
-        thought = step.response.get("thought_process") or ""
+        thought = str(step.response.get("thought_process") or "")
         if thought:
-            step_node.add(Panel(thought, title="Thought", border_style="dim", padding=(0, 1)))
+            step_node.add(Panel(thought, title="Thought", border_style="dim", padding=(0, 1)))  # pyright: ignore[reportArgumentType]
 
         usage = step.response.get("usage")
-        if usage:
+        if isinstance(usage, dict):
             tokens = usage.get("total_tokens") or usage.get("tokens") or 0
             with contextlib.suppress(TypeError, ValueError):
                 total_tokens += int(tokens)
 
         tool_call = step.response.get("tool_call")
-        if tool_call:
+        if isinstance(tool_call, dict):
             tool_calls += 1
-            tool_name = tool_call.get("tool", "unknown")
+            tool_name = str(tool_call.get("tool", "unknown"))
             tool_args = json.dumps(tool_call.get("arguments", {}), indent=2)
             tool_node = step_node.add(f"[cyan]Tool Call: {tool_name}[/cyan]")
             tool_node.add(Panel(tool_args, border_style="blue", padding=(0, 1)))
@@ -166,17 +166,17 @@ def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
             patches += 1
             step_node.add(
                 Panel(
-                    Syntax(patch, "diff", line_numbers=True),
+                    Syntax(str(patch), "diff", line_numbers=True),
                     title="[green]File Patch[/green]",
                     border_style="green",
                 )
-            )
+            )  # pyright: ignore[reportArgumentType]
 
         final_msg = step.response.get("final_message")
         if final_msg:
             step_node.add(
-                Panel(final_msg, title="Final Message", border_style="magenta", padding=(0, 1))
-            )
+                Panel(str(final_msg), title="Final Message", border_style="magenta", padding=(0, 1))
+            )  # pyright: ignore[reportArgumentType]
 
     summary = Table.grid(padding=(0, 1))
     summary.add_column(style="bold")
@@ -190,7 +190,7 @@ def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
 
 
 @app.callback()
-def _trace_callback(ctx: typer.Context) -> None:
+def _trace_callback(ctx: typer.Context) -> None:  # pyright: ignore[reportUnusedFunction]
     """Trace inspection commands."""
 
 
@@ -251,9 +251,9 @@ def list_traces(
             # Extract thought snippet from last response
             thought = ""
             if last_step and last_step.response:
-                thought = last_step.response.get("thought_process", "")
+                thought = str(last_step.response.get("thought_process", ""))
                 if not thought:
-                    thought = last_step.response.get("final_message", "")
+                    thought = str(last_step.response.get("final_message", ""))
             thought = _truncate(thought, 60)
 
             table.add_row(timestamp, trace_id, persona, thought)
@@ -341,7 +341,7 @@ def replay_trace(
         data = json.loads(raw)
         if not isinstance(data, dict):
             raise ReplayDivergenceError("Recorded response is not a JSON object.")
-        return RecordedAgentResponse(payload=data)
+        return RecordedAgentResponse(payload=dict(data))  # pyright: ignore[reportArgumentType]
 
     async def _replay() -> None:
         steps = await _load_trace_steps(trace_file)

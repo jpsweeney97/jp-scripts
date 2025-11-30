@@ -100,7 +100,7 @@ class VectorDBCheck(DiagnosticCheck):
     async def run(self) -> tuple[str, str]:
         store_path = Path(self.config.memory_store).expanduser()
         try:
-            deps = memory_core._load_lancedb_dependencies()
+            deps = memory_core._load_lancedb_dependencies()  # pyright: ignore[reportPrivateUsage]
             if deps is None:
                 return "warn", "lancedb not installed; vector memory unavailable."
 

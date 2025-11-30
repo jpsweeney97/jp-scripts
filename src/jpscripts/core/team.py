@@ -6,19 +6,18 @@ from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 try:
-    from ruamel.yaml import YAML  # type: ignore[import-not-found]
-    from ruamel.yaml.error import YAMLError  # type: ignore[import-not-found]
+    from ruamel.yaml import YAML
+    from ruamel.yaml.error import YAMLError
 except ImportError:  # pragma: no cover - optional dependency
-    YAML = None  # type: ignore[assignment]
+    YAML = None  # type: ignore[assignment, misc]
+    YAMLError = Exception  # type: ignore[assignment, misc]
 
-    class YAMLError(Exception):
-        """Fallback error when ruamel.yaml is unavailable."""
 
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
@@ -67,7 +66,7 @@ def _load_swarm_config(config_path: Path) -> dict[str, object] | None:
         logger.debug("ruamel.yaml not installed; skipping swarm config load.")
         return None
 
-    yaml_loader: YAML = YAML(typ="safe")
+    yaml_loader: Any = YAML(typ="safe")
 
     def _read() -> dict[str, object] | None:
         with config_path.open("r", encoding="utf-8") as handle:

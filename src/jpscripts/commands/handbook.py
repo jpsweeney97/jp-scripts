@@ -102,13 +102,13 @@ def _collect_cli_commands() -> list[CLICommandRef]:
                 CLICommandRef(name=prefix or command.name or "", args=args, summary=summary or "—")
             )
 
-    if isinstance(click_app, click.Command):
+    if isinstance(click_app, click.Command):  # pyright: ignore[reportUnnecessaryIsInstance]
         _walk(click_app, "")
     return sorted(refs, key=lambda ref: ref.name)
 
 
 def _type_name(obj: object) -> str:
-    if obj is inspect._empty:
+    if obj is inspect.Parameter.empty:
         return "Any"
     if isinstance(obj, type):
         return obj.__name__
@@ -123,11 +123,11 @@ def _collect_mcp_tools() -> list[MCPToolRef]:
         params: list[str] = []
         for param_name, param in sig.parameters.items():
             annotation = _type_name(param.annotation)
-            default = "" if param.default is inspect._empty else f"={param.default!r}"
+            default = "" if param.default is inspect.Parameter.empty else f"={param.default!r}"
             params.append(f"{param_name}: {annotation}{default}")
         doc = (inspect.getdoc(func) or "").strip()
         metadata = get_tool_metadata(func) or {}
-        description = metadata.get("description", "") if isinstance(metadata, dict) else ""
+        description = metadata.get("description", "") if isinstance(metadata, dict) else ""  # pyright: ignore[reportUnnecessaryIsInstance]
         combined_desc = " ".join((description or doc or "—").split())
         refs.append(MCPToolRef(name=name, params=", ".join(params), description=combined_desc))
     return refs
@@ -186,7 +186,7 @@ async def _read_json(path: Path) -> dict[str, object] | None:
             with path.open("r", encoding="utf-8") as fh:
                 data = json.load(fh)
                 if isinstance(data, dict):
-                    return data
+                    return dict(data)  # Cast to explicit dict[str, object]
                 return None
         except (OSError, json.JSONDecodeError):
             return None
@@ -612,7 +612,7 @@ def handbook(
         ctx: Typer context containing application state.
         query: Optional semantic query. If provided, the command searches the handbook; otherwise renders it.
     """
-    config: AppConfig | None = getattr(ctx.obj, "config", None) if ctx is not None else None
+    config: AppConfig | None = getattr(ctx.obj, "config", None)
 
     async def _run() -> None:
         handbook_path = _resolve_handbook_path()

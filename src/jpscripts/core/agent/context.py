@@ -10,6 +10,7 @@ import asyncio
 import json
 from collections.abc import Sequence
 from pathlib import Path
+from typing import cast
 
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops, security
@@ -59,7 +60,7 @@ async def load_constitution(root: Path) -> dict[str, object]:
     if not isinstance(constitution, dict):
         return {"status": "invalid", "message": "Missing or invalid 'constitution' object"}
 
-    return constitution
+    return cast(dict[str, object], constitution)
 
 
 async def collect_git_context(root: Path) -> tuple[str, str, bool]:

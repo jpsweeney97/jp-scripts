@@ -6,7 +6,7 @@ import signal
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, TypeVar, cast
 
 import psutil
 import typer
@@ -316,16 +316,16 @@ def panic(
     console.print("[bold red]🚨 PANIC PROTOCOL ENGAGED[/bold red]")
 
     # Find and kill codex processes
-    process_iter: Iterator[psutil.Process] = psutil.process_iter(
-        attrs=["pid", "name", "cmdline"]
-    )
+    process_iter: Iterator[psutil.Process] = psutil.process_iter(attrs=["pid", "name", "cmdline"])
     processes: list[psutil.Process] = list(process_iter)
     for proc in processes:
         try:
             proc_name = proc.info.get("name", "") or ""
             cmdline_value = proc.info.get("cmdline")
             proc_cmdline: list[str] = (
-                [str(part) for part in cmdline_value] if isinstance(cmdline_value, list) else []
+                [str(part) for part in cast(list[Any], cmdline_value)]  # type: ignore[redundant-cast]
+                if isinstance(cmdline_value, list)
+                else []
             )
             cmdline_str = " ".join(proc_cmdline) if proc_cmdline else ""
 

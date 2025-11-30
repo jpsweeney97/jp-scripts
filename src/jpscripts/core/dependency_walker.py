@@ -64,8 +64,8 @@ class CallGraph:
         callees: Dict mapping callee names to sets of caller names (reverse index)
     """
 
-    callers: dict[str, set[str]] = field(default_factory=dict)
-    callees: dict[str, set[str]] = field(default_factory=dict)
+    callers: dict[str, set[str]] = field(default_factory=lambda: {})
+    callees: dict[str, set[str]] = field(default_factory=lambda: {})
 
     def add_call(self, caller: str, callee: str) -> None:
         """Record a call relationship."""

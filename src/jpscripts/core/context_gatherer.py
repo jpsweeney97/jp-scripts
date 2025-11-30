@@ -358,47 +358,12 @@ def _line_offsets(text: str) -> list[int]:
     return offsets
 
 
-def _nearest_line_boundary(offsets: list[int], limit: int) -> int:
-    for idx in range(len(offsets) - 1, -1, -1):
-        if offsets[idx] <= limit:
-            return offsets[idx]
-    return 0
-
-
 def _is_parseable(snippet: str) -> bool:
     try:
         ast.parse(snippet)
     except SyntaxError:
         return False
     return True
-
-
-def _find_definition_boundary(tree: ast.AST, offsets: list[int], limit: int) -> int:
-    boundary = 0
-    for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-            end_line = getattr(node, "end_lineno", None)
-            if end_line is None:
-                continue
-            offset_index = min(end_line, len(offsets) - 1)
-            end_offset = offsets[offset_index]
-            if boundary < end_offset <= limit:
-                boundary = end_offset
-    return boundary
-
-
-def _truncate_to_parseable(text: str, limit: int, offsets: list[int]) -> str:
-    for idx in range(len(offsets) - 1, -1, -1):
-        pos = offsets[idx]
-        if pos == 0 or pos > limit:
-            continue
-        snippet = text[:pos]
-        if not snippet.endswith("\n"):
-            snippet = f"{snippet}\n"
-        if _is_parseable(snippet):
-            return snippet
-
-    return ""
 
 
 def _fallback_read(text: str, limit: int, error: SyntaxError | None) -> str:

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+# pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false
 import asyncio
 import hashlib
 import json
 import os
 import re
-import types
 from collections import Counter
 from collections.abc import Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from importlib import import_module
 from math import sqrt
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Protocol, SupportsFloat, TypeAlias, TypeVar, cast
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
@@ -30,13 +30,12 @@ from jpscripts.core.result import (
     Ok,
     Result,
 )
-from jpscripts.providers import BaseLLMProvider, CompletionOptions, ProviderError
+from jpscripts.providers import CompletionOptions, LLMProvider, ProviderError
 from jpscripts.providers import Message as ProviderMessage
 from jpscripts.providers.factory import get_provider
 
 if TYPE_CHECKING:
     from lancedb.pydantic import LanceModel as LanceModelBase
-    from lancedb.table import LanceTable as LanceTable
     from sentence_transformers import SentenceTransformer
 else:  # pragma: no cover - runtime fallbacks when optional deps are missing
 
@@ -84,8 +83,8 @@ class LanceDBModuleProtocol(Protocol):
     def connect(self, uri: str) -> LanceDBConnectionProtocol: ...
 
 
-# Alias for readability
-LanceTable = LanceTableProtocol
+# Type alias for readability
+LanceTable: TypeAlias = LanceTableProtocol
 
 
 class MemoryRecordProtocol(Protocol):
@@ -478,7 +477,7 @@ class _GlobalEmbeddingClient(EmbeddingClientProtocol):
     def _embed_remote(self, texts: list[str]) -> list[list[float]] | None:
         if not self._server_url or not self._check_remote_available():
             return None
-        payload = {"input": texts, "model": self.model_name}
+        payload: dict[str, object] = {"input": texts, "model": self.model_name}
         response = _run_coroutine(_async_post_json(self._server_url, payload))
         if response is None:
             self._remote_available = False
@@ -673,12 +672,12 @@ class LanceDBStore(MemoryStore):
     def __init__(
         self,
         db_path: Path,
-        lancedb_module: types.ModuleType,
+        lancedb_module: LanceDBModuleProtocol,
         lance_model_base: type[LanceModelBase],
     ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
-        self._lancedb: LanceDBModuleProtocol = cast(LanceDBModuleProtocol, lancedb_module)
+        self._lancedb: LanceDBModuleProtocol = lancedb_module
         self._model_cls: type[LanceModelBase] = _build_memory_record_model(lance_model_base)
         self._table: LanceTable | None = None
         self._embedding_dim: int | None = None
@@ -730,7 +729,7 @@ class LanceDBStore(MemoryStore):
 
         try:
             table = self._ensure_table(len(entry.embedding))
-            model = self._model_cls(
+            model = self._model_cls(  # pyright: ignore[reportCallIssue]
                 id=entry.id,
                 timestamp=entry.ts,
                 content=entry.content,
@@ -1373,12 +1372,12 @@ class PatternStore:
     def __init__(
         self,
         db_path: Path,
-        lancedb_module: types.ModuleType,
+        lancedb_module: LanceDBModuleProtocol,
         lance_model_base: type[LanceModelBase],
     ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
-        self._lancedb: LanceDBModuleProtocol = cast(LanceDBModuleProtocol, lancedb_module)
+        self._lancedb: LanceDBModuleProtocol = lancedb_module
         self._model_cls = _build_pattern_record_model(lance_model_base)
         self._table: LanceTable | None = None
         self._embedding_dim: int | None = None
@@ -1400,7 +1399,7 @@ class PatternStore:
         try:
             embedding_dim = len(pattern.embedding) if pattern.embedding else None
             table = self._ensure_table(embedding_dim)
-            record = self._model_cls(
+            record = self._model_cls(  # pyright: ignore[reportCallIssue]
                 id=pattern.id,
                 created_at=pattern.created_at,
                 pattern_type=pattern.pattern_type,
@@ -1469,7 +1468,7 @@ class PatternStore:
             df = table.to_pandas()
             patterns: list[Pattern] = []
             for _, row in df.head(limit).iterrows():
-                row_mapping = cast(Mapping[str, object], row)
+                row_mapping = row
                 patterns.append(
                     Pattern(
                         id=str(row_mapping.get("id", "")),
@@ -1478,9 +1477,11 @@ class PatternStore:
                         description=str(row_mapping.get("description", "")),
                         trigger=str(row_mapping.get("trigger", "")),
                         solution=str(row_mapping.get("solution", "")),
-                        source_traces=list(row_mapping.get("source_traces", [])),
-                        confidence=float(row_mapping.get("confidence", 0.0)),
-                        embedding=list(row_mapping.get("embedding", []))
+                        source_traces=list(
+                            cast(Iterable[str], row_mapping.get("source_traces", []))
+                        ),
+                        confidence=float(cast(SupportsFloat, row_mapping.get("confidence", 0.0))),
+                        embedding=list(cast(Iterable[float], row_mapping.get("embedding", [])))
                         if row_mapping.get("embedding") is not None
                         else None,
                     )
@@ -1645,8 +1646,8 @@ def _cluster_traces_by_similarity(traces: list[dict[str, object]]) -> list[list[
     clusters: dict[str, list[dict[str, object]]] = {}
 
     for trace in traces:
-        response = trace.get("response", {})
-        thought = response.get("thought_process", "")
+        response = cast(dict[str, object], trace.get("response", {}))
+        thought = str(response.get("thought_process", ""))
 
         # Extract key from first significant word
         words = thought.split()[:3]
@@ -1661,19 +1662,19 @@ def _cluster_traces_by_similarity(traces: list[dict[str, object]]) -> list[list[
 
 async def _synthesize_pattern_from_cluster(
     cluster: list[dict[str, object]],
-    provider: BaseLLMProvider,
+    provider: LLMProvider,
     model: str,
 ) -> Pattern | None:
     """Use LLM to extract a generalized pattern from a cluster of similar traces."""
     examples = []
     for trace in cluster[:5]:  # Limit to 5 examples
-        response = trace.get("response", {})
-        input_history = trace.get("input_history", [])
-        context = input_history[-1].get("content", "") if input_history else ""
+        response = cast(dict[str, object], trace.get("response", {}))
+        input_history = cast(list[dict[str, object]], trace.get("input_history", []))
+        context = str(input_history[-1].get("content", "")) if input_history else ""
         examples.append(
             {
-                "thought": response.get("thought_process", ""),
-                "patch": response.get("file_patch", ""),
+                "thought": str(response.get("thought_process", "")),
+                "patch": str(response.get("file_patch", "")),
                 "context_snippet": context[:500] if context else "",
             }
         )
@@ -1697,8 +1698,8 @@ Respond in JSON format only:
     options = CompletionOptions(temperature=0.3)
 
     try:
-        response = await provider.complete(messages, model=model, options=options)
-        content = response.content.strip()
+        llm_response = await provider.complete(messages, model=model, options=options)
+        content = llm_response.content.strip()
 
         # Extract JSON from response
         if "```" in content:
@@ -1722,7 +1723,7 @@ Respond in JSON format only:
             description=str(data.get("description", "")),
             trigger=str(data.get("trigger", "")),
             solution=str(data.get("solution", "")),
-            source_traces=[trace.get("timestamp", "") for trace in cluster],
+            source_traces=[str(trace.get("timestamp", "")) for trace in cluster],
             confidence=float(data.get("confidence", 0.5)),
         )
     except Exception as exc:

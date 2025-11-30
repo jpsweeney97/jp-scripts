@@ -26,6 +26,8 @@ from rich.table import Table
 from jpscripts.core import git as git_core
 from jpscripts.core.agent import PreparedPrompt, run_repair_loop
 from jpscripts.core.complexity import (
+    FileComplexity,
+    FunctionComplexity,
     TechnicalDebtScore,
     analyze_directory_complexity,
     calculate_debt_scores,
@@ -329,7 +331,9 @@ async def _run_evolve(
         dependents: list[Path] = []
         for test_file in test_files:
             try:
-                deps = await asyncio.to_thread(get_import_dependencies, test_file, root)
+                deps: set[Path] = await asyncio.to_thread(
+                    get_import_dependencies, test_file, root
+                )
             except Exception:
                 deps = set()
             for changed in python_changes:
@@ -457,7 +461,9 @@ def evolve_report(
             return
 
         # Sort by max complexity
-        sorted_files = sorted(complexities, key=lambda c: -c.max_cyclomatic)[:limit]
+        sorted_files: list[FileComplexity] = sorted(
+            complexities, key=lambda c: -c.max_cyclomatic
+        )[:limit]
 
         churn_by_path: dict[Path, int] = {fc.path: 0 for fc in sorted_files}
         match await git_core.AsyncRepo.open(root):
@@ -500,7 +506,7 @@ def evolve_report(
         console.print()
         console.print("[bold]Top 10 Most Complex Functions:[/bold]")
 
-        all_functions = []
+        all_functions: list[tuple[Path, FunctionComplexity]] = []
         for fc in complexities:
             for func in fc.functions:
                 all_functions.append((fc.path, func))

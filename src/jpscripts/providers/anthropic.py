@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING
+from contextlib import AbstractAsyncContextManager
+from typing import Protocol, cast
 
+from jpscripts.core.config import AppConfig
 from jpscripts.providers import (
     AuthenticationError,
     BaseLLMProvider,
@@ -38,11 +40,52 @@ from jpscripts.providers import (
     ToolDefinition,
 )
 
-if TYPE_CHECKING:
-    from anthropic import AsyncAnthropic
-    from anthropic.types import ContentBlock
 
-    from jpscripts.core.config import AppConfig
+class _ContentBlock(Protocol):
+    type: str
+    id: str | None
+    name: str | None
+    input: object | None
+    text: str | None
+
+
+class _Usage(Protocol):
+    input_tokens: int
+    output_tokens: int
+
+
+class _MessageResponse(Protocol):
+    content: list[_ContentBlock]
+    model: str
+    stop_reason: str | None
+    usage: _Usage | None
+
+
+class _ContentDelta(Protocol):
+    text: str | None
+
+
+class _StreamEvent(Protocol):
+    type: str
+    delta: _ContentDelta | None
+
+
+class _StreamSession(AsyncIterator[_StreamEvent], Protocol):
+    async def get_final_message(self) -> _MessageResponse: ...
+
+
+class _MessagesStream(AbstractAsyncContextManager[_StreamSession], Protocol):
+    pass
+
+
+class _MessagesAPI(Protocol):
+    async def create(self, **kwargs: object) -> object: ...
+
+    def stream(self, **kwargs: object) -> _MessagesStream: ...
+
+
+class AnthropicClientProtocol(Protocol):
+    messages: _MessagesAPI
 
 # Model context limits (tokens)
 ANTHROPIC_CONTEXT_LIMITS: dict[str, int] = {
@@ -137,26 +180,28 @@ def _convert_tools_to_anthropic(
     ]
 
 
-def _parse_tool_calls(content_blocks: list[ContentBlock]) -> list[ToolCall]:
+def _parse_tool_calls(content_blocks: list[_ContentBlock]) -> list[ToolCall]:
     """Parse tool use blocks from Anthropic response."""
     tool_calls: list[ToolCall] = []
     for block in content_blocks:
         if block.type == "tool_use":
+            call_id = block.id or ""
+            call_name = block.name or ""
             tool_calls.append(
                 ToolCall(
-                    id=block.id,
-                    name=block.name,
+                    id=call_id,
+                    name=call_name,
                     arguments=dict(block.input) if isinstance(block.input, dict) else {},
                 )
             )
     return tool_calls
 
 
-def _extract_text_content(content_blocks: list[ContentBlock]) -> str:
+def _extract_text_content(content_blocks: list[_ContentBlock]) -> str:
     """Extract text content from Anthropic response blocks."""
     text_parts: list[str] = []
     for block in content_blocks:
-        if block.type == "text":
+        if block.type == "text" and block.text:
             text_parts.append(block.text)
     return "".join(text_parts)
 
@@ -171,15 +216,15 @@ class AnthropicProvider(BaseLLMProvider):
 
     def __init__(self, config: AppConfig) -> None:
         super().__init__(config)
-        self._client: AsyncAnthropic | None = None
+        self._client: AnthropicClientProtocol | None = None
 
-    def _get_client(self) -> AsyncAnthropic:
+    def _get_client(self) -> AnthropicClientProtocol:
         """Lazy-initialize the Anthropic client."""
         if self._client is not None:
             return self._client
 
         try:
-            import anthropic  # type: ignore[import-not-found]
+            import anthropic
         except ImportError as exc:
             raise ProviderError(
                 "anthropic package not installed. Install with: pip install anthropic"
@@ -189,7 +234,8 @@ class AnthropicProvider(BaseLLMProvider):
         if not api_key:
             raise AuthenticationError("ANTHROPIC_API_KEY environment variable not set")
 
-        self._client = anthropic.AsyncAnthropic(api_key=api_key)
+        client = anthropic.AsyncAnthropic(api_key=api_key)
+        self._client = cast(AnthropicClientProtocol, client)
         return self._client
 
     @property
@@ -253,9 +299,12 @@ class AnthropicProvider(BaseLLMProvider):
                     params["tool_choice"] = {"type": "tool", "name": opts.tool_choice}
 
         try:
-            response = await client.messages.create(**params)  # type: ignore[arg-type]
+            response_obj = await client.messages.create(**params)
         except Exception as exc:
             self._handle_api_error(exc)
+            raise AssertionError("unreachable")
+
+        response = cast(_MessageResponse, response_obj)
 
         # Parse response
         content_blocks = response.content
@@ -263,7 +312,7 @@ class AnthropicProvider(BaseLLMProvider):
         tool_calls = _parse_tool_calls(content_blocks)
 
         usage = None
-        if hasattr(response, "usage") and response.usage:
+        if response.usage:
             usage = TokenUsage(
                 prompt_tokens=response.usage.input_tokens,
                 completion_tokens=response.usage.output_tokens,
@@ -314,27 +363,27 @@ class AnthropicProvider(BaseLLMProvider):
             params["tools"] = tools
 
         try:
-            async with client.messages.stream(**params) as stream:  # type: ignore[arg-type]
+            stream_ctx = client.messages.stream(**params)
+            async with stream_ctx as stream:
                 async for event in stream:
-                    if hasattr(event, "type"):
-                        if event.type == "content_block_delta":
-                            delta = getattr(event, "delta", None)
-                            if delta and hasattr(delta, "text"):
-                                yield StreamChunk(content=delta.text)
-                        elif event.type == "message_stop":
-                            # Final chunk with usage if available
-                            final_message = await stream.get_final_message()
-                            usage = None
-                            if hasattr(final_message, "usage") and final_message.usage:
-                                usage = TokenUsage(
-                                    prompt_tokens=final_message.usage.input_tokens,
-                                    completion_tokens=final_message.usage.output_tokens,
-                                )
-                            yield StreamChunk(
-                                content="",
-                                finish_reason=final_message.stop_reason,
-                                usage=usage,
+                    if event.type == "content_block_delta":
+                        delta = event.delta
+                        if delta and delta.text:
+                            yield StreamChunk(content=delta.text)
+                    elif event.type == "message_stop":
+                        # Final chunk with usage if available
+                        final_message = await stream.get_final_message()
+                        usage = None
+                        if final_message.usage:
+                            usage = TokenUsage(
+                                prompt_tokens=final_message.usage.input_tokens,
+                                completion_tokens=final_message.usage.output_tokens,
                             )
+                        yield StreamChunk(
+                            content="",
+                            finish_reason=final_message.stop_reason,
+                            usage=usage,
+                        )
         except Exception as exc:
             self._handle_api_error(exc)
 
