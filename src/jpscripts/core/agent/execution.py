@@ -20,6 +20,7 @@ from rich import box
 from rich.panel import Panel
 
 from jpscripts.core import security
+from jpscripts.core.result import Err
 from jpscripts.core.agent.context import expand_context_paths
 from jpscripts.core.agent.prompting import prepare_agent_prompt
 from jpscripts.core.console import console, get_logger
@@ -244,7 +245,7 @@ async def run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
     return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
 
 
-def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
+async def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
     candidates: set[Path] = set()
     for raw_line in patch_text.splitlines():
         if not raw_line.startswith(("+++ ", "--- ")):
@@ -258,19 +259,21 @@ def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
             continue
         if path_str.startswith(("a/", "b/")):
             path_str = path_str[2:]
-        try:
-            candidates.add(security.validate_path(root / path_str, root))
-        except PermissionError as exc:
-            logger.debug("Skipped unsafe patch path %s: %s", path_str, exc)
-        except Exception as exc:
-            logger.debug("Failed to normalize patch path %s: %s", path_str, exc)
+        result = await security.validate_path_safe_async(root / path_str, root)
+        if isinstance(result, Err):
+            logger.debug("Skipped unsafe patch path %s: %s", path_str, result.error.message)
+            continue
+        candidates.add(result.value)
     return sorted(candidates)
 
 
-def _write_failed_patch(patch_text: str, root: Path) -> None:
+async def _write_failed_patch(patch_text: str, root: Path) -> None:
+    result = await security.validate_path_safe_async(root / "agent_failed_patch.diff", root)
+    if isinstance(result, Err):
+        logger.debug("Unable to persist failed patch: %s", result.error.message)
+        return
     try:
-        destination = security.validate_path(root / "agent_failed_patch.diff", root)
-        destination.write_text(patch_text, encoding="utf-8")
+        await asyncio.to_thread(result.value.write_text, patch_text, encoding="utf-8")
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("Unable to persist failed patch for inspection: %s", exc)
 
@@ -291,7 +294,7 @@ async def apply_patch_text(patch_text: str, root: Path) -> list[Path]:
     if not patch_text.strip():
         return []
 
-    target_paths = _extract_patch_paths(patch_text, root)
+    target_paths = await _extract_patch_paths(patch_text, root)
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -322,7 +325,7 @@ async def apply_patch_text(patch_text: str, root: Path) -> list[Path]:
             stderr=asyncio.subprocess.PIPE,
         )
     except FileNotFoundError:
-        _write_failed_patch(patch_text, root)
+        await _write_failed_patch(patch_text, root)
         return []
 
     out, err = await fallback.communicate(patch_text.encode())
@@ -333,7 +336,7 @@ async def apply_patch_text(patch_text: str, root: Path) -> list[Path]:
         "Patch application failed: %s",
         err.decode(errors="replace") or out.decode(errors="replace"),
     )
-    _write_failed_patch(patch_text, root)
+    await _write_failed_patch(patch_text, root)
     return []
 
 
@@ -428,10 +431,11 @@ async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
 
     safe_paths: list[Path] = []
     for path in paths:
-        try:
-            safe_paths.append(security.validate_path(path, root))
-        except PermissionError as exc:
-            logger.debug("Skipping revert for unsafe path %s: %s", path, exc)
+        result = await security.validate_path_safe_async(path, root)
+        if isinstance(result, Err):
+            logger.debug("Skipping revert for unsafe path %s: %s", path, result.error.message)
+            continue
+        safe_paths.append(result.value)
 
     if not safe_paths:
         return

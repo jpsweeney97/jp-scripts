@@ -471,7 +471,7 @@ def _estimate_token_usage(prompt_text: str, completion_text: str) -> TokenUsage:
     )
 
 
-def _extract_patch_paths(file_patch: str, workspace_root: Path) -> list[Path]:
+async def _extract_patch_paths(file_patch: str, workspace_root: Path) -> list[Path]:
     """Derive touched files from a unified diff."""
     if not file_patch.strip():
         return []
@@ -489,15 +489,14 @@ def _extract_patch_paths(file_patch: str, workspace_root: Path) -> list[Path]:
             continue
         if normalized_line.startswith(("a/", "b/")):
             normalized_line = normalized_line[2:]
-        try:
-            normalized_path = security.validate_path(
-                workspace_root / normalized_line,
-                workspace_root,
-            )
-        except Exception as exc:
-            logger.debug("Skipping patch path %s: %s", normalized_line, exc)
+        result = await security.validate_path_safe_async(
+            workspace_root / normalized_line,
+            workspace_root,
+        )
+        if isinstance(result, Err):
+            logger.debug("Skipping patch path %s: %s", normalized_line, result.error.message)
             continue
-        candidates.add(normalized_path)
+        candidates.add(result.value)
     return sorted(candidates)
 
 
@@ -682,7 +681,7 @@ class AgentEngine(Generic[ResponseT]):
             )
 
         usage_snapshot = _estimate_token_usage(prepared.prompt, raw)
-        files_touched = self._infer_files_touched(response)
+        files_touched = await self._infer_files_touched(response)
         self._last_usage_snapshot = usage_snapshot
         self._last_files_touched = files_touched
 
@@ -847,7 +846,7 @@ class AgentEngine(Generic[ResponseT]):
         except Exception as exc:  # pragma: no cover - best effort
             logger.debug("Failed to record trace: %s", exc)
 
-    def _infer_files_touched(self, response: BaseModel) -> list[Path]:
+    async def _infer_files_touched(self, response: BaseModel) -> list[Path]:
         if not hasattr(response, "file_patch"):
             return []
 
@@ -855,7 +854,7 @@ class AgentEngine(Generic[ResponseT]):
         if not file_patch or self._workspace_root is None:
             return []
 
-        return _extract_patch_paths(str(file_patch), self._workspace_root)
+        return await _extract_patch_paths(str(file_patch), self._workspace_root)
 
     def _enforce_circuit_breaker(
         self,

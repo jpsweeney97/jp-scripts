@@ -8,7 +8,12 @@ from pathlib import Path
 from jpscripts.core.context import smart_read_context
 from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
-from jpscripts.core.security import is_git_workspace, validate_path, validate_path_safe_async
+from jpscripts.core.security import (
+    is_git_workspace,
+    validate_and_open,
+    validate_path,
+    validate_path_safe_async,
+)
 from jpscripts.mcp import logger, tool, tool_error_handler
 
 
@@ -59,29 +64,27 @@ async def read_file_paged(path: str, offset: int = 0, limit: int = 20000) -> str
     ctx = get_runtime()
     root = ctx.workspace_root
 
-    base = Path(path)
-    candidate = base if base.is_absolute() else root / base
-    result = await validate_path_safe_async(candidate, root)
-    if isinstance(result, Err):
-        return f"Error: {result.error.message}"
-    target = result.value
-
-    if not target.exists():
-        return f"Error: File {target} does not exist."
-    if not target.is_file():
-        return f"Error: {target} is not a file."
     if offset < 0:
         return "Error: offset must be non-negative."
     if limit <= 0:
         return "Error: limit must be positive."
 
-    def _read_slice() -> str:
-        with target.open("rb") as fh:
+    base = Path(path)
+    candidate = base if base.is_absolute() else root / base
+
+    def _open_and_read() -> str:
+        result = validate_and_open(candidate, root, "rb")
+        if isinstance(result, Err):
+            raise RuntimeError(result.error.message)
+        with result.value as fh:
             fh.seek(offset)
-            data = fh.read(limit)
+            data: bytes = fh.read(limit)
         return data.decode("utf-8", errors="replace")
 
-    return await asyncio.to_thread(_read_slice)
+    try:
+        return await asyncio.to_thread(_open_and_read)
+    except RuntimeError as e:
+        return f"Error: {e}"
 
 
 @tool()
@@ -98,23 +101,31 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
         return f"Simulated write to {target} (dry-run active). Content length: {len(content)}"
 
     root = ctx.workspace_root
-    result = await validate_path_safe_async(Path(path).expanduser(), root)
-    if isinstance(result, Err):
-        return f"Error: {result.error.message}"
-    target = result.value
+    target = Path(path).expanduser()
+    candidate = target if target.is_absolute() else root / target
 
-    if target.exists() and not overwrite:
-        return f"Error: File {target.name} already exists. Pass overwrite=True to replace it."
+    # Check existence before atomic open (for overwrite protection)
+    if candidate.exists() and not overwrite:
+        return f"Error: File {candidate.name} already exists. Pass overwrite=True to replace it."
 
-    target.parent.mkdir(parents=True, exist_ok=True)
+    def _open_and_write() -> int:
+        # Create parent directory first
+        candidate.parent.mkdir(parents=True, exist_ok=True)
 
-    def _write() -> int:
-        target.write_text(content, encoding="utf-8")
+        result = validate_and_open(candidate, root, "w", encoding="utf-8")
+        if isinstance(result, Err):
+            raise RuntimeError(result.error.message)
+        with result.value as fh:
+            fh.write(content)
         return len(content.encode("utf-8"))
 
-    size = await asyncio.to_thread(_write)
-    logger.info("Wrote %d bytes to %s", size, target)
-    return f"Successfully wrote {target.name} ({size} bytes)."
+    try:
+        size = await asyncio.to_thread(_open_and_write)
+    except RuntimeError as e:
+        return f"Error: {e}"
+
+    logger.info("Wrote %d bytes to %s", size, candidate)
+    return f"Successfully wrote {candidate.name} ({size} bytes)."
 
 
 @tool()
