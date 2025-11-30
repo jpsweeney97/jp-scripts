@@ -6,8 +6,9 @@ import shutil
 from pathlib import Path
 
 from jpscripts.core.context import smart_read_context
+from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
-from jpscripts.core.security import is_git_workspace, validate_path
+from jpscripts.core.security import is_git_workspace, validate_path, validate_path_safe_async
 from jpscripts.mcp import logger, tool, tool_error_handler
 
 
@@ -27,7 +28,10 @@ async def read_file(path: str) -> str:
 
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
-    target = validate_path(candidate, root)
+    result = await validate_path_safe_async(candidate, root)
+    if isinstance(result, Err):
+        return f"Error: {result.error.message}"
+    target = result.value
     if not target.exists():
         return f"Error: File {target} does not exist."
     if not target.is_file():
@@ -57,7 +61,10 @@ async def read_file_paged(path: str, offset: int = 0, limit: int = 20000) -> str
 
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
-    target = validate_path(candidate, root)
+    result = await validate_path_safe_async(candidate, root)
+    if isinstance(result, Err):
+        return f"Error: {result.error.message}"
+    target = result.value
 
     if not target.exists():
         return f"Error: File {target} does not exist."
@@ -91,7 +98,10 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
         return f"Simulated write to {target} (dry-run active). Content length: {len(content)}"
 
     root = ctx.workspace_root
-    target = validate_path(Path(path).expanduser(), root)
+    result = await validate_path_safe_async(Path(path).expanduser(), root)
+    if isinstance(result, Err):
+        return f"Error: {result.error.message}"
+    target = result.value
 
     if target.exists() and not overwrite:
         return f"Error: File {target.name} already exists. Pass overwrite=True to replace it."
@@ -119,7 +129,10 @@ async def list_directory(path: str) -> str:
 
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
-    target = validate_path(candidate, root)
+    result = await validate_path_safe_async(candidate, root)
+    if isinstance(result, Err):
+        return f"Error: {result.error.message}"
+    target = result.value
     if not target.exists():
         return f"Error: Path {target} does not exist."
     if not target.is_dir():
@@ -275,7 +288,10 @@ async def apply_patch(path: str, diff: str) -> str:
     ctx = get_runtime()
     root = ctx.workspace_root
 
-    target = validate_path(Path(path).expanduser(), root)
+    result = await validate_path_safe_async(Path(path).expanduser(), root)
+    if isinstance(result, Err):
+        raise ToolExecutionError(result.error.message)
+    target = result.value
     if target.is_dir():
         raise ToolExecutionError(f"Cannot apply a patch to directory {target}.")
 

@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
-from jpscripts.core.security import validate_path
+from jpscripts.core.security import validate_path_safe_async
 from jpscripts.mcp import tool, tool_error_handler
 
 
@@ -19,10 +20,10 @@ async def run_tests(target: str = ".", verbose: bool = False) -> str:
     root = ctx.workspace_root
     candidate = Path(target)
     resolved_target = candidate if candidate.is_absolute() else root / candidate
-    try:
-        safe_target = validate_path(resolved_target, root)
-    except PermissionError as exc:
-        return f"Error: {exc}"
+    path_result = await validate_path_safe_async(resolved_target, root)
+    if isinstance(path_result, Err):
+        return f"Error: {path_result.error.message}"
+    safe_target = path_result.value
     if not safe_target.exists():
         return f"Error: Target {safe_target} does not exist."
 
