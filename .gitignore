@@ -1,9 +1,41 @@
-.venv/
+# Python cache/artifacts
 __pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.dll
 *.egg-info/
-.DS_Store
-tmp-repo-test/
-/*.py
-!/setup.py
-fake_*.py
+.eggs/
+build/
+dist/
+.coverage
+*.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 .hypothesis/
+
+# Virtual environments
+.venv/
+venv/
+.env
+.envrc
+
+# Editor/OS noise
+.vscode/
+.idea/
+.DS_Store
+
+# Local tooling state
+.jpscripts/
+.codex/
+.claude/
+
+# Temporary/test artifacts
+tmp-repo-test/
+fake_*.py
+*.log
+=6.100.0
+MagicMock
