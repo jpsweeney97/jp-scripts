@@ -67,8 +67,7 @@ class TracerProviderProtocol(Protocol):
     def add_span_processor(self, processor: SpanProcessorProtocol) -> None: ...
 
 
-class SpanProcessorProtocol(Protocol):
-    ...
+class SpanProcessorProtocol(Protocol): ...
 
 
 class BatchSpanProcessorProtocol(SpanProcessorProtocol, Protocol):
@@ -343,7 +342,8 @@ def _load_otel_deps() -> (
             cast(type[ResourceProtocol], getattr(resources_mod, "Resource", None)),
             cast(type[TracerProviderProtocol], getattr(trace_sdk_mod, "TracerProvider", None)),
             cast(
-                type[BatchSpanProcessorProtocol], getattr(trace_export_mod, "BatchSpanProcessor", None)
+                type[BatchSpanProcessorProtocol],
+                getattr(trace_export_mod, "BatchSpanProcessor", None),
             ),
             cast(type[OTLPSpanExporterProtocol], exporter_cls) if exporter_cls else None,
         )
@@ -407,9 +407,7 @@ def _get_tracer() -> TracerProtocol | None:
         if not _otel_provider_configured:
             _otel_trace_module.set_tracer_provider(provider)
             _otel_provider_configured = True
-        _otel_tracer = _otel_trace_module.get_tracer(
-            config.otel_service_name or "jpscripts"
-        )
+        _otel_tracer = _otel_trace_module.get_tracer(config.otel_service_name or "jpscripts")
     except Exception as exc:  # pragma: no cover - best effort
         logger.debug("Failed to initialize tracer: %s", exc)
         return None

@@ -7,7 +7,7 @@ import os
 import re
 import types
 from collections import Counter
-from collections.abc import Coroutine, Sequence
+from collections.abc import Coroutine, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import import_module
@@ -36,15 +36,78 @@ from jpscripts.providers.factory import get_provider
 
 if TYPE_CHECKING:
     from lancedb.pydantic import LanceModel as LanceModelBase
-    from lancedb.table import LanceTable
+    from lancedb.table import LanceTable as LanceTable
     from sentence_transformers import SentenceTransformer
 else:  # pragma: no cover - runtime fallbacks when optional deps are missing
 
     class LanceModelBase:  # type: ignore[misc]
+        """Fallback LanceDB model base when dependency is missing."""
+
         pass
 
-    class LanceTable:  # type: ignore[misc]
-        ...
+
+class LanceSearchProtocol(Protocol):
+    def limit(self, n: int) -> LanceSearchProtocol: ...
+
+    def to_pydantic(self, model: type[LanceModelBase]) -> Sequence[object]: ...
+
+
+class PandasDataFrameProtocol(Protocol):
+    def head(self, n: int) -> PandasDataFrameProtocol: ...
+
+    def iterrows(self) -> Iterable[tuple[int, Mapping[str, object]]]: ...
+
+
+class LanceTableProtocol(Protocol):
+    schema: object
+
+    def add_column(self, name: str, dtype: object) -> object: ...
+
+    def add(self, records: Sequence[object]) -> object: ...
+
+    def search(self, vector: Sequence[float]) -> LanceSearchProtocol: ...
+
+    def to_pandas(self) -> PandasDataFrameProtocol: ...
+
+
+class LanceDBConnectionProtocol(Protocol):
+    def table_names(self) -> Sequence[str]: ...
+
+    def create_table(
+        self, name: str, schema: type[LanceModelBase], exist_ok: bool = ...
+    ) -> LanceTableProtocol: ...
+
+    def open_table(self, name: str) -> LanceTableProtocol: ...
+
+
+class LanceDBModuleProtocol(Protocol):
+    def connect(self, uri: str) -> LanceDBConnectionProtocol: ...
+
+
+# Alias for readability
+LanceTable = LanceTableProtocol
+
+
+class MemoryRecordProtocol(Protocol):
+    id: str
+    timestamp: str
+    content: str
+    tags: list[str] | None
+    embedding: list[float] | None
+    source_path: str | None
+    related_files: list[str] | None
+
+
+class PatternRecordProtocol(Protocol):
+    id: str
+    created_at: str
+    pattern_type: str
+    description: str
+    trigger: str
+    solution: str
+    source_traces: list[str] | None
+    confidence: float
+    embedding: list[float] | None
 
 
 logger = get_logger(__name__)
@@ -88,7 +151,7 @@ STOPWORDS = {
 MAX_ENTRIES = 5000
 DEFAULT_STORE = Path.home() / ".jp_memory.lance"
 FALLBACK_SUFFIX = ".jsonl"
-_SEMANTIC_WARNED = False
+_semantic_warned = False
 
 
 def _run_coroutine(coro: Coroutine[object, object, T]) -> T | None:
@@ -136,7 +199,9 @@ def _check_server_online(host: str, port: int) -> bool:
     return bool(result)
 
 
-def _post_json(url: str, payload: dict[str, object], timeout: float = 2.0) -> dict[str, object] | None:
+def _post_json(
+    url: str, payload: dict[str, object], timeout: float = 2.0
+) -> dict[str, object] | None:
     data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     req = urllib_request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
@@ -291,11 +356,11 @@ def _embedding_settings(config: AppConfig | None) -> tuple[bool, str, str | None
 
 
 def _warn_semantic_unavailable() -> None:
-    global _SEMANTIC_WARNED
-    if _SEMANTIC_WARNED:
+    global _semantic_warned
+    if _semantic_warned:
         return
     logger.warning("Semantic memory search unavailable. Install with `pip install jpscripts[ai]`.")
-    _SEMANTIC_WARNED = True
+    _semantic_warned = True
 
 
 def _normalize_related_path(path: Path, root: Path) -> str:
@@ -580,7 +645,7 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
     os.replace(temp_path, path)
 
 
-def _load_lancedb_dependencies() -> tuple[types.ModuleType, type[LanceModelBase]] | None:
+def _load_lancedb_dependencies() -> tuple[LanceDBModuleProtocol, type[LanceModelBase]] | None:
     try:
         lancedb = import_module("lancedb")
         pydantic_module = import_module("lancedb.pydantic")
@@ -588,7 +653,7 @@ def _load_lancedb_dependencies() -> tuple[types.ModuleType, type[LanceModelBase]
     except Exception as exc:
         logger.debug("LanceDB unavailable: %s", exc)
         return None
-    return lancedb, lance_model
+    return cast(LanceDBModuleProtocol, lancedb), lance_model
 
 
 def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBase]:
@@ -606,11 +671,14 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
 
 class LanceDBStore(MemoryStore):
     def __init__(
-        self, db_path: Path, lancedb_module: types.ModuleType, lance_model_base: type[LanceModelBase]
+        self,
+        db_path: Path,
+        lancedb_module: types.ModuleType,
+        lance_model_base: type[LanceModelBase],
     ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
-        self._lancedb = lancedb_module
+        self._lancedb: LanceDBModuleProtocol = cast(LanceDBModuleProtocol, lancedb_module)
         self._model_cls: type[LanceModelBase] = _build_memory_record_model(lance_model_base)
         self._table: LanceTable | None = None
         self._embedding_dim: int | None = None
@@ -624,7 +692,7 @@ class LanceDBStore(MemoryStore):
             )
 
         if self._table is None or self._embedding_dim is None:
-            db = self._lancedb.connect(str(self._db_path))
+            db: LanceDBConnectionProtocol = self._lancedb.connect(str(self._db_path))
             model = self._model_cls
             if "memory" not in db.table_names():
                 self._table = db.create_table("memory", schema=model, exist_ok=True)
@@ -699,7 +767,10 @@ class LanceDBStore(MemoryStore):
             )
 
         try:
-            results = table.search(query_vec).limit(limit).to_pydantic(self._model_cls)
+            results = cast(
+                Sequence[MemoryRecordProtocol],
+                table.search(query_vec).limit(limit).to_pydantic(self._model_cls),
+            )
         except Exception as exc:  # pragma: no cover - defensive
             return Err(ConfigurationError("LanceDB search failed", context={"error": str(exc)}))
 
@@ -1300,11 +1371,14 @@ class PatternStore:
     """
 
     def __init__(
-        self, db_path: Path, lancedb_module: types.ModuleType, lance_model_base: type[LanceModelBase]
+        self,
+        db_path: Path,
+        lancedb_module: types.ModuleType,
+        lance_model_base: type[LanceModelBase],
     ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
-        self._lancedb = lancedb_module
+        self._lancedb: LanceDBModuleProtocol = cast(LanceDBModuleProtocol, lancedb_module)
         self._model_cls = _build_pattern_record_model(lance_model_base)
         self._table: LanceTable | None = None
         self._embedding_dim: int | None = None
@@ -1312,7 +1386,7 @@ class PatternStore:
     def _ensure_table(self, embedding_dim: int | None = None) -> LanceTable:
         """Ensure the patterns table exists."""
         if self._table is None:
-            db = self._lancedb.connect(str(self._db_path))
+            db: LanceDBConnectionProtocol = self._lancedb.connect(str(self._db_path))
             if "patterns" not in db.table_names():
                 self._table = db.create_table("patterns", schema=self._model_cls, exist_ok=True)
             else:
@@ -1362,7 +1436,10 @@ class PatternStore:
             )
 
         try:
-            results = table.search(query_vec).limit(limit).to_pydantic(self._model_cls)
+            results = cast(
+                Sequence[PatternRecordProtocol],
+                table.search(query_vec).limit(limit).to_pydantic(self._model_cls),
+            )
         except Exception as exc:
             return Err(ConfigurationError("Pattern search failed", context={"error": str(exc)}))
 
@@ -1392,18 +1469,19 @@ class PatternStore:
             df = table.to_pandas()
             patterns: list[Pattern] = []
             for _, row in df.head(limit).iterrows():
+                row_mapping = cast(Mapping[str, object], row)
                 patterns.append(
                     Pattern(
-                        id=str(row.get("id", "")),
-                        created_at=str(row.get("created_at", "")),
-                        pattern_type=str(row.get("pattern_type", "")),
-                        description=str(row.get("description", "")),
-                        trigger=str(row.get("trigger", "")),
-                        solution=str(row.get("solution", "")),
-                        source_traces=list(row.get("source_traces", [])),
-                        confidence=float(row.get("confidence", 0.0)),
-                        embedding=list(row.get("embedding", []))
-                        if row.get("embedding") is not None
+                        id=str(row_mapping.get("id", "")),
+                        created_at=str(row_mapping.get("created_at", "")),
+                        pattern_type=str(row_mapping.get("pattern_type", "")),
+                        description=str(row_mapping.get("description", "")),
+                        trigger=str(row_mapping.get("trigger", "")),
+                        solution=str(row_mapping.get("solution", "")),
+                        source_traces=list(row_mapping.get("source_traces", [])),
+                        confidence=float(row_mapping.get("confidence", 0.0)),
+                        embedding=list(row_mapping.get("embedding", []))
+                        if row_mapping.get("embedding") is not None
                         else None,
                     )
                 )
