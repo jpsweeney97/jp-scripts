@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/nav.py
+# hypothesis_version: 6.148.3
+
+[b'\x00', 8192, '--files', '--glob', '--ignore-file', '--null', '--sortr=modified', '-l', '.gitignore', 'error', 'query', 'replace', 'returncode', 'rg', 'ripgrep scan failed', 'root', 'stderr', 'utf-8', 'zoxide', 'zoxide query failed']

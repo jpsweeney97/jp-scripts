@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/diagnostics.py
+# hypothesis_version: 6.148.3
+
+[0.0, '--version', '.codex', '; ', 'Auth', 'Codex', 'Config', 'Configuration valid.', 'Git', 'GitHub CLI', 'Homebrew', 'MCP', 'OPENAI_API_KEY', 'Python', 'SwitchAudioSource', 'System Clipboard', 'VectorDB', 'brew', 'codex', 'config.toml', 'error', 'fzf', 'gh', 'git', 'jpscripts', 'local', 'mcpServers', 'missing', 'notes_dir', 'offline', 'ok', 'pbcopy', 'python3', 'rg', 'ripgrep', 'utf-8', 'warn', 'workspace_root', 'zoxide']

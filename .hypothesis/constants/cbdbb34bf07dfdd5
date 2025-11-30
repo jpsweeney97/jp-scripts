@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/git_ops.py
+# hypothesis_version: 6.148.3
+
+['--hard', '--soft', 'HEAD', 'HEAD~1', '[]', 'ahead\\s+(\\d+)', 'behind\\s+(\\d+)', 'for-each-ref', 'none', 'refs/heads']

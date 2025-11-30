@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/serializer.py
+# hypothesis_version: 6.148.3
+
+[4096, '.git', '.gitignore', 'ascii', 'binary', 'content', 'error', 'file_count', 'files', 'forbid', 'gitwildmatch', 'json', 'path', 'root', 'rt', 'text', 'total_size_bytes', 'type', 'utf-8', 'w']

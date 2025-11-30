@@ -1,53 +1,39 @@
+"""Autonomous repair loop and execution logic.
+
+This module provides the core repair loop functionality, including
+command execution, patch application, and strategy management.
+"""
 from __future__ import annotations
 
 import asyncio
-import json
 import shlex
 import sys
 from dataclasses import dataclass
-from functools import lru_cache
 from pathlib import Path
 from typing import Awaitable, Callable, Literal, Sequence
 
-from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import ValidationError
 from rich import box
 from rich.panel import Panel
 
-from jpscripts.core import git as git_core
-from jpscripts.core import git_ops
 from jpscripts.core import security
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.context_gatherer import (
-    gather_context,
-    get_file_skeleton,
-    read_file_context,
-    resolve_files_from_output,
-    smart_read_context,
-)
-from jpscripts.core.runtime import get_runtime
-from jpscripts.core.tokens import Priority, TokenBudgetManager
 from jpscripts.core.engine import (
     AgentEngine,
     AgentResponse,
     Message,
     PreparedPrompt,
-    ToolCall,
     parse_agent_response,
+    ToolCall,
 )
-from jpscripts.core.memory import query_memory, save_memory, fetch_relevant_patterns, format_patterns_for_prompt
-from jpscripts.core.nav import scan_recent
-from jpscripts.core.result import Err, Ok
-from jpscripts.core.structure import generate_map, get_import_dependencies
+from jpscripts.core.memory import save_memory
+from jpscripts.core.runtime import get_runtime
+
+from jpscripts.core.agent.context import expand_context_paths
+from jpscripts.core.agent.prompting import prepare_agent_prompt
 
 logger = get_logger(__name__)
 
-AGENT_TEMPLATE_NAME = "agent_system.json.j2"
-GOVERNANCE_ANTI_PATTERNS: list[str] = [
-    "Using subprocess.run or os.system (Strictly forbidden: use asyncio)",
-    "Using shell=True (Strictly forbidden: use tokenized lists)",
-    "Bare except: clauses (Strictly forbidden: catch specific exceptions)",
-]
 STRATEGY_OVERRIDE_TEXT = (
     "You are stuck in a loop. Stop editing code. Analyze the error trace and the file content again. "
     "List three possible root causes before proposing a new patch."
@@ -80,456 +66,6 @@ class StrategyConfig:
 
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
 ResponseFetcher = Callable[[PreparedPrompt], Awaitable[str]]
-
-
-def _resolve_template_root() -> Path:
-    package_root = Path(__file__).resolve().parent.parent
-    return security.validate_path(package_root / "templates", package_root)
-
-
-@lru_cache(maxsize=1)
-def _get_template_environment(template_root: Path) -> Environment:
-    env = Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
-    env.filters["cdata"] = _safe_cdata
-    env.filters["tojson"] = json.dumps
-    return env
-
-
-def _render_prompt_from_template(context: dict[str, object], template_root: Path) -> str:
-    try:
-        template = _get_template_environment(template_root).get_template(AGENT_TEMPLATE_NAME)
-    except TemplateNotFound as exc:
-        logger.error("Agent template %s missing in %s", AGENT_TEMPLATE_NAME, template_root)
-        raise FileNotFoundError(f"Template {AGENT_TEMPLATE_NAME} not found in {template_root}") from exc
-    return template.render(**context)
-
-
-async def prepare_agent_prompt(
-    base_prompt: str,
-    *,
-    model: str | None = None,
-    run_command: str | None,
-    attach_recent: bool,
-    include_diff: bool = False,
-    ignore_dirs: Sequence[str] | None = None,
-    max_file_context_chars: int | None = None,
-    max_command_output_chars: int | None = None,
-    web_access: bool = False,
-    temperature: float | None = None,
-    reasoning_effort: str | None = None,
-    tool_history: str | None = None,
-    extra_paths: Sequence[Path] | None = None,
-) -> PreparedPrompt:
-    """
-    Builds a structured, JSON-oriented prompt for Codex.
-
-    Uses priority-based token budget allocation:
-    - Priority 1: Diagnostic output (command failures, stack traces)
-    - Priority 2: Git diff (current work in progress)
-    - Priority 3: File context and dependencies (supporting information)
-    """
-    runtime = get_runtime()
-    config = runtime.config
-    root = runtime.workspace_root
-    effective_ignore_dirs = list(ignore_dirs) if ignore_dirs is not None else list(config.ignore_dirs)
-    file_context_limit = (
-        max_file_context_chars if max_file_context_chars is not None else config.max_file_context_chars
-    )
-    command_output_limit = (
-        max_command_output_chars if max_command_output_chars is not None else config.max_command_output_chars
-    )
-    active_model = model or config.default_model
-    model_limit = config.model_context_limits.get(
-        active_model,
-        config.model_context_limits.get("default", file_context_limit),
-    )
-
-    # Reserve ~10% for template overhead (prompt structure, instructions, etc.)
-    template_overhead = min(50_000, int(model_limit * 0.1))
-    budget = TokenBudgetManager(
-        total_budget=model_limit,
-        reserved_budget=template_overhead,
-        model_context_limit=model_limit,
-        model=active_model,
-        truncator=smart_read_context,
-    )
-
-    branch, commit, is_dirty = await _collect_git_context(root)
-
-    repository_map = await asyncio.to_thread(generate_map, root, 3)
-    constitution_text = await _load_constitution(root)
-
-    attached: list[Path] = []
-    detected_paths: list[Path] = []
-    extra_detected = list(extra_paths) if extra_paths else []
-
-    diagnostic_section = ""
-    file_context_section = ""
-    dependency_section = ""
-    git_diff_section = ""
-    relevant_memories: list[str] = []
-    boosted_tags: list[str] = []
-
-    # === Priority 1: Diagnostic Section (highest priority) ===
-    if run_command:
-        gathered_context = await gather_context(run_command, root)
-        output = gathered_context.output
-        detected_files = gathered_context.files
-        ordered_detected = list(gathered_context.ordered_files)
-        trimmed = (
-            output
-            if len(output) <= command_output_limit
-            else _summarize_stack_trace(output, command_output_limit)
-        )
-        raw_diagnostic = (
-            f"Command: {run_command}\n"
-            f"Output (summary up to {command_output_limit} chars):\n"
-            f"{trimmed}\n"
-        )
-        diagnostic_section = budget.allocate(1, raw_diagnostic)
-
-        diag_lines = diagnostic_section.splitlines()
-        query = "\n".join(diag_lines[-3:]).strip()
-        if query:
-            try:
-                relevant_memories = await asyncio.to_thread(
-                    lambda: query_memory(query, 3, config=config)
-                )
-            except Exception as exc:
-                logger.debug("Memory query failed: %s", exc)
-
-        ordered_sources = ordered_detected if ordered_detected else sorted(detected_files)
-        detected_paths = list(dict.fromkeys(ordered_sources))[:5]
-
-    elif attach_recent:
-        match await scan_recent(root, 3, False, set(effective_ignore_dirs)):
-            case Err(err):
-                logger.debug("Recent scan failed for %s: %s", root, err)
-            case Ok(recents):
-                detected_paths = [entry.path for entry in recents[:5]]
-
-    # === Priority 2: Git Diff Section (medium priority) ===
-    # === Priority 2 & 3: File Context + Dependencies (Sequential Greedy) ===
-    # Files get what they need first (direct source prioritized), dependencies get leftovers
-    combined_paths: list[Path] = detected_paths + extra_detected
-    if budget.remaining() > 0 and combined_paths:
-        file_context_section, attached = await _build_file_context_section(
-            combined_paths, budget
-        )
-
-        # Dependencies only get leftover budget after files
-        if budget.remaining() > 0:
-            dependency_section = await _build_dependency_section(
-                combined_paths[:1], root, budget
-            )
-
-    # Git diff is lowest priority after files and dependencies
-    if include_diff and budget.remaining() > 0:
-        diff_text = await _collect_git_diff(root, 10_000)
-        if diff_text:
-            git_diff_section = budget.allocate(3, diff_text)
-        else:
-            git_diff_section = "NO CHANGES"
-
-    # Memory query fallback
-    if not relevant_memories:
-        base_query = base_prompt.strip()
-        lowered_prompt = base_query.lower()
-        for tag in ("architecture", "security"):
-            if tag in lowered_prompt:
-                boosted_tags.append(tag)
-        boosted_query = (
-            f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
-        )
-        if boosted_query:
-            try:
-                relevant_memories = await asyncio.to_thread(
-                    lambda: query_memory(boosted_query, 3, config=config)
-                )
-            except Exception as exc:
-                logger.debug("Memory query from base prompt failed: %s", exc)
-
-    # Fetch relevant patterns for prompt injection
-    patterns_section = ""
-    try:
-        patterns = await fetch_relevant_patterns(
-            base_prompt.strip() or diagnostic_section[:500],
-            config,
-            limit=2,
-            min_confidence=0.75,
-        )
-        if patterns:
-            patterns_section = format_patterns_for_prompt(patterns)
-            logger.debug("Injecting %d patterns into prompt", len(patterns))
-    except Exception as exc:
-        logger.debug("Pattern fetch failed: %s", exc)
-
-    logger.debug(
-        "Token budget allocation: %s, remaining: %d",
-        budget.summary(),
-        budget.remaining(),
-    )
-
-    template_root = _resolve_template_root()
-    response_schema = AgentResponse.model_json_schema()
-    context = {
-        "workspace_root": str(root),
-        "branch": branch,
-        "head": commit,
-        "dirty": is_dirty,
-        "repository_map": repository_map,
-        "constitution": constitution_text,
-        "diagnostic_section": diagnostic_section,
-        "file_context_section": file_context_section,
-        "dependency_section": dependency_section,
-        "git_diff_section": git_diff_section,
-        "patterns_section": patterns_section,
-        "anti_patterns": GOVERNANCE_ANTI_PATTERNS,
-        "instruction": base_prompt.strip(),
-        "tool_history": tool_history or "",
-        "response_schema": response_schema,
-        "relevant_memories": relevant_memories,
-        "web_tool": (
-            "Web search and page retrieval is available via fetch_page_content(url) returning markdown."
-            if web_access
-            else ""
-        ),
-    }
-
-    prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)
-
-    return PreparedPrompt(
-        prompt=prompt,
-        attached_files=attached,
-        temperature=temperature,
-        reasoning_effort=reasoning_effort,
-    )
-
-
-def _safe_cdata(content: str) -> str:
-    """Escape CDATA terminators inside arbitrary content."""
-    return content.replace("]]>", "]]]]><![CDATA[>")
-
-
-async def _load_constitution(root: Path) -> dict[str, object]:
-    """Load and validate the constitutional JSON from AGENTS.md."""
-    try:
-        candidate = security.validate_path(root / "AGENTS.md", root)
-    except Exception as exc:
-        logger.debug("Unable to resolve AGENTS.md under %s: %s", root, exc)
-        return {"status": "unavailable", "message": "AGENTS.md not accessible", "error": str(exc)}
-
-    exists = await asyncio.to_thread(candidate.exists)
-    if not exists:
-        return {"status": "missing", "message": "AGENTS.md not found"}
-
-    try:
-        content = await asyncio.to_thread(candidate.read_text, encoding="utf-8")
-    except OSError as exc:
-        logger.debug("Failed to read AGENTS.md: %s", exc)
-        return {"status": "unreadable", "message": "AGENTS.md unreadable", "error": str(exc)}
-
-    try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError as exc:
-        logger.warning("Failed to parse AGENTS.md as JSON: %s", exc)
-        return {"status": "parse_error", "message": str(exc)}
-
-    if not isinstance(parsed, dict):
-        return {"status": "invalid", "message": "AGENTS.md root must be an object"}
-
-    constitution = parsed.get("constitution")
-    if not isinstance(constitution, dict):
-        return {"status": "invalid", "message": "Missing or invalid 'constitution' object"}
-
-    return constitution
-
-
-async def _collect_git_context(root: Path) -> tuple[str, str, bool]:
-    if not root.exists() or not (root / ".git").exists():
-        return "(no repo)", "(no repo)", False
-
-    match await git_core.AsyncRepo.open(root):
-        case Err(err):
-            logger.error("Failed to open git repo at %s: %s", root, err)
-            return "(error)", "(error)", False
-        case Ok(repo):
-            pass
-
-    branch = "(unknown)"
-    commit = "(unknown)"
-    is_dirty = False
-
-    match await repo.status():
-        case Err(err):
-            logger.error("Failed to describe git status for %s: %s", root, err)
-            return "(error)", "(error)", False
-        case Ok(status):
-            branch = status.branch
-            is_dirty = status.dirty
-            _ = git_ops.format_status(status)
-
-    match await repo.head(short=True):
-        case Err(err):
-            logger.error("Failed to resolve git head for %s: %s", root, err)
-            commit = "(error)"
-        case Ok(head_ref):
-            commit = head_ref
-
-    return branch, commit, is_dirty
-
-
-async def _build_file_context_section(
-    paths: Sequence[Path],
-    budget: TokenBudgetManager,
-) -> tuple[str, list[Path]]:
-    """Build file context section using sequential greedy allocation.
-
-    Each file is read only if budget remains, and allocated individually
-    to preserve syntax boundaries per file.
-    """
-    sections: list[str] = []
-    attached: list[Path] = []
-
-    def _count_lines(target: Path) -> int:
-        try:
-            with target.open("r", encoding="utf-8") as fh:
-                return sum(1 for _ in fh)
-        except (OSError, UnicodeDecodeError):
-            return 0
-
-    for idx, path in enumerate(paths):
-        # Check budget before reading each file
-        remaining_tokens = budget.remaining()
-        if remaining_tokens <= 0:
-            break
-        char_budget = budget.tokens_to_characters(remaining_tokens)
-
-        priority: Priority = 3
-        label = ""
-        snippet = ""
-
-        if idx == 0:
-            priority = 2
-            primary_text = await asyncio.to_thread(
-                read_file_context,
-                path,
-                char_budget,
-                limit=budget.tokens_to_characters(budget.model_context_limit),
-            )
-            snippet = primary_text or ""
-        else:
-            line_count = await asyncio.to_thread(_count_lines, path)
-            use_skeleton = path.suffix.lower() == ".py" and line_count > 200
-
-            if use_skeleton:
-                snippet = await asyncio.to_thread(get_file_skeleton, path)
-            else:
-                snippet = await asyncio.to_thread(
-                    smart_read_context,
-                    path,
-                    char_budget,
-                    remaining_tokens,
-                    limit=budget.tokens_to_characters(budget.model_context_limit),
-                )
-            if use_skeleton:
-                label = " (Skeleton - Request full content if needed)"
-
-        if not snippet:
-            snippet = "(content unavailable)"
-
-        file_entry = f"Path: {path}{label}\n---\n{snippet}\n"
-
-        # Allocate this file's content - may be truncated if over budget
-        allocated = budget.allocate(priority, file_entry, source_path=path)
-        if allocated:
-            sections.append(allocated)
-            attached.append(path)
-
-    if not sections:
-        return "", attached
-    return "\n".join(sections), attached
-
-
-async def _build_dependency_section(
-    paths: Sequence[Path],
-    root: Path,
-    budget: TokenBudgetManager,
-) -> str:
-    """Build dependency section using sequential greedy allocation.
-
-    Dependencies are read only if budget remains after file context.
-    """
-    dependencies: set[Path] = set()
-    for path in paths:
-        deps = await asyncio.to_thread(get_import_dependencies, path, root)
-        dependencies.update(deps)
-
-    if not dependencies:
-        return ""
-
-    sections: list[str] = []
-    for dep in sorted(dependencies):
-        # Check budget before reading each dependency
-        remaining_tokens = budget.remaining()
-        if remaining_tokens <= 0:
-            break
-        char_budget = budget.tokens_to_characters(remaining_tokens)
-
-        snippet = await asyncio.to_thread(
-            get_file_skeleton,
-            dep,
-            limit=char_budget,
-        )
-        if snippet and len(snippet) > char_budget:
-            snippet = snippet[:char_budget]
-        if not snippet:
-            continue
-
-        dep_entry = f"Dependency: {dep}\n---\n{snippet}\n"
-
-        # Allocate this dependency's content
-        allocated = budget.allocate(3, dep_entry, source_path=dep)
-        if allocated:
-            sections.append(allocated)
-
-    return "\n".join(sections)
-
-
-async def _collect_git_diff(root: Path, max_chars: int) -> str | None:
-    if not root.exists() or not (root / ".git").exists():
-        return None
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "diff",
-            "HEAD",
-            cwd=root,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        return None
-
-    try:
-        stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5)
-    except asyncio.TimeoutError:
-        proc.kill()
-        await proc.communicate()
-        return None
-
-    if proc.returncode != 0:
-        return None
-
-    diff = stdout.decode(errors="replace")
-    if not diff.strip():
-        return None
-
-    if len(diff) > max_chars:
-        return f"{diff[:max_chars]}... [truncated]"
-
-    return diff
 
 
 def _summarize_output(stdout: str, stderr: str, limit: int) -> str:
@@ -718,36 +254,6 @@ def _write_failed_patch(patch_text: str, root: Path) -> None:
         destination.write_text(patch_text, encoding="utf-8")
     except Exception as exc:  # pragma: no cover - defensive
         logger.debug("Unable to persist failed patch for inspection: %s", exc)
-
-
-async def _expand_context_paths(
-    error_output: str,
-    root: Path,
-    changed_files: set[Path],
-    ignore_dirs: Sequence[str],
-) -> set[Path]:
-    """Derive additional context paths from the latest failure."""
-    discovered: set[Path] = set()
-    discovered.update(changed_files)
-    _, resolved = await resolve_files_from_output(error_output, root)
-    discovered.update(resolved)
-
-    dependencies: set[Path] = set()
-    for path in discovered:
-        try:
-            deps = await asyncio.to_thread(get_import_dependencies, path, root)
-            dependencies.update(deps)
-        except Exception as exc:
-            logger.debug("Dependency discovery failed for %s: %s", path, exc)
-
-    if not discovered and not dependencies:
-        match await scan_recent(root, 3, False, set(ignore_dirs)):
-            case Err(err):
-                logger.debug("Recent scan fallback failed: %s", err)
-            case Ok(recents):
-                discovered.update(entry.path for entry in recents[:3])
-
-    return {security.validate_path(path, root) for path in (discovered | dependencies) if path.exists()}
 
 
 async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
@@ -995,7 +501,7 @@ async def run_repair_loop(
 
             dynamic_paths: set[Path] = set(changed_files)
             if strategy_cfg.name == "deep":
-                dynamic_paths = await _expand_context_paths(current_error, root, changed_files, config.ignore_dirs)
+                dynamic_paths = await expand_context_paths(current_error, root, changed_files, config.ignore_dirs)
             elif strategy_cfg.name == "step_back":
                 dynamic_paths = set(changed_files)
 
@@ -1053,7 +559,7 @@ async def run_repair_loop(
                 if tool_call:
                     tool_name = tool_call.tool
                     tool_args = tool_call.arguments
-                    console.print(Panel(f"🕵️ Agent invoking {tool_name} with args {tool_args}", title="Tool Call", box=box.SIMPLE))
+                    console.print(Panel(f"Agent invoking {tool_name} with args {tool_args}", title="Tool Call", box=box.SIMPLE))
                     try:
                         output = await engine.execute_tool(tool_call)
                     except Exception as exc:
@@ -1070,7 +576,7 @@ async def run_repair_loop(
                     continue
 
                 if patch_text:
-                    console.print("[green]⚡ Agent proposed a fix.[/green]")
+                    console.print("[green]Agent proposed a fix.[/green]")
                     applied_paths = await _apply_patch_text(patch_text, root)
                     syntax_error = await _verify_syntax(applied_paths)
                     if syntax_error:
@@ -1121,7 +627,6 @@ async def run_repair_loop(
                         base_prompt=base_prompt,
                         command=command,
                         last_error=current_error,
-                        config=config,
                         model=model,
                         web_access=web_access,
                     )
@@ -1149,7 +654,6 @@ async def run_repair_loop(
                     base_prompt=base_prompt,
                     command=command,
                     last_error=None if not attempt_history else attempt_history[-1].last_error,
-                    config=config,
                     model=model,
                     web_access=web_access,
                 )
@@ -1165,12 +669,13 @@ async def run_repair_loop(
         _ACTIVE_ROOT = previous_active_root
 
 
-# Re-export engine types for backwards compatibility
 __all__ = [
-    # Re-exported from engine
-    "PreparedPrompt",
-    "parse_agent_response",
-    # Locally defined
-    "prepare_agent_prompt",
+    "SecurityError",
+    "AttemptContext",
+    "StrategyConfig",
+    "RepairStrategy",
+    "PatchFetcher",
+    "ResponseFetcher",
     "run_repair_loop",
+    "STRATEGY_OVERRIDE_TEXT",
 ]

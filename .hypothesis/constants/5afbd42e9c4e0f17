@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/console.py
+# hypothesis_version: 6.148.3
+
+['%(message)s', 'jpscripts']

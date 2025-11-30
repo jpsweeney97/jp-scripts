@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/system.py
+# hypothesis_version: 6.148.3
+
+[8000, '--dir', '--force', '--hard', '--host', '--name', '--no-fzf', '--port', '--query', '-d', '-f', '-h', '-m', '-n', '-p', '-q', '.', 'Command', 'Directory to serve.', 'HEAD', 'Name', 'PID', 'Port to listen on.', 'Port to search for.', 'Processes', 'T', 'User', 'audio> ', 'brew search', 'brew> ', 'cmdline', 'codex', 'cyan', 'dots', 'fzf', 'git', 'green', 'install', 'jpscripts', 'kill> ', 'killed', 'mcp', 'message', 'name', 'pid', 'pip', 'pip install failed', 'pull', 'red', 'replace', 'reset', 'src', 'ssh', 'ssh> ', 'terminated', 'utf-8', 'white', 'yellow']

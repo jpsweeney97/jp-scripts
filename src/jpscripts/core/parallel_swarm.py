@@ -17,6 +17,9 @@ Key classes:
 from __future__ import annotations
 
 import asyncio
+import logging
+import re
+import shutil
 import tempfile
 import uuid
 from contextlib import asynccontextmanager
@@ -103,7 +106,8 @@ class WorktreeManager:
     async def initialize(self) -> Result[None, GitError]:
         """Initialize the worktree manager.
 
-        Creates the worktree root directory if it doesn't exist.
+        Creates the worktree root directory if it doesn't exist and prunes
+        any orphaned worktrees from previous crashed sessions.
 
         [invariant:async-io] Uses asyncio.to_thread for mkdir
         """
@@ -115,10 +119,17 @@ class WorktreeManager:
 
         try:
             await asyncio.to_thread(_create_root)
-            self._initialized = True
-            return Ok(None)
         except OSError as exc:
             return Err(GitError(f"Failed to create worktree root: {exc}"))
+
+        # Auto-detect and clean orphans from previous sessions
+        removed = await self.prune_orphaned_worktrees()
+        if removed > 0:
+            logger = logging.getLogger(__name__)
+            logger.info("Pruned %d orphaned worktrees", removed)
+
+        self._initialized = True
+        return Ok(None)
 
     async def _create_worktree_context(self, task_id: str) -> WorktreeContext:
         """Create a new worktree for a task.
@@ -230,6 +241,79 @@ class WorktreeManager:
 
         # Final prune to clean up any orphaned references
         await self._repo.worktree_prune()
+
+    async def detect_orphaned_worktrees(self) -> list[Path]:
+        """Detect worktree directories from previous sessions not in memory.
+
+        Scans worktree_root for directories matching the `worktree-*-*` pattern
+        that are not currently tracked in _active_worktrees.
+
+        Returns:
+            List of orphaned worktree paths
+
+        [invariant:async-io] Uses asyncio.to_thread for directory scan
+        """
+        if not self._worktree_root.exists():
+            return []
+
+        # Pattern: worktree-{task_id}-{8-char-hex}
+        pattern = re.compile(r"^worktree-[\w-]+-[a-f0-9]{8}$")
+
+        def _scan() -> list[Path]:
+            return [
+                d for d in self._worktree_root.iterdir()
+                if d.is_dir() and pattern.match(d.name)
+            ]
+
+        candidates = await asyncio.to_thread(_scan)
+        active_paths = {ctx.worktree_path for ctx in self._active_worktrees.values()}
+
+        orphans: list[Path] = []
+        for path in candidates:
+            if path not in active_paths:
+                orphans.append(path)
+
+        return orphans
+
+    async def prune_orphaned_worktrees(self, force: bool = True) -> int:
+        """Remove orphaned worktrees from previous crashed sessions.
+
+        Args:
+            force: If True, use --force to remove even if dirty
+
+        Returns:
+            Number of worktrees successfully removed
+
+        [invariant:async-io] Uses async worktree removal with fallback
+        """
+        orphans = await self.detect_orphaned_worktrees()
+        if not orphans:
+            return 0
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Found %d orphaned worktrees from previous session: %s",
+            len(orphans),
+            [p.name for p in orphans],
+        )
+
+        removed = 0
+        for path in orphans:
+            result = await self._repo.worktree_remove(path, force=force)
+            if isinstance(result, Ok):
+                removed += 1
+            else:
+                # Try manual cleanup if git command fails (orphan may not be registered)
+                try:
+                    await asyncio.to_thread(shutil.rmtree, path)
+                    removed += 1
+                except OSError as exc:
+                    logger.error("Failed to remove orphan %s: %s", path, exc)
+
+        # Final prune to clean git refs
+        await self._repo.worktree_prune()
+
+        return removed
 
 
 class MergeResult(BaseModel):

@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/main.py
+# hypothesis_version: 6.148.3
+
+[', ', '--config', '--dry-run', '--tool', '--verbose', '-c', '-t', '-v', 'Binaries', 'Command', 'Config', 'Config source', 'Deep Checks', 'Env overrides: ', 'File loaded: yes', 'Key', 'Summary', 'System Health', 'Value', '__main__', 'all', 'com', 'commands', 'config', 'cyan', 'doctor', 'dry_run', 'error', 'green', 'help', 'jp commands', 'missing', 'ok', 'red', 'version', 'warn', 'white', 'yellow', '—']

@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/complexity.py
+# hypothesis_version: 6.148.3
+
+[0.0, '## Complexity Report', '*.py', '.py', 'ComplexityError', 'FileComplexity', 'FunctionComplexity', 'McCabeVisitor', 'TechnicalDebtScore', 'utf-8']

@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/agent/execution.py
+# hypothesis_version: 6.148.3
+
+[0.7, '\n[... resumes ...]\n', '+++ ', '--', '--- ', '--whitespace=nowarn', '-m', '-p1', '... [truncated]', '.py', '/dev/null', 'AttemptContext', 'Engineer', 'Invalid command.', 'None yet.', 'PatchFetcher', 'RepairStrategy', 'ResponseFetcher', 'SecurityError', 'StrategyConfig', 'Tool Call', 'Tool Output', 'a/', 'a/dev/null', 'agent', 'apply', 'auto-fix', 'b/', 'b/dev/null', 'checkout', 'cyan', 'deep', 'dev/null', 'fast', 'git', 'git apply failed: %s', 'high', 'model_copy', 'patch', 'py_compile', 'replace', 'run_repair_loop', 'step_back', 'system', 'use_semantic_search', 'utf-8']

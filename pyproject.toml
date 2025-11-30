@@ -30,6 +30,7 @@ dependencies = [
 dev = [
   "pytest>=8.2.0",
   "pytest-asyncio>=0.23.0",
+  "hypothesis>=6.100.0",
   "mypy>=1.11.0",
   "types-psutil>=5.9.5.20240819",
   "types-PyYAML>=6.0.12.20240917",

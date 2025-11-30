@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/config.py
+# hypothesis_version: 6.148.3
+
+[5.0, 20000, 32000, 50000, 200000, '.git', '.idea', '.jp_memory.sqlite', '.jpconfig', '.jpscripts', '.json', '.venv', '.vscode', 'INFO', 'JPSCRIPTS_CONFIG', 'JP_', 'Notes', 'Projects', '__', '__pycache__', 'all-MiniLM-L6-v2', 'build', 'claude-opus-4-5', 'code -w', 'default', 'dist', 'env_prefix', 'gpt-4-turbo', 'ignore', 'jpscripts', 'node_modules', 'python:3.11-slim', 'quick-notes', 'snapshots', 'traces', 'utf-8', 'workspace_root']

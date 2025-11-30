@@ -242,3 +242,118 @@ class TestWorktreeManagerInitialization:
         await manager.initialize()
 
         assert worktree_root.exists()
+
+
+class TestOrphanDetection:
+    """Test orphan worktree detection and cleanup."""
+
+    @pytest.mark.asyncio
+    async def test_detects_orphaned_worktrees(
+        self, temp_git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Orphan directories from crashed sessions are detected."""
+        match await AsyncRepo.open(temp_git_repo):
+            case Ok(repo):
+                pass
+            case Err(err):
+                pytest.fail(f"Failed to open repo: {err}")
+
+        worktree_root = tmp_path / "worktrees"
+        worktree_root.mkdir()
+
+        # Simulate crashed session: directories exist but not tracked
+        orphan1 = worktree_root / "worktree-task-001-abcd1234"
+        orphan2 = worktree_root / "worktree-task-002-ef567890"
+        orphan1.mkdir()
+        orphan2.mkdir()
+
+        # Also create a non-matching directory (should be ignored)
+        (worktree_root / "other-dir").mkdir()
+
+        manager = WorktreeManager(repo=repo, worktree_root=worktree_root)
+
+        orphans = await manager.detect_orphaned_worktrees()
+
+        assert len(orphans) == 2
+        assert orphan1 in orphans
+        assert orphan2 in orphans
+
+    @pytest.mark.asyncio
+    async def test_initialize_prunes_orphans(
+        self, temp_git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Initialize() should auto-prune orphaned worktrees."""
+        match await AsyncRepo.open(temp_git_repo):
+            case Ok(repo):
+                pass
+            case Err(err):
+                pytest.fail(f"Failed to open repo: {err}")
+
+        worktree_root = tmp_path / "worktrees"
+        worktree_root.mkdir()
+
+        # Simulate orphan from previous crash
+        orphan = worktree_root / "worktree-crashed-task-12345678"
+        orphan.mkdir()
+        (orphan / "dummy.txt").write_text("leftover")
+
+        manager = WorktreeManager(repo=repo, worktree_root=worktree_root)
+        result = await manager.initialize()
+
+        assert isinstance(result, Ok)
+        # Orphan directory should be removed
+        assert not orphan.exists()
+
+    @pytest.mark.asyncio
+    async def test_active_worktrees_not_pruned(
+        self, temp_git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Active worktrees should not be detected as orphans."""
+        match await AsyncRepo.open(temp_git_repo):
+            case Ok(repo):
+                pass
+            case Err(err):
+                pytest.fail(f"Failed to open repo: {err}")
+
+        manager = WorktreeManager(
+            repo=repo,
+            worktree_root=tmp_path / "worktrees",
+        )
+        await manager.initialize()
+
+        # Create an active worktree
+        ctx = await manager._create_worktree_context("active-task")
+
+        # Should not detect the active one as orphan
+        orphans = await manager.detect_orphaned_worktrees()
+
+        assert ctx.worktree_path not in orphans
+
+        # Cleanup
+        await manager.cleanup_worktree(ctx)
+
+    @pytest.mark.asyncio
+    async def test_prune_handles_non_worktree_dirs(
+        self, temp_git_repo: Path, tmp_path: Path
+    ) -> None:
+        """Prune should handle directories that look like worktrees but aren't git worktrees."""
+        match await AsyncRepo.open(temp_git_repo):
+            case Ok(repo):
+                pass
+            case Err(err):
+                pytest.fail(f"Failed to open repo: {err}")
+
+        worktree_root = tmp_path / "worktrees"
+        worktree_root.mkdir()
+
+        # Simulate fake orphan (not a real git worktree)
+        fake_orphan = worktree_root / "worktree-fake-task-abcd1234"
+        fake_orphan.mkdir()
+        (fake_orphan / "not-a-git-repo.txt").write_text("fake")
+
+        manager = WorktreeManager(repo=repo, worktree_root=worktree_root)
+        result = await manager.initialize()
+
+        assert isinstance(result, Ok)
+        # Fake orphan should still be removed via shutil fallback
+        assert not fake_orphan.exists()

@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/map.py
+# hypothesis_version: 6.148.3
+
+['--depth', '--root', '-d', '-r', '.', 'Project root to map.']

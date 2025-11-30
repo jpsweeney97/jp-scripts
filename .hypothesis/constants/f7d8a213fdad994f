@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/context_gatherer.py
+# hypothesis_version: 6.148.3
+
+[0.6, 10000, '*.key', '*.pem', ',;', '.\'"()', '.env', '.env.*', '.json', '.py', '.yaml', '.yml', '/[^\\s\\"\']+', 'FILE_PATTERN', 'GatherContextResult', 'Invalid command.', 'SENSITIVE_PATTERNS', 'SYNTAX_WARNING', '[]', 'end_lineno', 'gather_context', 'get_file_skeleton', 'id_rsa', 'lineno', 'path', 'r', 'read_file_context', 'replace', 'run_and_capture', 'smart_read_context', 'type_comment', 'type_params', 'utf-8', '{}']

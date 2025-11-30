@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/replay.py
+# hypothesis_version: 6.148.3
+
+['content', 'forbid', 'replay', 'replay_history', 'role', 'stop', 'trace_history']

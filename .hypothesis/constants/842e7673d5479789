@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/team.py
+# hypothesis_version: 6.148.3
+
+[0.1, 1.0, -4000, -2000, 1200, 2000, 4000, 8192, '\n\nContext files:\n', '.jpscripts', '0', 'Architect', 'Engineer', 'QA', 'SwarmController', 'Unknown', '_next_role', 'architect', 'captured_raw', 'captured_stdout', 'coding', 'color', 'config_summary', 'context loaded', 'context_log', 'cyan', 'done', 'engineer', 'exit', 'file_section', 'finish', 'forbid', 'git status --short', 'green', 'handoff_guidance', 'in_progress', 'ls -a', 'name', 'objective', 'pending', 'persona_label', 'persona_style', 'planning', 'qa', 'queued', 'r', 'red', 'repo_root', 'safe', 'schema_json', 'starting', 'status', 'stderr', 'stdout', 'style', 'swarm_json', 'swarms.yaml', 'templates', 'user', 'utf-8', 'verifying', 'yellow']

@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/agent/context.py
+# hypothesis_version: 6.148.3
+
+[200, '(error)', '(no repo)', '(unknown)', '.git', '.py', 'AGENTS.md', 'AGENTS.md not found', 'AGENTS.md unreadable', 'HEAD', 'collect_git_context', 'collect_git_diff', 'constitution', 'diff', 'error', 'expand_context_paths', 'git', 'invalid', 'load_constitution', 'message', 'missing', 'parse_error', 'r', 'replace', 'scan_recent', 'status', 'unavailable', 'unreadable', 'utf-8']

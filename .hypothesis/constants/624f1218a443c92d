@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/runtime.py
+# hypothesis_version: 6.148.3
+
+[60.0, 100, 1000000, '0', '5.0', 'CircuitBreaker', 'RuntimeContext', 'WarningState', 'default', 'default_model', 'dry_run', 'get_circuit_breaker', 'get_runtime', 'get_runtime_or_none', 'has_runtime', 'input', 'jp_runtime', 'max_cost_velocity', 'max_file_churn', 'output', 'override_workspace', 'runtime_context']

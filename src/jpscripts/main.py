@@ -3,10 +3,13 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import logging
+import signal
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
-from typing import Mapping
+from types import FrameType
+from typing import Mapping, NoReturn
 from uuid import uuid4
 
 import click
@@ -29,6 +32,44 @@ logger = logging.getLogger(__name__)
 
 # Token for CLI runtime context (established in callback, persists through command)
 _cli_runtime_token: contextvars.Token[RuntimeContext | None] | None = None
+
+# Signal handling for graceful shutdown
+_shutdown_requested = False
+
+
+def _signal_handler(signum: int, frame: FrameType | None) -> NoReturn | None:
+    """Handle SIGINT/SIGTERM for graceful shutdown.
+
+    First signal prints warning and exits gracefully.
+    Second signal force-exits with manual cleanup hint.
+    """
+    global _shutdown_requested
+
+    if _shutdown_requested:
+        # Second signal = force exit
+        console.print("\n[red]Force exit - manual cleanup may be needed:[/red]")
+        console.print("  git worktree prune")
+        sys.exit(128 + signum)
+
+    _shutdown_requested = True
+    console.print("\n[yellow]Shutting down gracefully...[/yellow]")
+
+    # Get current runtime context if available
+    ctx = _runtime_ctx.get(None)
+    if ctx:
+        console.print("[dim]Note: Active worktrees will be cleaned on next run.[/dim]")
+
+    console.print(
+        "[yellow]If worktrees remain, run:[/yellow]\n"
+        "  git worktree prune"
+    )
+    sys.exit(128 + signum)
+
+
+def _register_signal_handlers() -> None:
+    """Register signal handlers for graceful shutdown."""
+    signal.signal(signal.SIGINT, _signal_handler)
+    signal.signal(signal.SIGTERM, _signal_handler)
 
 
 @dataclass
@@ -203,6 +244,8 @@ def _register_commands_with_timing() -> None:
 
 
 _register_commands_with_timing()
+_register_signal_handlers()
+
 
 def cli() -> None:
     app()

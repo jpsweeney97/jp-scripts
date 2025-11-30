@@ -131,7 +131,7 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
 
         with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response), \
              patch("jpscripts.commands.agent.is_codex_available", return_value=False), \
-             patch("jpscripts.core.agent.scan_recent", side_effect=fake_scan_recent):
+             patch("jpscripts.core.agent.prompting.scan_recent", side_effect=fake_scan_recent):
 
             result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
@@ -147,6 +147,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
     from importlib import import_module
 
     agent_core = import_module("jpscripts.core.agent")
+    agent_execution = import_module("jpscripts.core.agent.execution")
     config_mod = import_module("jpscripts.core.config")
     AppConfig = cast(Any, config_mod).AppConfig
 
@@ -173,8 +174,8 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
         saved.append((content, tags))
         return MagicMock()
 
-    monkeypatch.setattr(agent_core, "_run_shell_command", fake_run_shell_command)
-    monkeypatch.setattr(agent_core, "save_memory", fake_save_memory)
+    monkeypatch.setattr(agent_execution, "_run_shell_command", fake_run_shell_command)
+    monkeypatch.setattr(agent_execution, "save_memory", fake_save_memory)
 
     with runtime_context(config, workspace=tmp_path):
         success = asyncio.run(

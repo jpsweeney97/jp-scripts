@@ -1,0 +1,4 @@
+# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/structure.py
+# hypothesis_version: 6.148.3
+
+[2048, '*', ',', ', ', '.', '.git', '.gitignore', '.js', '.jsx', '.py', '.ts', '.tsx', '/', '__init__', '__init__.py', 'gitwildmatch', 'utf-8', '└──', '├──']
