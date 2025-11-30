@@ -1,5 +1,30 @@
 # Changelog
 
+## [Unreleased] - Security Hardening & Reliability
+
+### Security
+
+- **Fix:** TOCTOU vulnerability in filesystem tools via new `validate_and_open()` atomic operator that combines path validation with `O_NOFOLLOW` file opening.
+- **Fix:** Blocking I/O in security checks; all path validation now has async variants (`validate_path_safe_async`, `validate_workspace_root_safe_async`).
+- **Harden:** Enforce strict symlink depth limits (max 10 hops) to prevent symlink chain abuse.
+- **Harden:** Forbid access to system root paths (`/etc`, `/usr`, `/bin`, `/sbin`, `/root`, `/System`, `/Library`).
+- **Harden:** Circular symlink detection prevents infinite loops during path resolution.
+
+### Core
+
+- **Refactor:** Replaced brittle regex-based JSON parser with a robust stack-based state machine for reliable agent output extraction.
+- **Refactor:** Removed `THINKING_PATTERN` regex; thinking tag extraction now uses deterministic string parsing.
+- **Add:** `_extract_from_code_fence()` - extracts JSON from markdown fences without regex.
+- **Add:** `_extract_thinking_content()` - handles malformed/broken `<thinking>` tags gracefully.
+- **Add:** `_find_last_valid_json()` - greedy fallback that finds the last valid JSON object in chatty LLM output.
+
+### Testing
+
+- **Add:** Comprehensive symlink attack test suite (`tests/security/test_symlink_attacks.py`) with 30 tests covering escape attempts, chained symlinks, system directory protection, and TOCTOU mitigations.
+- **Add:** Robust JSON extraction tests (`tests/unit/test_robust_json.py`) with 33 tests covering edge cases like nested braces, code in strings, and broken tags.
+
+---
+
 ## [0.8.0] - The Architect Update
 
 ### Architecture

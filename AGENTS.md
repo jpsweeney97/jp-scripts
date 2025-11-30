@@ -29,6 +29,10 @@ You MUST adhere to these invariants at all times. Any violation requires explici
   - `asyncio.create_subprocess_exec`
   - `core.system.run_safe_shell`
 - All shell-capable code must invoke `core.command_validation.validate_command` before execution
+- **Security module async functions:** Path validation in async contexts must use the async variants:
+  - `await security.validate_path_safe_async(path, root)` - validates paths asynchronously
+  - `await security.validate_workspace_root_safe_async(root)` - validates workspace roots asynchronously
+  - `security._is_git_repo_async(path)` - async git repository detection (internal)
 
 ### [invariant:error-handling] Result-Based Errors
 
@@ -70,6 +74,32 @@ shutil.rmtree(path)  # safety: checked
 ```
 
 This is enforced by AST analysis via `SecurityVisitor`.
+
+#### Atomic File Operations (TOCTOU Prevention)
+
+Direct usage of Python's built-in `open()` for writing is **prohibited** within the agent runtime. This prevents Time-of-Check Time-of-Use (TOCTOU) race conditions where a validated path could be swapped for a symlink between validation and file open.
+
+```python
+# ❌ FORBIDDEN - vulnerable to TOCTOU attacks:
+path = validate_path(user_input, root)
+with open(path, "w") as f:
+    f.write(content)
+
+# ✅ REQUIRED - atomic validation + open:
+from jpscripts.core.security import validate_and_open
+result = validate_and_open(user_input, root, "w")
+match result:
+    case Ok(fh):
+        with fh:
+            fh.write(content)
+    case Err(e):
+        handle_error(e)
+```
+
+The `validate_and_open()` function:
+- Validates the path stays within workspace bounds
+- Opens the file with `O_NOFOLLOW` to reject symlinks at open time
+- Returns a `Result[IO, SecurityError]` for safe error handling
 
 ### [invariant:dynamic-execution] No Dynamic Execution
 
@@ -211,7 +241,7 @@ Tasks are organized as a Directed Acyclic Graph (DAG):
 
 ## Quick Reference
 
-```
+```python
 # Check a command
 from jpscripts.core.command_validation import validate_command
 verdict, reason = validate_command(cmd, cwd)
@@ -235,6 +265,30 @@ async def run_cmd(cmd: str, cwd: Path) -> str:
     )
     stdout, stderr = await proc.communicate()
     return stdout.decode()
+
+# Async path validation (for MCP tools and async contexts)
+from jpscripts.core.security import validate_path_safe_async
+from jpscripts.core.result import Err
+
+async def safe_read(path: str, root: Path) -> str:
+    result = await validate_path_safe_async(path, root)
+    if isinstance(result, Err):
+        return f"Error: {result.error.message}"
+    return result.value.read_text()
+
+# Atomic file operations (TOCTOU-safe)
+from jpscripts.core.security import validate_and_open
+from jpscripts.core.result import Ok, Err
+
+def safe_write(path: str, root: Path, content: str) -> str:
+    result = validate_and_open(path, root, "w")
+    match result:
+        case Ok(fh):
+            with fh:
+                fh.write(content)
+            return "Success"
+        case Err(e):
+            return f"Error: {e.message}"
 
 # Result pattern
 match await async_operation():
