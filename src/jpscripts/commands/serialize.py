@@ -45,7 +45,7 @@ def snapshot(
     ctx: typer.Context,
     target: Path | None = typer.Argument(
         None,
-        help="Directory to serialize. Defaults to configured workspace root.",
+        help="Directory to serialize. Defaults to current working directory.",
     ),
     output: Path = typer.Option(
         Path("manifest.yaml"), "--output", "-o", help="Path to write the manifest."
@@ -61,7 +61,7 @@ def snapshot(
         raise typer.Exit(code=1)
 
     runtime = state.runtime_ctx
-    resolved_root = (target or runtime.workspace_root).expanduser().resolve()
+    resolved_root = (target or Path.cwd()).expanduser().resolve()
     result = asyncio.run(
         _run_snapshot(
             workspace_root=resolved_root,
