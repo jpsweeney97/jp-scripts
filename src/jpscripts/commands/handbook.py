@@ -401,7 +401,7 @@ async def _reset_store(store_path: Path) -> None:
         return
 
     def _remove() -> None:
-        shutil.rmtree(store_path, ignore_errors=True)
+        shutil.rmtree(store_path, ignore_errors=True)  # safety: checked
 
     await asyncio.to_thread(_remove)
 

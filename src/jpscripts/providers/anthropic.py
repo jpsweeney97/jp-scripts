@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from jpscripts.providers import (
     AuthenticationError,
@@ -39,6 +39,9 @@ from jpscripts.providers import (
 )
 
 if TYPE_CHECKING:
+    from anthropic import AsyncAnthropic
+    from anthropic.types import ContentBlock
+
     from jpscripts.core.config import AppConfig
 
 # Model context limits (tokens)
@@ -89,7 +92,7 @@ def _resolve_model_id(model: str) -> str:
 def _convert_messages_to_anthropic(
     messages: list[Message],
     system_prompt: str | None = None,
-) -> tuple[str | None, list[dict[str, Any]]]:
+) -> tuple[str | None, list[dict[str, object]]]:
     """Convert our Message format to Anthropic's format.
 
     Anthropic expects system prompt separate from messages,
@@ -99,7 +102,7 @@ def _convert_messages_to_anthropic(
         Tuple of (system_prompt, messages)
     """
     system = system_prompt
-    converted: list[dict[str, Any]] = []
+    converted: list[dict[str, object]] = []
 
     for msg in messages:
         if msg.role == "system":
@@ -122,7 +125,7 @@ def _convert_messages_to_anthropic(
 
 def _convert_tools_to_anthropic(
     tools: tuple[ToolDefinition, ...] | None,
-) -> list[dict[str, Any]] | None:
+) -> list[dict[str, object]] | None:
     """Convert our ToolDefinition format to Anthropic's format."""
     if not tools:
         return None
@@ -137,27 +140,27 @@ def _convert_tools_to_anthropic(
     ]
 
 
-def _parse_tool_calls(content_blocks: list[dict[str, Any]]) -> list[ToolCall]:
+def _parse_tool_calls(content_blocks: list[ContentBlock]) -> list[ToolCall]:
     """Parse tool use blocks from Anthropic response."""
     tool_calls: list[ToolCall] = []
     for block in content_blocks:
-        if block.get("type") == "tool_use":
+        if block.type == "tool_use":
             tool_calls.append(
                 ToolCall(
-                    id=block.get("id", ""),
-                    name=block.get("name", ""),
-                    arguments=block.get("input", {}),
+                    id=block.id,
+                    name=block.name,
+                    arguments=dict(block.input) if isinstance(block.input, dict) else {},
                 )
             )
     return tool_calls
 
 
-def _extract_text_content(content_blocks: list[dict[str, Any]]) -> str:
+def _extract_text_content(content_blocks: list[ContentBlock]) -> str:
     """Extract text content from Anthropic response blocks."""
     text_parts: list[str] = []
     for block in content_blocks:
-        if block.get("type") == "text":
-            text_parts.append(block.get("text", ""))
+        if block.type == "text":
+            text_parts.append(block.text)
     return "".join(text_parts)
 
 
@@ -171,9 +174,9 @@ class AnthropicProvider(BaseLLMProvider):
 
     def __init__(self, config: AppConfig) -> None:
         super().__init__(config)
-        self._client: Any = None
+        self._client: AsyncAnthropic | None = None
 
-    def _get_client(self) -> Any:
+    def _get_client(self) -> AsyncAnthropic:
         """Lazy-initialize the Anthropic client."""
         if self._client is not None:
             return self._client
@@ -223,7 +226,7 @@ class AnthropicProvider(BaseLLMProvider):
         system, converted_messages = _convert_messages_to_anthropic(messages, opts.system_prompt)
 
         # Build request parameters
-        params: dict[str, Any] = {
+        params: dict[str, object] = {
             "model": model_id,
             "messages": converted_messages,
             "max_tokens": opts.max_tokens or 4096,
@@ -253,7 +256,7 @@ class AnthropicProvider(BaseLLMProvider):
                     params["tool_choice"] = {"type": "tool", "name": opts.tool_choice}
 
         try:
-            response = await client.messages.create(**params)
+            response = await client.messages.create(**params)  # type: ignore[arg-type]
         except Exception as exc:
             self._handle_api_error(exc)
 
@@ -291,7 +294,7 @@ class AnthropicProvider(BaseLLMProvider):
         model_id = _resolve_model_id(model or self.default_model)
         system, converted_messages = _convert_messages_to_anthropic(messages, opts.system_prompt)
 
-        params: dict[str, Any] = {
+        params: dict[str, object] = {
             "model": model_id,
             "messages": converted_messages,
             "max_tokens": opts.max_tokens or 4096,
@@ -314,7 +317,7 @@ class AnthropicProvider(BaseLLMProvider):
             params["tools"] = tools
 
         try:
-            async with client.messages.stream(**params) as stream:
+            async with client.messages.stream(**params) as stream:  # type: ignore[arg-type]
                 async for event in stream:
                     if hasattr(event, "type"):
                         if event.type == "content_block_delta":

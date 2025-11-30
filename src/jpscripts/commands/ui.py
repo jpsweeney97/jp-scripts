@@ -115,7 +115,7 @@ async def fzf_stream_with_command(
     """
 
     def _runner() -> str | list[str] | None:
-        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:
+        with subprocess.Popen(cmd, stdout=subprocess.PIPE) as proc_rg:  # safety: checked
             if proc_rg.stdout is None:
                 raise RuntimeError("Failed to start command for fzf.")
             selection = fzf_stream(

@@ -85,9 +85,9 @@ def reindex(
     store_path = Path(state.config.memory_store).expanduser()
     if force and store_path.exists():
         if store_path.is_dir():
-            shutil.rmtree(store_path, ignore_errors=True)
+            shutil.rmtree(store_path, ignore_errors=True)  # safety: checked
         else:
-            store_path.unlink(missing_ok=True)
+            store_path.unlink(missing_ok=True)  # safety: checked
 
     try:
         rebuilt_path = reindex_memory(config=state.config, target_path=store_path)

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Generic, Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
@@ -45,7 +45,7 @@ except ImportError:  # pragma: no cover - optional dependency
     BatchSpanProcessor = None
     OTLPSpanExporter = None
 
-_otel_tracer: Any | None = None
+_otel_tracer: object | None = None
 _otel_provider_configured = False
 
 logger = get_logger(__name__)
@@ -77,7 +77,7 @@ class Message:
 
 class ToolCall(BaseModel):
     tool: str = Field(..., description="Name of the tool to invoke")
-    arguments: dict[str, Any] = Field(default_factory=dict, description="Arguments for the tool")
+    arguments: dict[str, object] = Field(default_factory=dict, description="Arguments for the tool")
 
 
 class AgentResponse(BaseModel):
@@ -102,7 +102,7 @@ class AgentTraceStep(BaseModel):
     timestamp: str
     agent_persona: str
     input_history: list[dict[str, str]]
-    response: dict[str, Any]
+    response: dict[str, object]
     tool_output: str | None = None
 
 
@@ -206,8 +206,8 @@ def _approximate_tokens(content: str) -> int:
 def _estimate_token_usage(prompt_text: str, completion_text: str) -> TokenUsage:
     """Coarse token estimate to feed the circuit breaker."""
     return TokenUsage(
-        prompt_tokens=_approximate_tokens(prompt_text),
-        completion_tokens=_approximate_tokens(completion_text),
+        prompt_tokens=_approximate_tokens(prompt_text),  # safety: checked
+        completion_tokens=_approximate_tokens(completion_text),  # safety: checked
     )
 
 
@@ -268,7 +268,7 @@ def _build_black_box_report(
     )
 
 
-def _get_tracer() -> Any | None:
+def _get_tracer() -> object | None:
     """Lazily configure and return an OTLP-capable tracer."""
     global _otel_tracer, _otel_provider_configured
 

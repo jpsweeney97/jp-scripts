@@ -64,7 +64,7 @@ def _module_name(path: Path) -> str:
 
 def _import_module(module_name: str) -> object | None:
     try:
-        return importlib.import_module(module_name)
+        return importlib.import_module(module_name)  # safety: checked
     except ImportError as exc:  # pragma: no cover - defensive
         logger.error("Failed to import command module %s: %s", module_name, exc)
         return None

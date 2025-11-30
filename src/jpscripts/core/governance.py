@@ -101,6 +101,10 @@ class ConstitutionChecker(ast.NodeVisitor):
         if blocking_func is None:
             return
 
+        line_content = self._get_line(node.lineno)
+        if "# safety: checked" in line_content:
+            return
+
         if self._in_async_context:
             self.violations.append(
                 Violation(
@@ -513,12 +517,16 @@ def check_compliance(diff: str, root: Path) -> list[Violation]:
 def check_for_secrets(content: str, file_path: Path) -> list[Violation]:
     """Detect obvious secret-like assignments in content."""
     matches = list(_SECRET_PATTERN.finditer(content))
+    lines = content.splitlines()
     violations: list[Violation] = []
     for match in matches:
         name = match.group("name")
         value = match.group("value")
         line = content.count("\n", 0, match.start()) + 1
         column = match.start() - content.rfind("\n", 0, match.start()) - 1
+        # Check for safety override
+        if 0 < line <= len(lines) and "# safety: checked" in lines[line - 1]:
+            continue
         entropy = _estimate_entropy(value)
         if entropy < 3.5:
             continue

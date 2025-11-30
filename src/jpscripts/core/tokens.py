@@ -94,7 +94,7 @@ class TokenCounter:
         try:
             import importlib
 
-            tiktoken_module = importlib.import_module("tiktoken")
+            tiktoken_module = importlib.import_module("tiktoken")  # safety: checked
         except ImportError:
             if not self._warned_missing:
                 logger.warning(

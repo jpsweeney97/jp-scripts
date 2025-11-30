@@ -14,6 +14,7 @@ import typer
 
 from jpscripts.commands import agent as agent_cmd
 from jpscripts.core import agent as agent_core
+from jpscripts.core.agent import prompting as agent_prompting
 from jpscripts.core.config import AppConfig
 from jpscripts.core.runtime import runtime_context
 
@@ -28,8 +29,8 @@ def test_agent_prompt_includes_json_context(
     async def fake_git_diff(_root: Path, _max_chars: int) -> str:
         return "diff chunk with ]]> marker"
 
-    monkeypatch.setattr(agent_core, "_collect_git_context", fake_git_context)
-    monkeypatch.setattr(agent_core, "_collect_git_diff", fake_git_diff)
+    monkeypatch.setattr(agent_prompting, "collect_git_context", fake_git_context)
+    monkeypatch.setattr(agent_prompting, "collect_git_diff", fake_git_diff)
 
     captured_prompt: str | None = None
 

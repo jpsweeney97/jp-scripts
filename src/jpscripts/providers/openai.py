@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from jpscripts.providers import (
     AuthenticationError,
@@ -39,6 +39,9 @@ from jpscripts.providers import (
 )
 
 if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+    from openai.types.chat import ChatCompletionMessageToolCall
+
     from jpscripts.core.config import AppConfig
 
 # Model context limits (tokens)
@@ -103,7 +106,7 @@ def _convert_messages_to_openai(
     messages: list[Message],
     system_prompt: str | None = None,
     model: str = "",
-) -> list[dict[str, Any]]:
+) -> list[dict[str, object]]:
     """Convert our Message format to OpenAI's format.
 
     Args:
@@ -114,7 +117,7 @@ def _convert_messages_to_openai(
     Returns:
         List of OpenAI-format messages
     """
-    converted: list[dict[str, Any]] = []
+    converted: list[dict[str, object]] = []
     supports_system = model not in MODELS_WITHOUT_SYSTEM_PROMPT
 
     # Add system prompt if provided and supported
@@ -143,7 +146,7 @@ def _convert_messages_to_openai(
                 content = f"[System Context]\n{system_prepend}\n\n[User Message]\n{content}"
                 system_prepend = None
 
-            message_dict: dict[str, Any] = {
+            message_dict: dict[str, object] = {
                 "role": msg.role,
                 "content": content,
             }
@@ -156,7 +159,7 @@ def _convert_messages_to_openai(
 
 def _convert_tools_to_openai(
     tools: tuple[ToolDefinition, ...] | None,
-) -> list[dict[str, Any]] | None:
+) -> list[dict[str, object]] | None:
     """Convert our ToolDefinition format to OpenAI's format."""
     if not tools:
         return None
@@ -175,7 +178,7 @@ def _convert_tools_to_openai(
 
 
 def _parse_tool_calls(
-    tool_calls: list[Any] | None,
+    tool_calls: list[ChatCompletionMessageToolCall] | None,
 ) -> list[ToolCall]:
     """Parse tool calls from OpenAI response."""
     if not tool_calls:
@@ -209,9 +212,9 @@ class OpenAIProvider(BaseLLMProvider):
 
     def __init__(self, config: AppConfig) -> None:
         super().__init__(config)
-        self._client: Any = None
+        self._client: AsyncOpenAI | None = None
 
-    def _get_client(self) -> Any:
+    def _get_client(self) -> AsyncOpenAI:
         """Lazy-initialize the OpenAI client."""
         if self._client is not None:
             return self._client
@@ -265,7 +268,7 @@ class OpenAIProvider(BaseLLMProvider):
         converted_messages = _convert_messages_to_openai(messages, opts.system_prompt, model_id)
 
         # Build request parameters
-        params: dict[str, Any] = {
+        params: dict[str, object] = {
             "model": model_id,
             "messages": converted_messages,
         }
@@ -309,7 +312,7 @@ class OpenAIProvider(BaseLLMProvider):
             params["reasoning_effort"] = opts.reasoning_effort
 
         try:
-            response = await client.chat.completions.create(**params)
+            response = await client.chat.completions.create(**params)  # type: ignore[arg-type]
         except Exception as exc:
             self._handle_api_error(exc)
 
@@ -353,7 +356,7 @@ class OpenAIProvider(BaseLLMProvider):
         model_id = _resolve_model_id(model or self.default_model)
         converted_messages = _convert_messages_to_openai(messages, opts.system_prompt, model_id)
 
-        params: dict[str, Any] = {
+        params: dict[str, object] = {
             "model": model_id,
             "messages": converted_messages,
             "stream": True,
@@ -383,7 +386,7 @@ class OpenAIProvider(BaseLLMProvider):
             params["tools"] = tools
 
         try:
-            stream = await client.chat.completions.create(**params)
+            stream = await client.chat.completions.create(**params)  # type: ignore[arg-type]
             async for chunk in stream:
                 if not chunk.choices:
                     # Final chunk with usage

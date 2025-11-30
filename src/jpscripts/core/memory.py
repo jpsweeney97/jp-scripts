@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import re
+import types
 from collections import Counter
 from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass, field
@@ -12,7 +13,7 @@ from datetime import UTC, datetime
 from importlib import import_module
 from math import sqrt
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Protocol, TypeVar, cast
 from urllib import error as urllib_error
 from urllib import parse as urllib_parse
 from urllib import request as urllib_request
@@ -29,7 +30,7 @@ from jpscripts.core.result import (
     Ok,
     Result,
 )
-from jpscripts.providers import CompletionOptions, ProviderError
+from jpscripts.providers import BaseLLMProvider, CompletionOptions, ProviderError
 from jpscripts.providers import Message as ProviderMessage
 from jpscripts.providers.factory import get_provider
 
@@ -90,7 +91,7 @@ FALLBACK_SUFFIX = ".jsonl"
 _SEMANTIC_WARNED = False
 
 
-def _run_coroutine(coro: Coroutine[Any, Any, T]) -> T | None:
+def _run_coroutine(coro: Coroutine[object, object, T]) -> T | None:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -135,7 +136,7 @@ def _check_server_online(host: str, port: int) -> bool:
     return bool(result)
 
 
-def _post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[str, Any] | None:
+def _post_json(url: str, payload: dict[str, object], timeout: float = 2.0) -> dict[str, object] | None:
     data = json.dumps(payload, ensure_ascii=True).encode("utf-8")
     req = urllib_request.Request(url, data=data, headers={"Content-Type": "application/json"})
     try:
@@ -160,12 +161,12 @@ def _post_json(url: str, payload: dict[str, Any], timeout: float = 2.0) -> dict[
 
 
 async def _async_post_json(
-    url: str, payload: dict[str, Any], timeout: float = 2.0
-) -> dict[str, Any] | None:
+    url: str, payload: dict[str, object], timeout: float = 2.0
+) -> dict[str, object] | None:
     return await asyncio.to_thread(_post_json, url, payload, timeout)
 
 
-def _extract_embeddings(payload: dict[str, Any]) -> list[list[float]] | None:
+def _extract_embeddings(payload: dict[str, object]) -> list[list[float]] | None:
     candidates: list[list[float]] = []
     if "data" in payload and isinstance(payload["data"], list):
         for item in payload["data"]:
@@ -579,7 +580,7 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
     os.replace(temp_path, path)
 
 
-def _load_lancedb_dependencies() -> tuple[Any, type[LanceModelBase]] | None:
+def _load_lancedb_dependencies() -> tuple[types.ModuleType, type[LanceModelBase]] | None:
     try:
         lancedb = import_module("lancedb")
         pydantic_module = import_module("lancedb.pydantic")
@@ -605,7 +606,7 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
 
 class LanceDBStore(MemoryStore):
     def __init__(
-        self, db_path: Path, lancedb_module: Any, lance_model_base: type[LanceModelBase]
+        self, db_path: Path, lancedb_module: types.ModuleType, lance_model_base: type[LanceModelBase]
     ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
@@ -1299,7 +1300,7 @@ class PatternStore:
     """
 
     def __init__(
-        self, db_path: Path, lancedb_module: Any, lance_model_base: type[LanceModelBase]
+        self, db_path: Path, lancedb_module: types.ModuleType, lance_model_base: type[LanceModelBase]
     ) -> None:
         self._db_path = db_path.expanduser()
         self._db_path.mkdir(parents=True, exist_ok=True)
@@ -1528,9 +1529,9 @@ async def consolidate_patterns(
     return Ok(patterns)
 
 
-async def _load_successful_traces(trace_dir: Path, limit: int) -> list[dict[str, Any]]:
+async def _load_successful_traces(trace_dir: Path, limit: int) -> list[dict[str, object]]:
     """Load trace steps that resulted in successful outcomes."""
-    traces: list[dict[str, Any]] = []
+    traces: list[dict[str, object]] = []
 
     trace_files = sorted(trace_dir.glob("*.jsonl"), reverse=True)
     for trace_file in trace_files[: limit * 2]:  # Over-fetch to filter
@@ -1557,13 +1558,13 @@ async def _load_successful_traces(trace_dir: Path, limit: int) -> list[dict[str,
     return traces[:limit]
 
 
-def _cluster_traces_by_similarity(traces: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+def _cluster_traces_by_similarity(traces: list[dict[str, object]]) -> list[list[dict[str, object]]]:
     """Group traces by similarity of error type and solution approach.
 
     Uses simple heuristics: group by first word of thought_process
     (usually indicates the type of issue being addressed).
     """
-    clusters: dict[str, list[dict[str, Any]]] = {}
+    clusters: dict[str, list[dict[str, object]]] = {}
 
     for trace in traces:
         response = trace.get("response", {})
@@ -1581,8 +1582,8 @@ def _cluster_traces_by_similarity(traces: list[dict[str, Any]]) -> list[list[dic
 
 
 async def _synthesize_pattern_from_cluster(
-    cluster: list[dict[str, Any]],
-    provider: Any,
+    cluster: list[dict[str, object]],
+    provider: BaseLLMProvider,
     model: str,
 ) -> Pattern | None:
     """Use LLM to extract a generalized pattern from a cluster of similar traces."""

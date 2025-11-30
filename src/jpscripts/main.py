@@ -50,7 +50,7 @@ def _signal_handler(signum: int, frame: FrameType | None) -> NoReturn | None:
         # Second signal = force exit
         console.print("\n[red]Force exit - manual cleanup may be needed:[/red]")
         console.print("  git worktree prune")
-        sys.exit(128 + signum)
+        raise SystemExit(128 + signum)
 
     _shutdown_requested = True
     console.print("\n[yellow]Shutting down gracefully...[/yellow]")
@@ -61,7 +61,7 @@ def _signal_handler(signum: int, frame: FrameType | None) -> NoReturn | None:
         console.print("[dim]Note: Active worktrees will be cleaned on next run.[/dim]")
 
     console.print("[yellow]If worktrees remain, run:[/yellow]\n  git worktree prune")
-    sys.exit(128 + signum)
+    raise SystemExit(128 + signum)
 
 
 def _register_signal_handlers() -> None:
