@@ -3,11 +3,12 @@ from __future__ import annotations
 # pyright: reportUnknownMemberType=false, reportUnknownArgumentType=false, reportUnknownVariableType=false
 import asyncio
 import hashlib
+import itertools
 import json
 import os
 import re
 from collections import Counter
-from collections.abc import Coroutine, Iterable, Mapping, Sequence
+from collections.abc import Coroutine, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from importlib import import_module
@@ -551,16 +552,59 @@ def _load_sentence_transformer(model_name: str) -> tuple[SentenceTransformer | N
     return model, dimension
 
 
-def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntry]:
-    if not path.exists():
-        return []
+def _parse_entry(raw: dict[str, object]) -> MemoryEntry:
+    """Parse a raw JSON dict into a MemoryEntry."""
+    content = str(raw.get("content", "")).strip()
+    raw_tags = raw.get("tags", [])
+    tags = (
+        [str(tag).strip() for tag in raw_tags if str(tag).strip()]
+        if isinstance(raw_tags, list)
+        else []
+    )
+    token_source = f"{content} {' '.join(tags)}".strip()
+    raw_tokens = raw.get("tokens")
+    if isinstance(raw_tokens, list) and raw_tokens:
+        tokens = [str(tok) for tok in raw_tokens if str(tok)]
+    else:
+        tokens = _tokenize(token_source)
+    embedding = raw.get("embedding")
+    embedding_list = (
+        [float(val) for val in embedding] if isinstance(embedding, list) else None
+    )
+    raw_source_path = raw.get("source_path")
+    source_path = str(raw_source_path) if raw_source_path else None
+    raw_content_hash = raw.get("content_hash")
+    content_hash = str(raw_content_hash) if raw_content_hash else None
+    raw_related = raw.get("related_files")
+    related_files = (
+        [str(p) for p in raw_related if str(p).strip()]
+        if isinstance(raw_related, list)
+        else []
+    )
+    return MemoryEntry(
+        id=str(raw.get("id", uuid4().hex)),
+        ts=str(raw.get("ts", raw.get("timestamp", ""))),
+        content=content,
+        tags=tags,
+        tokens=tokens,
+        embedding=embedding_list,
+        source_path=source_path,
+        content_hash=content_hash,
+        related_files=related_files,
+    )
 
-    entries: list[MemoryEntry] = []
+
+def _iter_entries(path: Path) -> Iterator[MemoryEntry]:
+    """Generator-based entry loading for memory efficiency.
+
+    Yields entries one at a time without loading entire file into memory.
+    """
+    if not path.exists():
+        return
+
     try:
         with path.open("r", encoding="utf-8") as fh:
             for line in fh:
-                if len(entries) >= max_entries:
-                    break
                 line = line.strip()
                 if not line:
                     continue
@@ -568,43 +612,15 @@ def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntr
                     raw = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-
-                content = str(raw.get("content", "")).strip()
-                tags = [str(tag).strip() for tag in raw.get("tags", []) if str(tag).strip()]
-                token_source = f"{content} {' '.join(tags)}".strip()
-                raw_tokens = raw.get("tokens")
-                if isinstance(raw_tokens, list) and raw_tokens:
-                    tokens = [str(tok) for tok in raw_tokens if str(tok)]
-                else:
-                    tokens = _tokenize(token_source)
-                embedding = raw.get("embedding")
-                embedding_list = (
-                    [float(val) for val in embedding] if isinstance(embedding, list) else None
-                )
-                raw_source_path = raw.get("source_path")
-                source_path = str(raw_source_path) if raw_source_path else None
-                raw_content_hash = raw.get("content_hash")
-                content_hash = str(raw_content_hash) if raw_content_hash else None
-                raw_related = raw.get("related_files") or []
-                related_files = [str(path) for path in raw_related if str(path).strip()]
-                entries.append(
-                    MemoryEntry(
-                        id=str(raw.get("id", uuid4().hex)),
-                        ts=str(raw.get("ts", raw.get("timestamp", ""))),
-                        content=content,
-                        tags=tags,
-                        tokens=tokens,
-                        embedding=embedding_list,
-                        source_path=source_path,
-                        content_hash=content_hash,
-                        related_files=related_files,
-                    )
-                )
+                yield _parse_entry(raw)
     except OSError as exc:
         logger.debug("Failed to read memory entries from %s: %s", path, exc)
-        return []
+        return
 
-    return entries
+
+def _load_entries(path: Path, max_entries: int = MAX_ENTRIES) -> list[MemoryEntry]:
+    """Load entries with limit, using generator internally for efficiency."""
+    return list(itertools.islice(_iter_entries(path), max_entries))
 
 
 def _append_entry(path: Path, entry: MemoryEntry) -> None:

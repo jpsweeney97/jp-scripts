@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from jpscripts.core.security import WorkspaceValidationError, validate_workspace_root
@@ -119,6 +119,41 @@ class AppConfig(BaseSettings):
     shell_rate_limit_window: float = Field(
         default=60.0, description="Window size in seconds for rate limiting."
     )
+
+    @field_validator("notes_dir", "snapshots_dir", "trace_dir", mode="after")
+    @classmethod
+    def ensure_directory_exists(cls, v: Path) -> Path:
+        """Ensure directory exists, creating if necessary. Raises on failure."""
+        expanded = v.expanduser().resolve()
+        try:
+            expanded.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise ValueError(f"Cannot create directory {expanded}: {e}") from e
+        return expanded
+
+    @field_validator("worktree_root", mode="after")
+    @classmethod
+    def ensure_optional_directory(cls, v: Path | None) -> Path | None:
+        """Ensure optional directory exists if provided. Raises on failure."""
+        if v is None:
+            return None
+        expanded = v.expanduser().resolve()
+        try:
+            expanded.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise ValueError(f"Cannot create worktree directory {expanded}: {e}") from e
+        return expanded
+
+    @field_validator("memory_store", mode="after")
+    @classmethod
+    def ensure_parent_exists(cls, v: Path) -> Path:
+        """Ensure parent directory exists for file paths. Raises on failure."""
+        expanded = v.expanduser().resolve()
+        try:
+            expanded.parent.mkdir(parents=True, exist_ok=True)
+        except OSError as e:
+            raise ValueError(f"Cannot create parent directory for {expanded}: {e}") from e
+        return expanded
 
     @classmethod
     def settings_customise_sources(

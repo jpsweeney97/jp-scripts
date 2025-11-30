@@ -37,5 +37,3 @@ venv/
 tmp-repo-test/
 fake_*.py
 *.log
-=6.100.0
-MagicMock

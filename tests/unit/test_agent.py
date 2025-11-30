@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol, cast
 from unittest.mock import MagicMock, patch
@@ -24,13 +25,25 @@ from jpscripts.core.runtime import RuntimeContext, runtime_context, set_runtime_
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
 
+# Module-level temp dir for test harness (created once per test session)
+_test_temp_dir: Path | None = None
+
+
+def _get_test_temp_dir() -> Path:
+    """Get or create a temp directory for the test harness."""
+    global _test_temp_dir
+    if _test_temp_dir is None or not _test_temp_dir.exists():
+        _test_temp_dir = Path(tempfile.mkdtemp(prefix="jpscripts_test_"))
+    return _test_temp_dir
+
 
 @agent_app.callback()
 def main_callback(ctx: typer.Context) -> None:
     # Inject a real config and runtime context so get_runtime() succeeds
+    temp_dir = _get_test_temp_dir()
     config = AppConfig(
-        workspace_root=Path("/mock/workspace"),
-        notes_dir=Path("/mock/notes"),
+        workspace_root=temp_dir,
+        notes_dir=temp_dir / "notes",
         ignore_dirs=[".git", "node_modules"],
         max_file_context_chars=50_000,
         max_command_output_chars=20_000,
@@ -171,7 +184,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
         saved.append((content, tags))
         return MagicMock()
 
-    monkeypatch.setattr(agent_execution, "_run_shell_command", fake_run_shell_command)
+    monkeypatch.setattr(agent_execution, "run_shell_command", fake_run_shell_command)
     monkeypatch.setattr(agent_execution, "save_memory", fake_save_memory)
 
     with runtime_context(config, workspace=tmp_path):

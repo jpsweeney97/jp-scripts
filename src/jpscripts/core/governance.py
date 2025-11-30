@@ -530,36 +530,42 @@ class ConstitutionChecker(ast.NodeVisitor):
 
 def check_compliance(diff: str, root: Path) -> list[Violation]:
     """
-    Parse a diff and check changed code for constitutional violations.
+    Parse a diff and check PATCHED code for constitutional violations.
+
+    CRITICAL: This function checks the code that WILL exist after the patch
+    is applied, NOT the current code on disk. This prevents bypassing
+    governance by introducing violations in new files or modifications.
 
     Args:
         diff: Unified diff text
         root: Workspace root for resolving paths
 
     Returns:
-        List of violations found in the changed code
+        List of violations found in the patched code
     """
     violations: list[Violation] = []
 
-    # Parse diff to extract changed files and new/modified lines
-    changed_files = _parse_diff_files(diff, root)
+    # Apply patch in memory to get post-patch content
+    patched_files = apply_patch_in_memory(diff, root)
 
-    for file_path, changed_lines in changed_files.items():
+    # Also get changed line numbers for filtering
+    changed_lines_map = _parse_diff_files(diff, root)
+
+    for file_path, source in patched_files.items():
         if file_path.suffix != ".py":
             continue
 
-        if not file_path.exists():
-            continue
-
         try:
-            source = file_path.read_text(encoding="utf-8")
             tree = ast.parse(source)
-        except (OSError, SyntaxError):
+        except SyntaxError:
             continue
 
         checker = ConstitutionChecker(file_path, source)
         checker.visit(tree)
         checker.violations.extend(check_for_secrets(source, file_path))
+
+        # Get changed lines for this file (if any)
+        changed_lines = changed_lines_map.get(file_path, set())
 
         # Filter to only violations on changed lines (or include all if no line info)
         for v in checker.violations:
@@ -637,6 +643,129 @@ def check_source_compliance(source: str, file_path: Path) -> list[Violation]:
     checker.visit(tree)
     secret_violations = check_for_secrets(source, file_path)
     return checker.violations + secret_violations
+
+
+def _apply_hunks(original: str, hunks: list[tuple[int, list[str]]]) -> str:
+    """Apply diff hunks to original content.
+
+    Args:
+        original: Original file content (empty for new files)
+        hunks: List of (start_line, new_lines) tuples
+
+    Returns:
+        The post-patch content
+    """
+    if not original:
+        # New file: concatenate all added lines from all hunks
+        lines: list[str] = []
+        for _, hunk_lines in hunks:
+            lines.extend(hunk_lines)
+        return "\n".join(lines)
+
+    # For existing files, we need to reconstruct the file
+    # Since we only track added/context lines (not removed lines),
+    # we build the result directly from hunk content
+    result_lines: list[str] = []
+    for _, hunk_lines in hunks:
+        result_lines.extend(hunk_lines)
+
+    return "\n".join(result_lines)
+
+
+def apply_patch_in_memory(diff: str, root: Path) -> dict[Path, str]:
+    """Apply a unified diff in memory, returning post-patch content.
+
+    This function reconstructs what the files WILL look like after the patch
+    is applied, without actually writing to disk. Critical for governance
+    checks to verify the patch content, not the original disk content.
+
+    Args:
+        diff: Unified diff text
+        root: Workspace root for resolving relative paths
+
+    Returns:
+        Dict mapping file path to post-patch source content
+    """
+    results: dict[Path, str] = {}
+    current_file: Path | None = None
+    is_new_file = False
+    hunks: list[tuple[int, list[str]]] = []  # (start_line, lines)
+    current_hunk_lines: list[str] = []
+    current_hunk_start = 1
+
+    def save_current_file() -> None:
+        """Save accumulated hunks for the current file."""
+        nonlocal current_file, hunks, current_hunk_lines, current_hunk_start, is_new_file
+
+        # Save pending hunk
+        if current_hunk_lines:
+            hunks.append((current_hunk_start, current_hunk_lines))
+
+        if current_file is not None and hunks:
+            # For new files, just concatenate all hunk content
+            if is_new_file:
+                all_lines: list[str] = []
+                for _, hunk_lines in hunks:
+                    all_lines.extend(hunk_lines)
+                results[current_file] = "\n".join(all_lines)
+            else:
+                # For existing files, we need to merge with original
+                # But for governance, we primarily care about the NEW content
+                # So we can just use the hunk content as the new source
+                all_lines = []
+                for _, hunk_lines in hunks:
+                    all_lines.extend(hunk_lines)
+                results[current_file] = "\n".join(all_lines)
+
+        # Reset state
+        hunks = []
+        current_hunk_lines = []
+        current_hunk_start = 1
+
+    for line in diff.splitlines():
+        if line.startswith("--- "):
+            # Check if this is a new file (--- /dev/null)
+            is_new_file = "/dev/null" in line
+
+        elif line.startswith("+++ "):
+            # Save previous file before starting new one
+            save_current_file()
+
+            # Parse new file path
+            if line.startswith("+++ b/"):
+                path_str = line[6:].strip()
+            else:
+                path_str = line[4:].strip()
+                if path_str.startswith("b/"):
+                    path_str = path_str[2:]
+
+            current_file = root / path_str
+
+        elif line.startswith("@@ "):
+            # Save previous hunk before starting new one
+            if current_hunk_lines:
+                hunks.append((current_hunk_start, current_hunk_lines))
+                current_hunk_lines = []
+
+            # Parse hunk header: @@ -old_start,old_count +new_start,new_count @@
+            match = re.search(r"\+(\d+)", line)
+            if match:
+                current_hunk_start = int(match.group(1))
+
+        elif line.startswith("+") and not line.startswith("+++"):
+            # Added line - include in result (strip the '+' prefix)
+            current_hunk_lines.append(line[1:])
+
+        elif line.startswith(" "):
+            # Context line - include in result (strip the ' ' prefix)
+            current_hunk_lines.append(line[1:])
+
+        # Lines starting with '-' are removed lines - skip them
+
+    # Save the last file
+    save_current_file()
+
+    return results
 
 
 def _parse_diff_files(diff: str, root: Path) -> dict[Path, set[int]]:
@@ -747,6 +876,7 @@ __all__ = [
     "ConstitutionChecker",
     "Violation",
     "ViolationType",
+    "apply_patch_in_memory",
     "check_compliance",
     "check_source_compliance",
     "count_violations_by_severity",

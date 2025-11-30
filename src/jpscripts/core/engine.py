@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
 import re
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, cast
 
+import tiktoken
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
@@ -98,6 +100,17 @@ ResponseT = TypeVar("ResponseT", bound=BaseModel)
 AUDIT_PREFIX = "audit.shell"
 THINKING_PATTERN = re.compile(r"<thinking>(.*?)</thinking>", flags=re.IGNORECASE | re.DOTALL)
 
+# Lazy-loaded tiktoken encoder for accurate token counting
+_TOKENIZER: tiktoken.Encoding | None = None
+
+
+def _get_tokenizer() -> tiktoken.Encoding:
+    """Get or initialize the tiktoken encoder (cl100k_base for GPT-4/Claude)."""
+    global _TOKENIZER
+    if _TOKENIZER is None:
+        _TOKENIZER = tiktoken.get_encoding("cl100k_base")
+    return _TOKENIZER
+
 
 class MemoryProtocol(Protocol):
     def query(self, text: str, limit: int = 5) -> list[str]: ...
@@ -151,6 +164,9 @@ class AgentTraceStep(BaseModel):
 
 
 class TraceRecorder:
+    MAX_TRACE_SIZE = 10 * 1024 * 1024  # 10MB
+    ARCHIVE_MAX_AGE_DAYS = 30
+
     def __init__(self, trace_dir: Path, trace_id: str | None = None) -> None:
         self.trace_id = trace_id or uuid.uuid4().hex
         self.trace_dir = self._ensure_trace_dir(trace_dir)
@@ -182,8 +198,89 @@ class TraceRecorder:
         await asyncio.to_thread(self._write_line, payload)
 
     def _write_line(self, line: str) -> None:
+        self._rotate_if_needed()
         with self._path.open("a", encoding="utf-8") as fh:
             fh.write(line + "\n")
+
+    def _rotate_if_needed(self) -> None:
+        """Compress trace file if it exceeds size limit."""
+        if not self._path.exists():
+            return
+        try:
+            if self._path.stat().st_size < self.MAX_TRACE_SIZE:
+                return
+        except OSError:
+            return
+
+        # Compress to .jsonl.gz with timestamp
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        archive_path = self.trace_dir / f"{self.trace_id}.{timestamp}.jsonl.gz"
+
+        try:
+            with self._path.open("rb") as f_in, gzip.open(archive_path, "wb") as f_out:
+                f_out.writelines(f_in)
+
+            # Truncate original file
+            self._path.write_text("")
+
+            # Clean up old archives
+            self._cleanup_old_archives()
+        except OSError as exc:
+            logger.debug("Failed to rotate trace file: %s", exc)
+
+    def _cleanup_old_archives(self) -> None:
+        """Delete .jsonl.gz archives older than 30 days."""
+        cutoff = datetime.now(UTC) - timedelta(days=self.ARCHIVE_MAX_AGE_DAYS)
+        for archive in self.trace_dir.glob("*.jsonl.gz"):
+            try:
+                mtime = datetime.fromtimestamp(archive.stat().st_mtime, tz=UTC)
+                if mtime < cutoff:
+                    archive.unlink()
+                    logger.debug("Deleted old trace archive: %s", archive)
+            except OSError:
+                pass  # Ignore cleanup failures
+
+
+def _extract_balanced_json(text: str) -> str:
+    """Extract first complete JSON object using balanced brace matching.
+
+    Properly handles:
+    - Nested braces in string values
+    - Escape sequences
+    - Unmatched braces (falls back to first { to last })
+    """
+    start = text.find("{")
+    if start == -1:
+        return text
+
+    depth = 0
+    in_string = False
+    escape_next = False
+
+    for i, char in enumerate(text[start:], start):
+        if escape_next:
+            escape_next = False
+            continue
+        if char == "\\":
+            escape_next = True
+            continue
+        if char == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : i + 1]
+
+    # Fallback: unbalanced braces, return from start to last }
+    end = text.rfind("}")
+    if end > start:
+        return text[start : end + 1]
+    return text
 
 
 def _clean_json_payload(text: str) -> str:
@@ -192,20 +289,15 @@ def _clean_json_payload(text: str) -> str:
     if not stripped:
         return stripped
 
+    # Try markdown fence first
     fence = re.search(r"```json\s*(.*?)```", stripped, flags=re.DOTALL | re.IGNORECASE)
     if fence:
         candidate = fence.group(1).strip()
         if candidate:
             return candidate
 
-    start = stripped.find("{")
-    end = stripped.rfind("}")
-    if start != -1 and end != -1 and end > start:
-        candidate = stripped[start : end + 1].strip()
-        if candidate:
-            return candidate
-
-    return stripped
+    # Use balanced brace extraction for proper handling
+    return _extract_balanced_json(stripped)
 
 
 def _split_thought_and_json(payload: str) -> tuple[str, str]:
@@ -242,13 +334,18 @@ def parse_agent_response(payload: str) -> AgentResponse:
 
 
 def _approximate_tokens(content: str) -> int:
+    """Count tokens using tiktoken for accuracy (with fallback)."""
     if not content:
         return 0
-    return max(1, len(content) // 4)
+    try:
+        return len(_get_tokenizer().encode(content, disallowed_special=()))
+    except Exception:
+        # Fallback to char/4 estimate if tiktoken fails
+        return max(1, len(content) // 4)
 
 
 def _estimate_token_usage(prompt_text: str, completion_text: str) -> TokenUsage:
-    """Coarse token estimate to feed the circuit breaker."""
+    """Token estimate using tiktoken for circuit breaker budget tracking."""
     return TokenUsage(
         prompt_tokens=_approximate_tokens(prompt_text),  # safety: checked
         completion_tokens=_approximate_tokens(completion_text),  # safety: checked

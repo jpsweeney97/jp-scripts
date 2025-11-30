@@ -13,7 +13,7 @@ lint:
 	mypy src
 
 test: lint
-	pytest
+	pytest --cov=src/jpscripts --cov-report=term-missing
 
 clean:
 	find . -type d -name "__pycache__" -prune -exec rm -rf {} + || true
