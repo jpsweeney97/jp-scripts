@@ -165,3 +165,46 @@ async def test_serialize_arbitrary_directory(tmp_path: Path) -> None:
 
     manifest_text = await asyncio.to_thread(manifest_path.read_text, encoding="utf-8")
     assert "data.txt" in manifest_text
+
+
+@pytest.mark.asyncio
+async def test_default_excludes_are_enforced(tmp_path: Path) -> None:
+    """Ensure DEFAULT_EXCLUDES are filtered regardless of depth or gitignore."""
+    workspace = tmp_path / "workspace"
+    await asyncio.to_thread(workspace.mkdir, parents=True, exist_ok=True)
+
+    # Create nested .git directory (simulating submodule)
+    nested_git = workspace / "src" / "deep" / "nested" / ".git"
+    await asyncio.to_thread(nested_git.mkdir, parents=True, exist_ok=True)
+    nested_git_config = nested_git / "config"
+    await asyncio.to_thread(nested_git_config.write_text, "[core]\n", encoding="utf-8")
+
+    # Create __pycache__ directory
+    pycache = workspace / "__pycache__"
+    await asyncio.to_thread(pycache.mkdir, parents=True, exist_ok=True)
+    cache_file = pycache / "cache.pyc"
+    await asyncio.to_thread(cache_file.write_bytes, b"\x00\x00")
+
+    # Create legitimate file
+    main_py = workspace / "src" / "main.py"
+    await _write_text_file(main_py, "print('hello')")
+
+    serializer = AsyncSerializer(max_concurrency=4)
+    result = await serializer.serialize(workspace)
+
+    match result:
+        case Err(error):
+            pytest.fail(f"Serialization failed: {error}")
+        case Ok(manifest):
+            pass
+
+    paths = {node.path for node in manifest.files}
+
+    # Legitimate file is present
+    assert "src/main.py" in paths
+
+    # Nested .git content is excluded
+    assert "src/deep/nested/.git/config" not in paths
+
+    # __pycache__ content is excluded
+    assert "__pycache__/cache.pyc" not in paths

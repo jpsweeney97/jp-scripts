@@ -18,6 +18,20 @@ from jpscripts.core.console import get_logger
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result
 from jpscripts.core.security import validate_path_safe, validate_workspace_root_safe
 
+DEFAULT_EXCLUDES = {
+    ".git",
+    ".DS_Store",
+    ".idea",
+    ".vscode",
+    "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    "node_modules",
+    ".venv",
+    "env",
+    "venv",
+}
+
 
 class FileType(str, Enum):
     TEXT = "text"
@@ -151,6 +165,11 @@ class AsyncSerializer:
             try:
                 for dirpath, dirnames, filenames in os.walk(root):
                     rel_dir = Path(dirpath).relative_to(root)
+
+                    # First, prune default excludes to prevent recursion
+                    dirnames[:] = [d for d in dirnames if d not in DEFAULT_EXCLUDES]
+
+                    # Then apply gitignore and sorting
                     dirnames[:] = [
                         dirname
                         for dirname in sorted(dirnames)
@@ -160,6 +179,9 @@ class AsyncSerializer:
                         )
                     ]
                     for filename in sorted(filenames):
+                        # Skip files matching default excludes
+                        if filename in DEFAULT_EXCLUDES:
+                            continue
                         relative = rel_dir / filename
                         if self._is_ignored(relative, gitignore):
                             continue
@@ -177,8 +199,6 @@ class AsyncSerializer:
         return await asyncio.to_thread(_walk)
 
     def _is_ignored(self, relative_path: Path, gitignore: PathSpec | None) -> bool:
-        if relative_path.parts and relative_path.parts[0] == ".git":
-            return True
         if gitignore is None:
             return False
         return gitignore.match_file(relative_path.as_posix())
