@@ -33,22 +33,34 @@ else:  # pragma: no cover - runtime imports
     from jpscripts.commands.agent import codex_exec
     from jpscripts.core.agent import parse_agent_response
     from jpscripts.core.result import Ok
+    from jpscripts.core.config import AppConfig
+    from jpscripts.core.runtime import RuntimeContext, _runtime_ctx, runtime_context
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
 
 @agent_app.callback()
 def main_callback(ctx: typer.Context) -> None:
-    # Inject a mock state object so ctx.obj.config works
+    # Inject a real config and runtime context so get_runtime() succeeds
+    config = AppConfig(
+        workspace_root=Path("/mock/workspace"),
+        notes_dir=Path("/mock/notes"),
+        ignore_dirs=[".git", "node_modules"],
+        max_file_context_chars=50_000,
+        max_command_output_chars=20_000,
+        default_model="gpt-4o",
+        model_context_limits={"gpt-4o": 128_000, "default": 50_000},
+        use_semantic_search=False,
+    )
+    runtime = RuntimeContext(
+        config=config,
+        workspace_root=config.workspace_root,
+        dry_run=False,
+    )
+    _runtime_ctx.set(runtime)
+
     mock_state = MagicMock()
-    mock_state.config.workspace_root = Path("/mock/workspace")
-    mock_state.config.notes_dir = Path("/mock/notes")
-    mock_state.config.ignore_dirs = [".git", "node_modules"]
-    mock_state.config.max_file_context_chars = 50_000
-    mock_state.config.max_command_output_chars = 20_000
-    # Use a recognized OpenAI model so auto-detection triggers legacy Codex path
-    mock_state.config.default_model = "gpt-4o"
-    mock_state.config.model_context_limits = {"gpt-4o": 128_000, "default": 50_000}
+    mock_state.config = config
     ctx.obj = mock_state
 
 agent_app.command(name="fix")(codex_exec)
@@ -138,7 +150,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
     config_mod = import_module("jpscripts.core.config")
     AppConfig = cast(Any, config_mod).AppConfig
 
-    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
+    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
 
     async def fake_run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
         return 0, "ok", ""
@@ -164,20 +176,20 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
     monkeypatch.setattr(agent_core, "_run_shell_command", fake_run_shell_command)
     monkeypatch.setattr(agent_core, "save_memory", fake_save_memory)
 
-    success = asyncio.run(
-        agent_core.run_repair_loop(
-            base_prompt="Fix the thing",
-            command="echo ok",
-            config=config,
-            model=config.default_model,
-            attach_recent=False,
-            include_diff=False,
-            fetch_response=fake_fetch,
-            auto_archive=True,
-            max_retries=1,
-            keep_failed=False,
+    with runtime_context(config, workspace=tmp_path):
+        success = asyncio.run(
+            agent_core.run_repair_loop(
+                base_prompt="Fix the thing",
+                command="echo ok",
+                model=config.default_model,
+                attach_recent=False,
+                include_diff=False,
+                fetch_response=fake_fetch,
+                auto_archive=True,
+                max_retries=1,
+                keep_failed=False,
+            )
         )
-    )
 
     assert success
     assert calls  # Summary fetch invoked

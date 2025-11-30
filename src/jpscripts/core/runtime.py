@@ -177,7 +177,7 @@ class NoRuntimeContextError(RuntimeError):
     def __init__(self) -> None:
         super().__init__(
             "No runtime context available. "
-            "Ensure code runs within a 'with runtime_context(...):' block."
+            "Wrap entrypoints in 'with runtime_context(config):' or use the CLI bootstrap that establishes runtime automatically."
         )
 
 

@@ -15,6 +15,7 @@ import typer
 from jpscripts.commands import agent as agent_cmd
 from jpscripts.core import agent as agent_core
 from jpscripts.core.config import AppConfig
+from jpscripts.core.runtime import runtime_context
 
 
 @pytest.mark.slow
@@ -57,25 +58,27 @@ def test_agent_prompt_includes_json_context(monkeypatch: pytest.MonkeyPatch, tmp
         ignore_dirs=[],
         max_file_context_chars=5000,
         max_command_output_chars=5000,
+        use_semantic_search=False,
     )
     state = SimpleNamespace(config=config)
     ctx = cast(typer.Context, SimpleNamespace(obj=state))
 
-    agent_cmd.codex_exec(
-        ctx,
-        prompt="Fix the bug",
-        attach_recent=False,
-        diff=True,
-        run_command=None,
-        full_auto=True,
-        model=None,
-        provider=None,
-        loop=False,
-        max_retries=3,
-        keep_failed=False,
-        archive=True,
-        web=False,
-    )
+    with runtime_context(config, workspace=tmp_path):
+        agent_cmd.codex_exec(
+            ctx,
+            prompt="Fix the bug",
+            attach_recent=False,
+            diff=True,
+            run_command=None,
+            full_auto=True,
+            model=None,
+            provider=None,
+            loop=False,
+            max_retries=3,
+            keep_failed=False,
+            archive=True,
+            web=False,
+        )
 
     assert captured_prompt is not None
     prompt = json.loads(captured_prompt)
@@ -91,7 +94,7 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     script = tmp_path / "script.py"
     script.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
 
-    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path)
+    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
 
     async def fake_prepare_agent_prompt(base_prompt: str, **_kwargs: Any) -> agent_core.PreparedPrompt:
         return agent_core.PreparedPrompt(prompt=base_prompt, attached_files=[])
@@ -122,19 +125,19 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             }
         )
 
-    success = asyncio.run(
-        agent_core.run_repair_loop(
-            base_prompt="fix loop",
-            command=f"{sys.executable} {script}",
-            config=config,
-            model=config.default_model,
-            attach_recent=False,
-            include_diff=False,
-            fetch_response=fake_fetch,
-            max_retries=2,
-            keep_failed=False,
+    with runtime_context(config, workspace=tmp_path):
+        success = asyncio.run(
+            agent_core.run_repair_loop(
+                base_prompt="fix loop",
+                command=f"{sys.executable} {script}",
+                model=config.default_model,
+                attach_recent=False,
+                include_diff=False,
+                fetch_response=fake_fetch,
+                max_retries=2,
+                keep_failed=False,
+            )
         )
-    )
 
     assert success
     result = subprocess.run([sys.executable, str(script)], cwd=tmp_path, capture_output=True, text=True)

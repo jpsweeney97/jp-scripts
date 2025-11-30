@@ -82,8 +82,7 @@ def process_kill(
 
     if pid:
         # ACTION: Delegate to core
-        state = ctx.obj
-        result = _unwrap_result(asyncio.run(system_core.kill_process_async(pid, force, config=state.config)))
+        result = _unwrap_result(asyncio.run(system_core.kill_process_async(pid, force)))
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 
@@ -103,8 +102,7 @@ def port_kill(
 
     if pid:
         # ACTION: Delegate to core
-        state = ctx.obj
-        result = _unwrap_result(asyncio.run(system_core.kill_process_async(pid, force, config=state.config)))
+        result = _unwrap_result(asyncio.run(system_core.kill_process_async(pid, force)))
         color = "green" if result in ("killed", "terminated") else "red"
         console.print(f"[{color}]{result}[/{color}] process {pid}")
 

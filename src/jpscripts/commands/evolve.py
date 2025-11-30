@@ -289,7 +289,6 @@ async def _run_evolve(
     success = await run_repair_loop(
         base_prompt=optimizer_prompt,
         command=validation_cmd,
-        config=config,
         model=target_model,
         attach_recent=False,
         include_diff=True,

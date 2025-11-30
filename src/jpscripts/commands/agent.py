@@ -232,7 +232,6 @@ def codex_exec(
         jp fix "Debug the error" --run "python main.py" --loop
     """
     state = ctx.obj
-    root = state.config.workspace_root or state.config.notes_dir
     target_model = model or state.config.default_model
 
     loop_enabled = bool(run_command) if loop is None else loop
@@ -269,7 +268,6 @@ def codex_exec(
             run_repair_loop(
                 base_prompt=prompt,
                 command=run_command,
-                config=state.config,
                 model=target_model,
                 attach_recent=attach_recent,
                 include_diff=diff,
@@ -294,15 +292,10 @@ def codex_exec(
     async def _prepare() -> PreparedPrompt:
         return await prepare_agent_prompt(
             base_prompt=prompt,
-            root=root,
-            config=state.config,
             model=target_model,
             run_command=run_command,
             attach_recent=attach_recent,
             include_diff=diff,
-            ignore_dirs=state.config.ignore_dirs,
-            max_file_context_chars=state.config.max_file_context_chars,
-            max_command_output_chars=state.config.max_command_output_chars,
             web_access=web,
         )
 

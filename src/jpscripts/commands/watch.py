@@ -21,6 +21,7 @@ from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.config import AppConfig
 from jpscripts.core.memory import save_memory
+from jpscripts.core.complexity import analyze_file_complexity
 from jpscripts.core.result import JPScriptsError
 from jpscripts.core.security import validate_path, validate_workspace_root
 
@@ -84,7 +85,12 @@ class _AsyncDispatchHandler(FileSystemEventHandler):
         return any(part in self._ignore_dirs for part in rel.parts)
 
 
-async def _run_ruff_syntax(path: Path, root: Path) -> WatchEvent:
+async def _run_ruff_syntax(path: Path) -> WatchEvent:
+    from jpscripts.core.runtime import get_runtime
+
+    runtime = get_runtime()
+    root = runtime.workspace_root
+
     command = f"ruff check --select E9,F821 {path}"
     verdict, reason = validate_command(command, root)
     if verdict != CommandVerdict.ALLOWED:
@@ -101,14 +107,25 @@ async def _run_ruff_syntax(path: Path, root: Path) -> WatchEvent:
         stderr=asyncio.subprocess.PIPE,
     )
     stdout, stderr = await proc.communicate()
-    if proc.returncode == 0:
-        return WatchEvent(path=path, event_type="ruff", status="ok", message=stdout.decode().strip())
-    return WatchEvent(
-        path=path,
-        event_type="ruff",
-        status="error",
-        message=stderr.decode(errors="replace") or stdout.decode(errors="replace"),
+    if proc.returncode != 0:
+        return WatchEvent(
+            path=path,
+            event_type="ruff",
+            status="error",
+            message=stderr.decode(errors="replace") or stdout.decode(errors="replace"),
+        )
+
+    # Complexity analysis
+    complexity = await asyncio.to_thread(analyze_file_complexity, path)
+    complexity_msg = ""
+    if complexity.max_cyclomatic > 15:
+        complexity_msg = "[yellow]Complexity Warning[/yellow]: max_cyclomatic > 15. Consider running jp evolve."
+
+    status_message = stdout.decode().strip()
+    combined_message = (
+        f"{status_message}\n{complexity_msg}".strip() if complexity_msg else status_message
     )
+    return WatchEvent(path=path, event_type="ruff", status="ok", message=combined_message)
 
 
 async def _update_memory_for_file(path: Path, config: AppConfig) -> WatchEvent:
@@ -184,7 +201,7 @@ async def _watch_loop(state: "AppState", debounce_seconds: float = 5.0) -> None:
                 suffix = path.suffix.lower()
 
                 if suffix == ".py":
-                    task = asyncio.create_task(_run_ruff_syntax(path, root))
+                    task = asyncio.create_task(_run_ruff_syntax(path))
                     task.add_done_callback(_append_event)
 
                 if suffix not in BINARY_SUFFIXES:

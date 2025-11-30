@@ -17,7 +17,6 @@ from rich.panel import Panel
 from jpscripts.core import git as git_core
 from jpscripts.core import git_ops
 from jpscripts.core import security
-from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.context_gatherer import (
     gather_context,
@@ -26,6 +25,7 @@ from jpscripts.core.context_gatherer import (
     resolve_files_from_output,
     smart_read_context,
 )
+from jpscripts.core.runtime import get_runtime
 from jpscripts.core.tokens import Priority, TokenBudgetManager
 from jpscripts.core.engine import (
     AgentEngine,
@@ -107,15 +107,13 @@ def _render_prompt_from_template(context: dict[str, object], template_root: Path
 async def prepare_agent_prompt(
     base_prompt: str,
     *,
-    root: Path,
-    config: AppConfig,
     model: str | None = None,
     run_command: str | None,
     attach_recent: bool,
     include_diff: bool = False,
-    ignore_dirs: Sequence[str],
-    max_file_context_chars: int,
-    max_command_output_chars: int,
+    ignore_dirs: Sequence[str] | None = None,
+    max_file_context_chars: int | None = None,
+    max_command_output_chars: int | None = None,
     web_access: bool = False,
     temperature: float | None = None,
     reasoning_effort: str | None = None,
@@ -130,10 +128,20 @@ async def prepare_agent_prompt(
     - Priority 2: Git diff (current work in progress)
     - Priority 3: File context and dependencies (supporting information)
     """
+    runtime = get_runtime()
+    config = runtime.config
+    root = runtime.workspace_root
+    effective_ignore_dirs = list(ignore_dirs) if ignore_dirs is not None else list(config.ignore_dirs)
+    file_context_limit = (
+        max_file_context_chars if max_file_context_chars is not None else config.max_file_context_chars
+    )
+    command_output_limit = (
+        max_command_output_chars if max_command_output_chars is not None else config.max_command_output_chars
+    )
     active_model = model or config.default_model
     model_limit = config.model_context_limits.get(
         active_model,
-        config.model_context_limits.get("default", max_file_context_chars),
+        config.model_context_limits.get("default", file_context_limit),
     )
 
     # Reserve ~10% for template overhead (prompt structure, instructions, etc.)
@@ -170,12 +178,12 @@ async def prepare_agent_prompt(
         ordered_detected = list(gathered_context.ordered_files)
         trimmed = (
             output
-            if len(output) <= max_command_output_chars
-            else _summarize_stack_trace(output, max_command_output_chars)
+            if len(output) <= command_output_limit
+            else _summarize_stack_trace(output, command_output_limit)
         )
         raw_diagnostic = (
             f"Command: {run_command}\n"
-            f"Output (summary up to {max_command_output_chars} chars):\n"
+            f"Output (summary up to {command_output_limit} chars):\n"
             f"{trimmed}\n"
         )
         diagnostic_section = budget.allocate(1, raw_diagnostic)
@@ -194,7 +202,7 @@ async def prepare_agent_prompt(
         detected_paths = list(dict.fromkeys(ordered_sources))[:5]
 
     elif attach_recent:
-        match await scan_recent(root, 3, False, set(ignore_dirs)):
+        match await scan_recent(root, 3, False, set(effective_ignore_dirs)):
             case Err(err):
                 logger.debug("Recent scan failed for %s: %s", root, err)
             case Ok(recents):
@@ -827,10 +835,11 @@ async def _archive_session_summary(
     base_prompt: str,
     command: str,
     last_error: str | None,
-    config: AppConfig,
     model: str | None,
     web_access: bool = False,
 ) -> None:
+    runtime = get_runtime()
+    config = runtime.config
     summary_prompt = (
         "Summarize the error fixed and the solution applied in one sentence for a knowledge base.\n"
         f"Command: {command}\n"
@@ -897,7 +906,6 @@ async def run_repair_loop(
     *,
     base_prompt: str,
     command: str,
-    config: AppConfig,
     model: str | None,
     attach_recent: bool,
     include_diff: bool,
@@ -911,7 +919,9 @@ async def run_repair_loop(
     Execute an autonomous repair loop using AgentEngine for orchestration.
     """
     global _ACTIVE_ROOT
-    root = security.validate_workspace_root(config.workspace_root or config.notes_dir)
+    runtime = get_runtime()
+    config = runtime.config
+    root = security.validate_workspace_root(runtime.workspace_root or config.notes_dir)
     attempt_cap = max(1, max_retries)
     strategies = _build_strategy_plan(attempt_cap)
     changed_files: set[Path] = set()
@@ -936,8 +946,6 @@ async def run_repair_loop(
         run_cmd = command if strategy.name in {"fast", "deep"} else None
         return await prepare_agent_prompt(
             instruction,
-            root=root,
-            config=config,
             model=model,
             run_command=run_cmd,
             attach_recent=attach_recent,
@@ -970,7 +978,6 @@ async def run_repair_loop(
                         base_prompt=base_prompt,
                         command=command,
                         last_error=attempt_history[-1].last_error if attempt_history else None,
-                        config=config,
                         model=model,
                         web_access=web_access,
                     )

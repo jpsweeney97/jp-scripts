@@ -15,6 +15,7 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.result import Err, Ok, Result, SystemResourceError
+from jpscripts.core.runtime import get_runtime
 
 logger = get_logger(__name__)
 
@@ -195,8 +196,10 @@ async def find_processes(name_filter: str | None = None, port_filter: int | None
     return Ok(matches)
 
 
-async def kill_process_async(pid: int, force: bool = False, config: AppConfig | None = None) -> Result[str, SystemResourceError]:
-    dry_run = config.dry_run if config is not None else False
+async def kill_process_async(pid: int, force: bool = False) -> Result[str, SystemResourceError]:
+    runtime = get_runtime()
+    config = runtime.config
+    dry_run = config.dry_run
     if dry_run:
         logger.info("Did not kill PID %s (dry-run)", pid)
         return Ok("dry-run")
@@ -228,8 +231,8 @@ async def kill_process_async(pid: int, force: bool = False, config: AppConfig | 
     return await asyncio.to_thread(_terminate)
 
 
-def kill_process(pid: int, force: bool = False, config: AppConfig | None = None) -> Result[str, SystemResourceError]:
-    return asyncio.run(kill_process_async(pid, force, config))
+def kill_process(pid: int, force: bool = False) -> Result[str, SystemResourceError]:
+    return asyncio.run(kill_process_async(pid, force))
 
 
 async def run_safe_shell(

@@ -74,6 +74,9 @@ class AppConfig(BaseSettings):
     trace_dir: Path = Field(default_factory=lambda: Path.home() / ".jpscripts" / "traces", description="Directory for agent trace logs.")
     use_docker_sandbox: bool = Field(default=False, description="Execute safe shell commands inside a Docker sandbox.")
     docker_image: str = Field(default="python:3.11-slim", description="Docker image used when sandboxing commands.")
+    otel_endpoint: str | None = Field(default=None, description="OTLP endpoint for exporting traces.")
+    otel_service_name: str = Field(default="jpscripts", description="Service name used for OpenTelemetry spans.")
+    otel_export_enabled: bool = Field(default=False, description="Enable OTLP tracing export when true.")
 
     @classmethod
     def settings_customise_sources(

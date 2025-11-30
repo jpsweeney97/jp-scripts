@@ -27,8 +27,8 @@ async def list_processes(name_filter: str | None = None, port_filter: int | None
 @tool_error_handler
 async def kill_process(pid: int, force: bool = False) -> str:
     """Kill a process by PID."""
-    ctx = get_runtime()
-    match await system_core.kill_process_async(pid, force, ctx.config):
+    _ = get_runtime()
+    match await system_core.kill_process_async(pid, force):
         case Err(err):
             return f"Error killing process {pid}: {err.message}"
         case Ok(result):

@@ -23,6 +23,24 @@ from jpscripts.core.system import CommandResult, get_sandbox
 from jpscripts.core.result import Err
 from jpscripts.core.governance import check_compliance, format_violations_for_agent, has_fatal_violations
 from jpscripts.core.result import ToolExecutionError
+try:
+    from opentelemetry import trace as otel_trace
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    try:
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+    except ImportError:  # pragma: no cover - optional dependency
+        OTLPSpanExporter = None  # type: ignore[assignment]
+except ImportError:  # pragma: no cover - optional dependency
+    otel_trace = None  # type: ignore[assignment]
+    Resource = None  # type: ignore[assignment]
+    TracerProvider = None  # type: ignore[assignment]
+    BatchSpanProcessor = None  # type: ignore[assignment]
+    OTLPSpanExporter = None  # type: ignore[assignment]
+
+_otel_tracer: Any | None = None
+_otel_provider_configured = False
 
 logger = get_logger(__name__)
 
@@ -246,6 +264,45 @@ def _build_black_box_report(
     )
 
 
+def _get_tracer() -> Any | None:
+    """Lazily configure and return an OTLP-capable tracer."""
+    global _otel_tracer, _otel_provider_configured
+
+    if otel_trace is None or TracerProvider is None:
+        return None
+
+    try:
+        runtime_ctx = runtime.get_runtime()
+    except Exception:
+        return None
+
+    config = runtime_ctx.config
+    if not getattr(config, "otel_export_enabled", False):
+        return None
+
+    if _otel_tracer is not None:
+        return _otel_tracer
+
+    try:
+        resource = Resource.create({"service.name": config.otel_service_name}) if Resource else None
+        provider = TracerProvider(resource=resource) if resource is not None else TracerProvider()
+        if BatchSpanProcessor is not None and OTLPSpanExporter is not None:
+            try:
+                exporter = OTLPSpanExporter(endpoint=config.otel_endpoint) if config.otel_endpoint else OTLPSpanExporter()
+                provider.add_span_processor(BatchSpanProcessor(exporter))
+            except Exception as exc:  # pragma: no cover - best effort
+                logger.debug("Failed to configure OTLP exporter: %s", exc)
+        if not _otel_provider_configured:
+            otel_trace.set_tracer_provider(provider)
+            _otel_provider_configured = True
+        _otel_tracer = otel_trace.get_tracer(config.otel_service_name or "jpscripts")
+    except Exception as exc:  # pragma: no cover - best effort
+        logger.debug("Failed to initialize tracer: %s", exc)
+        return None
+
+    return _otel_tracer
+
+
 class AgentEngine(Generic[ResponseT]):
     def __init__(
         self,
@@ -432,6 +489,23 @@ class AgentEngine(Generic[ResponseT]):
                 tool_output=tool_output,
             )
             await self._trace_recorder.append(step)
+            tracer = _get_tracer()
+            if tracer is not None:
+                files_touched = [str(path) for path in self._last_files_touched]
+                usage_snapshot = self._last_usage_snapshot
+                with tracer.start_as_current_span("agent.turn") as span:
+                    span.set_attribute("agent.persona", self.persona)
+                    if files_touched:
+                        span.set_attribute("code.files_touched", files_touched)
+                    if usage_snapshot is not None:
+                        span.set_attribute("usage.prompt_tokens", usage_snapshot.prompt_tokens)
+                        span.set_attribute("usage.completion_tokens", usage_snapshot.completion_tokens)
+                        span.set_attribute("usage.total_tokens", usage_snapshot.total_tokens)
+                    tool_call = getattr(response, "tool_call", None)
+                    if tool_call is not None:
+                        span.add_event("tool_call", {"tool_call": tool_call.model_dump() if hasattr(tool_call, "model_dump") else str(tool_call)})
+                    if tool_output:
+                        span.add_event("tool_output", {"output": tool_output})
         except Exception as exc:  # pragma: no cover - best effort
             logger.debug("Failed to record trace: %s", exc)
 

@@ -21,6 +21,13 @@ from enum import Enum, auto
 from pathlib import Path
 from typing import Sequence
 
+_SECRET_PATTERN = re.compile(
+    r"""(?ix)
+    (?P<name>[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)
+    \s*=\s*
+    (?P<quote>['"]?)(?P<value>[A-Za-z0-9+/=_\-]{16,})(?P=quote)
+    """
+)
 
 class ViolationType(Enum):
     """Types of constitutional violations."""
@@ -33,6 +40,7 @@ class ViolationType(Enum):
     OS_SYSTEM = auto()  # os.system() usage (always forbidden)
     DESTRUCTIVE_FS = auto()  # Destructive filesystem call without safety override
     DYNAMIC_EXECUTION = auto()  # eval/exec/dynamic imports without safety override
+    SECRET_LEAK = auto()  # Secret or token detected in diff
 
 
 @dataclass(frozen=True)
@@ -415,6 +423,7 @@ def check_compliance(diff: str, root: Path) -> list[Violation]:
 
         checker = ConstitutionChecker(file_path, source)
         checker.visit(tree)
+        checker.violations.extend(check_for_secrets(source, file_path))
 
         # Filter to only violations on changed lines (or include all if no line info)
         for v in checker.violations:
@@ -422,6 +431,48 @@ def check_compliance(diff: str, root: Path) -> list[Violation]:
                 violations.append(v)
 
     return violations
+
+
+def check_for_secrets(content: str, file_path: Path) -> list[Violation]:
+    """Detect obvious secret-like assignments in content."""
+    matches = list(_SECRET_PATTERN.finditer(content))
+    violations: list[Violation] = []
+    for match in matches:
+        name = match.group("name")
+        value = match.group("value")
+        line = content.count("\n", 0, match.start()) + 1
+        column = match.start() - content.rfind("\n", 0, match.start()) - 1
+        entropy = _estimate_entropy(value)
+        if entropy < 3.5:
+            continue
+        violations.append(
+            Violation(
+                type=ViolationType.SECRET_LEAK,
+                file=file_path,
+                line=line,
+                column=column,
+                message=f"Potential secret detected in {name} with high-entropy value.",
+                suggestion="Remove the secret, rotate credentials, and load from environment or secret manager.",
+                severity="error",
+                fatal=True,
+            )
+        )
+    return violations
+
+
+def _estimate_entropy(value: str) -> float:
+    """Rough entropy estimator for secret-like strings."""
+    if not value:
+        return 0.0
+    freq = {ch: value.count(ch) for ch in set(value)}
+    length = len(value)
+    import math
+
+    entropy = 0.0
+    for count in freq.values():
+        p = count / length
+        entropy -= p * math.log(p, 2)
+    return entropy
 
 
 def check_source_compliance(source: str, file_path: Path) -> list[Violation]:
@@ -444,7 +495,8 @@ def check_source_compliance(source: str, file_path: Path) -> list[Violation]:
 
     checker = ConstitutionChecker(file_path, source)
     checker.visit(tree)
-    return checker.violations
+    secret_violations = check_for_secrets(source, file_path)
+    return checker.violations + secret_violations
 
 
 def _parse_diff_files(diff: str, root: Path) -> dict[Path, set[int]]:
