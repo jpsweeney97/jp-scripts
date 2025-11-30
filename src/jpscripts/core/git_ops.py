@@ -36,6 +36,8 @@ async def commit_all(repo: git_core.AsyncRepo, message: str) -> Result[str, GitE
     match await repo.add(all=True, paths=[]):
         case Err(err):
             return Err(err)
+        case Ok(_):
+            pass
 
     match await repo.status():
         case Err(err):
@@ -70,6 +72,8 @@ async def undo_last_commit(repo: git_core.AsyncRepo, hard: bool = False) -> Resu
     match await repo.reset(mode, "HEAD~1"):
         case Err(err):
             return Err(err)
+        case Ok(_):
+            pass
 
     return Ok(f"Reset {status.branch} one commit back ({mode}).")
 
@@ -110,7 +114,7 @@ def _parse_ref_line(line: str) -> tuple[str, str | None, int, int]:
 
 async def branch_statuses(repo: git_core.AsyncRepo) -> Result[list[BranchSummary], GitError]:
     """Return ahead/behind information for all branches in a repo using async plumbing."""
-    match await repo._run_git(
+    match await repo.run_git(
         "for-each-ref",
         "--format=%(refname:short) %(upstream:short) %(upstream:track)",
         "refs/heads",

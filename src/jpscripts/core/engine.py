@@ -5,10 +5,11 @@ import re
 import shlex
 import uuid
 from collections.abc import Awaitable, Callable, Mapping, Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Generic, Protocol, TypeVar, cast
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
@@ -28,26 +29,68 @@ from jpscripts.core.result import Err, ToolExecutionError
 from jpscripts.core.runtime import CircuitBreaker
 from jpscripts.core.system import CommandResult, get_sandbox
 
-try:
-    from opentelemetry import trace as otel_trace  # type: ignore
-    from opentelemetry.sdk.resources import Resource  # type: ignore
-    from opentelemetry.sdk.trace import TracerProvider  # type: ignore
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore
 
-    try:
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # type: ignore
-            OTLPSpanExporter,
-        )
-    except ImportError:  # pragma: no cover - optional dependency
-        OTLPSpanExporter = None
-except ImportError:  # pragma: no cover - optional dependency
-    otel_trace = None
+class SpanProtocol(Protocol):
+    def set_attribute(self, key: str, value: object) -> None: ...
+
+    def add_event(self, name: str, attributes: Mapping[str, object] | None = None) -> None: ...
+
+
+class TracerProtocol(Protocol):
+    def start_as_current_span(self, name: str) -> AbstractContextManager[SpanProtocol]: ...
+
+
+if TYPE_CHECKING:
+    from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+        OTLPSpanExporter,  # type: ignore[import-not-found]
+    )
+    from opentelemetry.sdk.resources import Resource  # type: ignore[import-not-found]
+    from opentelemetry.sdk.trace import TracerProvider  # type: ignore[import-not-found]
+    from opentelemetry.sdk.trace.export import (
+        BatchSpanProcessor,  # type: ignore[import-not-found]
+    )
+else:  # pragma: no cover - optional dependency
+    OTLPSpanExporter = None
     Resource = None
     TracerProvider = None
     BatchSpanProcessor = None
-    OTLPSpanExporter = None
 
-_otel_tracer: Any | None = None  # Optional tracer when opentelemetry is installed
+
+class ResourceProtocol(Protocol):
+    @classmethod
+    def create(cls, attributes: Mapping[str, object]) -> ResourceProtocol: ...
+
+
+class TracerProviderProtocol(Protocol):
+    def __init__(self, resource: ResourceProtocol | None = None) -> None: ...
+
+    def add_span_processor(self, processor: SpanProcessorProtocol) -> None: ...
+
+
+class SpanProcessorProtocol(Protocol):
+    ...
+
+
+class BatchSpanProcessorProtocol(SpanProcessorProtocol, Protocol):
+    def __init__(self, exporter: object) -> None: ...
+
+
+class OTLPSpanExporterProtocol(Protocol):
+    def __init__(self, endpoint: str | None = None) -> None: ...
+
+
+class TraceModuleProtocol(Protocol):
+    def set_tracer_provider(self, provider: TracerProviderProtocol) -> None: ...
+
+    def get_tracer(self, name: str) -> TracerProtocol: ...
+
+
+_otel_trace_module: TraceModuleProtocol | None = None
+_otel_resource_cls: type[ResourceProtocol] | None = None
+_otel_tracer_provider_cls: type[TracerProviderProtocol] | None = None
+_otel_span_processor_cls: type[BatchSpanProcessorProtocol] | None = None
+_otel_exporter_cls: type[OTLPSpanExporterProtocol] | None = None
+_otel_tracer: TracerProtocol | None = None  # Optional tracer when opentelemetry is installed
 _otel_provider_configured = False
 
 logger = get_logger(__name__)
@@ -270,11 +313,62 @@ def _build_black_box_report(
     )
 
 
-def _get_tracer() -> object | None:
+def _load_otel_deps() -> (
+    TraceModuleProtocol | None,
+    type[ResourceProtocol] | None,
+    type[TracerProviderProtocol] | None,
+    type[BatchSpanProcessorProtocol] | None,
+    type[OTLPSpanExporterProtocol] | None,
+):
+    """Dynamically import opentelemetry components if available."""
+    try:
+        import importlib
+
+        trace_mod = importlib.import_module("opentelemetry.trace")
+        resources_mod = importlib.import_module("opentelemetry.sdk.resources")
+        trace_sdk_mod = importlib.import_module("opentelemetry.sdk.trace")
+        trace_export_mod = importlib.import_module("opentelemetry.sdk.trace.export")
+
+        exporter_cls = None
+        try:
+            exporter_mod = importlib.import_module(
+                "opentelemetry.exporter.otlp.proto.http.trace_exporter"
+            )
+            exporter_cls = getattr(exporter_mod, "OTLPSpanExporter", None)
+        except ImportError:
+            exporter_cls = None
+
+        return (
+            cast(TraceModuleProtocol, trace_mod),
+            cast(type[ResourceProtocol], getattr(resources_mod, "Resource", None)),
+            cast(type[TracerProviderProtocol], getattr(trace_sdk_mod, "TracerProvider", None)),
+            cast(
+                type[BatchSpanProcessorProtocol], getattr(trace_export_mod, "BatchSpanProcessor", None)
+            ),
+            cast(type[OTLPSpanExporterProtocol], exporter_cls) if exporter_cls else None,
+        )
+    except ImportError:
+        return None, None, None, None, None
+    except Exception:
+        return None, None, None, None, None
+
+
+def _get_tracer() -> TracerProtocol | None:
     """Lazily configure and return an OTLP-capable tracer."""
     global _otel_tracer, _otel_provider_configured
+    global _otel_trace_module, _otel_resource_cls, _otel_tracer_provider_cls
+    global _otel_span_processor_cls, _otel_exporter_cls
 
-    if otel_trace is None or TracerProvider is None:
+    if _otel_trace_module is None or _otel_tracer_provider_cls is None:
+        (
+            _otel_trace_module,
+            _otel_resource_cls,
+            _otel_tracer_provider_cls,
+            _otel_span_processor_cls,
+            _otel_exporter_cls,
+        ) = _load_otel_deps()
+
+    if _otel_trace_module is None or _otel_tracer_provider_cls is None:
         return None
 
     try:
@@ -290,22 +384,32 @@ def _get_tracer() -> object | None:
         return _otel_tracer
 
     try:
-        resource = Resource.create({"service.name": config.otel_service_name}) if Resource else None
-        provider = TracerProvider(resource=resource) if resource is not None else TracerProvider()
-        if BatchSpanProcessor is not None and OTLPSpanExporter is not None:
+        resource: ResourceProtocol | None = (
+            _otel_resource_cls.create({"service.name": config.otel_service_name})
+            if _otel_resource_cls
+            else None
+        )
+        provider: TracerProviderProtocol = (
+            _otel_tracer_provider_cls(resource=resource)
+            if resource is not None
+            else _otel_tracer_provider_cls()
+        )
+        if _otel_span_processor_cls is not None and _otel_exporter_cls is not None:
             try:
-                exporter = (
-                    OTLPSpanExporter(endpoint=config.otel_endpoint)
+                exporter: OTLPSpanExporterProtocol = (
+                    _otel_exporter_cls(endpoint=config.otel_endpoint)
                     if config.otel_endpoint
-                    else OTLPSpanExporter()
+                    else _otel_exporter_cls()
                 )
-                provider.add_span_processor(BatchSpanProcessor(exporter))
+                provider.add_span_processor(_otel_span_processor_cls(exporter))
             except Exception as exc:  # pragma: no cover - best effort
                 logger.debug("Failed to configure OTLP exporter: %s", exc)
         if not _otel_provider_configured:
-            otel_trace.set_tracer_provider(provider)
+            _otel_trace_module.set_tracer_provider(provider)
             _otel_provider_configured = True
-        _otel_tracer = otel_trace.get_tracer(config.otel_service_name or "jpscripts")
+        _otel_tracer = _otel_trace_module.get_tracer(
+            config.otel_service_name or "jpscripts"
+        )
     except Exception as exc:  # pragma: no cover - best effort
         logger.debug("Failed to initialize tracer: %s", exc)
         return None
@@ -467,7 +571,7 @@ class AgentEngine(Generic[ResponseT]):
                         f"</GovernanceViolation>"
                     ),
                 )
-                current_history = current_history + [governance_message]
+                current_history = [*current_history, governance_message]
 
                 # Re-prompt for correction
                 try:

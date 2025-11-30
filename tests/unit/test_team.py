@@ -10,9 +10,9 @@ from jpscripts.core.team import (
     Objective,
     PlanStep,
     SwarmState,
-    _parse_agent_turn,
     _render_swarm_prompt,
     get_default_swarm,
+    parse_agent_turn,
 )
 
 
@@ -53,7 +53,7 @@ def test_validate_swarm_output_accepts_valid_json() -> None:
     ).model_dump_json()
 
     agent = SimpleNamespace(captured_raw=payload, captured_stdout="")
-    parsed, error_text = _parse_agent_turn(agent)
+    parsed, error_text = parse_agent_turn(agent)
 
     assert parsed is not None
     assert error_text == ""
@@ -63,7 +63,7 @@ def test_validate_swarm_output_accepts_valid_json() -> None:
 
 def test_validate_swarm_output_returns_error() -> None:
     agent = SimpleNamespace(captured_raw="not-json", captured_stdout="")
-    parsed, error_text = _parse_agent_turn(agent)
+    parsed, error_text = parse_agent_turn(agent)
 
     assert parsed is None
     assert "json_invalid" in error_text

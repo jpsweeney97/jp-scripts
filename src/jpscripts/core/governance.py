@@ -128,44 +128,50 @@ class ConstitutionChecker(ast.NodeVisitor):
             return
 
         for keyword in node.keywords:
-            if keyword.arg == "shell" and isinstance(keyword.value, ast.Constant):
-                if keyword.value.value is True:
-                    self.violations.append(
-                        Violation(
-                            type=ViolationType.SHELL_TRUE,
-                            file=self.file_path,
-                            line=node.lineno,
-                            column=node.col_offset,
-                            message="shell=True is forbidden by AGENTS.md constitution",
-                            suggestion=(
-                                "Use shlex.split() to tokenize the command and pass "
-                                "as a list to subprocess without shell=True"
-                            ),
-                            severity="error",
-                            fatal=True,
-                        )
+            if (
+                keyword.arg == "shell"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is True
+            ):
+                self.violations.append(
+                    Violation(
+                        type=ViolationType.SHELL_TRUE,
+                        file=self.file_path,
+                        line=node.lineno,
+                        column=node.col_offset,
+                        message="shell=True is forbidden by AGENTS.md constitution",
+                        suggestion=(
+                            "Use shlex.split() to tokenize the command and pass "
+                            "as a list to subprocess without shell=True"
+                        ),
+                        severity="error",
+                        fatal=True,
                     )
+                )
 
     def _check_os_system(self, node: ast.Call) -> None:
         """Detect os.system() usage (always forbidden)."""
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr == "system":
-                if isinstance(node.func.value, ast.Name) and node.func.value.id == "os":
-                    self.violations.append(
-                        Violation(
-                            type=ViolationType.OS_SYSTEM,
-                            file=self.file_path,
-                            line=node.lineno,
-                            column=node.col_offset,
-                            message="os.system() is forbidden by AGENTS.md constitution",
-                            suggestion=(
-                                "Use asyncio.create_subprocess_exec or core.system.run_safe_shell "
-                                "with proper command validation"
-                            ),
-                            severity="error",
-                            fatal=True,
-                        )
-                    )
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "system"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "os"
+        ):
+            self.violations.append(
+                Violation(
+                    type=ViolationType.OS_SYSTEM,
+                    file=self.file_path,
+                    line=node.lineno,
+                    column=node.col_offset,
+                    message="os.system() is forbidden by AGENTS.md constitution",
+                    suggestion=(
+                        "Use asyncio.create_subprocess_exec or core.system.run_safe_shell "
+                        "with proper command validation"
+                    ),
+                    severity="error",
+                    fatal=True,
+                )
+            )
 
     def _check_destructive_fs(self, node: ast.Call) -> None:
         """Detect destructive filesystem operations without explicit safety override."""
@@ -237,74 +243,78 @@ class ConstitutionChecker(ast.NodeVisitor):
     def _check_process_exit(self, node: ast.Call) -> None:
         """Detect process exit calls (sys.exit, quit, exit)."""
         # Check sys.exit()
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr == "exit" and isinstance(node.func.value, ast.Name):
-                if node.func.value.id == "sys":
-                    self.violations.append(
-                        Violation(
-                            type=ViolationType.PROCESS_EXIT,
-                            file=self.file_path,
-                            line=node.lineno,
-                            column=node.col_offset,
-                            message="Direct process exit forbidden. Let the function return normally or raise an exception.",
-                            suggestion="Remove the exit call and use return or raise an appropriate exception.",
-                            severity="error",
-                            fatal=True,
-                        )
-                    )
-                    return
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "exit"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "sys"
+        ):
+            self.violations.append(
+                Violation(
+                    type=ViolationType.PROCESS_EXIT,
+                    file=self.file_path,
+                    line=node.lineno,
+                    column=node.col_offset,
+                    message="Direct process exit forbidden. Let the function return normally or raise an exception.",
+                    suggestion="Remove the exit call and use return or raise an appropriate exception.",
+                    severity="error",
+                    fatal=True,
+                )
+            )
+            return
 
         # Check quit() and exit()
-        if isinstance(node.func, ast.Name):
-            if node.func.id in ("quit", "exit"):
-                self.violations.append(
-                    Violation(
-                        type=ViolationType.PROCESS_EXIT,
-                        file=self.file_path,
-                        line=node.lineno,
-                        column=node.col_offset,
-                        message="Direct process exit forbidden. Let the function return normally or raise an exception.",
-                        suggestion="Remove the exit call and use return or raise an appropriate exception.",
-                        severity="error",
-                        fatal=True,
-                    )
+        if isinstance(node.func, ast.Name) and node.func.id in ("quit", "exit"):
+            self.violations.append(
+                Violation(
+                    type=ViolationType.PROCESS_EXIT,
+                    file=self.file_path,
+                    line=node.lineno,
+                    column=node.col_offset,
+                    message="Direct process exit forbidden. Let the function return normally or raise an exception.",
+                    suggestion="Remove the exit call and use return or raise an appropriate exception.",
+                    severity="error",
+                    fatal=True,
                 )
+            )
 
     def _check_debug_leftover(self, node: ast.Call) -> None:
         """Detect debug breakpoints (breakpoint, pdb.set_trace, ipdb.set_trace)."""
         # Check breakpoint()
-        if isinstance(node.func, ast.Name):
-            if node.func.id == "breakpoint":
-                self.violations.append(
-                    Violation(
-                        type=ViolationType.DEBUG_LEFTOVER,
-                        file=self.file_path,
-                        line=node.lineno,
-                        column=node.col_offset,
-                        message="Debug breakpoints are forbidden in production code.",
-                        suggestion="Remove the debugging statement before committing.",
-                        severity="error",
-                        fatal=True,
-                    )
+        if isinstance(node.func, ast.Name) and node.func.id == "breakpoint":
+            self.violations.append(
+                Violation(
+                    type=ViolationType.DEBUG_LEFTOVER,
+                    file=self.file_path,
+                    line=node.lineno,
+                    column=node.col_offset,
+                    message="Debug breakpoints are forbidden in production code.",
+                    suggestion="Remove the debugging statement before committing.",
+                    severity="error",
+                    fatal=True,
                 )
-                return
+            )
+            return
 
         # Check pdb.set_trace() and ipdb.set_trace()
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr == "set_trace" and isinstance(node.func.value, ast.Name):
-                if node.func.value.id in ("pdb", "ipdb"):
-                    self.violations.append(
-                        Violation(
-                            type=ViolationType.DEBUG_LEFTOVER,
-                            file=self.file_path,
-                            line=node.lineno,
-                            column=node.col_offset,
-                            message="Debug breakpoints are forbidden in production code.",
-                            suggestion="Remove the debugging statement before committing.",
-                            severity="error",
-                            fatal=True,
-                        )
-                    )
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr == "set_trace"
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in ("pdb", "ipdb")
+        ):
+            self.violations.append(
+                Violation(
+                    type=ViolationType.DEBUG_LEFTOVER,
+                    file=self.file_path,
+                    line=node.lineno,
+                    column=node.col_offset,
+                    message="Debug breakpoints are forbidden in production code.",
+                    suggestion="Remove the debugging statement before committing.",
+                    severity="error",
+                    fatal=True,
+                )
+            )
 
     def _check_sync_open(self, node: ast.Call) -> None:
         """Detect open() in async context without wrapping."""
@@ -368,33 +378,33 @@ class ConstitutionChecker(ast.NodeVisitor):
         if node.id == "Any":
             line_content = self._get_line(node.lineno)
             # Check for type: ignore comment on this line
-            if "type: ignore" not in line_content and "# type:" not in line_content:
-                # Only flag if it appears to be a type annotation context
-                # (heuristic: check if 'from typing' or similar is in file)
-                if self._appears_to_be_type_annotation(node):
-                    self.violations.append(
-                        Violation(
-                            type=ViolationType.UNTYPED_ANY,
-                            file=self.file_path,
-                            line=node.lineno,
-                            column=node.col_offset,
-                            message="Any type used without type: ignore comment",
-                            suggestion=(
-                                "Add '# type: ignore[<code>]' with justification or "
-                                "use a more specific type"
-                            ),
-                            severity="warning",
-                        )
+            if (
+                "type: ignore" not in line_content
+                and "# type:" not in line_content
+                and self._appears_to_be_type_annotation(node)
+            ):
+                self.violations.append(
+                    Violation(
+                        type=ViolationType.UNTYPED_ANY,
+                        file=self.file_path,
+                        line=node.lineno,
+                        column=node.col_offset,
+                        message="Any type used without type: ignore comment",
+                        suggestion=(
+                            "Add '# type: ignore[<code>]' with justification or "
+                            "use a more specific type"
+                        ),
+                        severity="warning",
                     )
+                )
         self.generic_visit(node)
 
     def _appears_to_be_type_annotation(self, node: ast.Name) -> bool:
         """Heuristic to check if Any is used as a type annotation."""
         # Check if typing module is imported
         for line in self.lines[:50]:  # Check first 50 lines for imports
-            if "from typing import" in line or "import typing" in line:
-                if "Any" in line:
-                    return True
+            if ("from typing import" in line or "import typing" in line) and "Any" in line:
+                return True
         return False
 
     # Blocking subprocess functions that should be wrapped with asyncio.to_thread
@@ -415,11 +425,13 @@ class ConstitutionChecker(ast.NodeVisitor):
 
         Returns the function name if it's a blocking subprocess call, None otherwise.
         """
-        if isinstance(node.func, ast.Attribute):
-            if node.func.attr in self._BLOCKING_SUBPROCESS_FUNCS:
-                if isinstance(node.func.value, ast.Name):
-                    if node.func.value.id == "subprocess":
-                        return node.func.attr
+        if (
+            isinstance(node.func, ast.Attribute)
+            and node.func.attr in self._BLOCKING_SUBPROCESS_FUNCS
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
+        ):
+            return node.func.attr
         return None
 
     def _is_subprocess_run(self, node: ast.Call) -> bool:
@@ -428,9 +440,8 @@ class ConstitutionChecker(ast.NodeVisitor):
 
     def _is_subprocess_call(self, node: ast.Call) -> bool:
         """Check if call is any subprocess module function."""
-        if isinstance(node.func, ast.Attribute):
-            if isinstance(node.func.value, ast.Name):
-                return node.func.value.id == "subprocess"
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name):
+            return node.func.value.id == "subprocess"
         return False
 
     def _is_destructive_fs_call(self, node: ast.Call) -> bool:
@@ -488,7 +499,7 @@ def check_compliance(diff: str, root: Path) -> list[Violation]:
     changed_files = _parse_diff_files(diff, root)
 
     for file_path, changed_lines in changed_files.items():
-        if not file_path.suffix == ".py":
+        if file_path.suffix != ".py":
             continue
 
         if not file_path.exists():

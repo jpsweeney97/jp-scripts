@@ -263,23 +263,20 @@ def collect_results(results: list[Result[T, E]]) -> Result[list[T], E]:
 
 
 __all__ = [
-    # Result types
-    "Ok",
-    "Err",
-    "Result",
-    # Error hierarchy
-    "JPScriptsError",
-    "SecurityError",
+    "CapabilityMissingError",
     "ConfigurationError",
-    "ToolExecutionError",
+    "Err",
+    "GitError",
+    "JPScriptsError",
     "ModelProviderError",
+    "NavigationError",
+    "Ok",
+    "Result",
+    "SecurityError",
+    "SystemResourceError",
+    "ToolExecutionError",
     "ValidationError",
     "WorkspaceError",
-    "GitError",
-    "SystemResourceError",
-    "NavigationError",
-    "CapabilityMissingError",
-    # Helpers
-    "try_result",
     "collect_results",
+    "try_result",
 ]

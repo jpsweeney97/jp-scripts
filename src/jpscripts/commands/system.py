@@ -4,8 +4,9 @@ import asyncio
 import shutil
 import signal
 import sys
+from collections.abc import Iterable
 from pathlib import Path
-from typing import TypeVar
+from typing import TypeVar, cast
 
 import psutil
 import typer
@@ -263,7 +264,7 @@ def update() -> None:
                     case Err(err):
                         raise RuntimeError(err.message)
                     case Ok(repo):
-                        match await repo._run_git("pull"):
+                        match await repo.run_git("pull"):
                             case Err(err):
                                 raise RuntimeError(err.message)
                             case Ok(_):
@@ -315,10 +316,16 @@ def panic(
     console.print("[bold red]🚨 PANIC PROTOCOL ENGAGED[/bold red]")
 
     # Find and kill codex processes
-    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+    processes: list[psutil.Process] = list(
+        cast("Iterable[psutil.Process]", psutil.process_iter(attrs=["pid", "name", "cmdline"]))
+    )
+    for proc in processes:
         try:
             proc_name = proc.info.get("name", "") or ""
-            proc_cmdline = proc.info.get("cmdline") or []
+            cmdline_value = proc.info.get("cmdline")
+            proc_cmdline: list[str] = (
+                [str(part) for part in cmdline_value] if isinstance(cmdline_value, list) else []
+            )
             cmdline_str = " ".join(proc_cmdline) if proc_cmdline else ""
 
             # Kill codex processes

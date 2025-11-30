@@ -284,19 +284,16 @@ def result_to_mcp(result: Result[Any, Exception]) -> str:
 
 
 __all__ = [
-    # Types
+    "AgentErrorContext",
     "ErrorSeverity",
     "FormattedError",
-    "AgentErrorContext",
-    # Formatting functions
     "format_error",
+    "format_exception_for_agent",
+    "format_exception_for_mcp",
+    "format_for_agent",
     "format_for_cli",
     "format_for_cli_panel",
     "format_for_mcp",
-    "format_for_agent",
-    "format_exception_for_mcp",
-    "format_exception_for_agent",
-    # Result helpers
     "result_to_cli",
     "result_to_mcp",
 ]

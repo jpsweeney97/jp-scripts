@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import datetime as dt
 import re
 import sys
@@ -123,10 +124,8 @@ def web_snap(
     console.print(table)
 
     if sys.platform == "darwin":
-        try:
+        with contextlib.suppress(FileNotFoundError):
             asyncio.run(_reveal_in_finder(output_path))
-        except FileNotFoundError:
-            pass
 
 
 async def _reveal_in_finder(path: Path) -> None:

@@ -88,17 +88,17 @@ async def _create_evolution_pr(
 ) -> None:
     """Create a PR for the evolution changes."""
     # Stage and commit
-    await repo._run_git("add", "-A")
+    await repo.run_git("add", "-A")
     commit_message = (
         f"refactor({target.path.stem}): reduce technical debt\n\n"
         f"Complexity score reduced from {target.complexity_score:.1f}\n"
         f"Autonomous optimization via jp evolve."
     )
-    await repo._run_git("commit", "-m", commit_message)
+    await repo.run_git("commit", "-m", commit_message)
 
     # Push and create PR
     console.print("[cyan]Pushing branch and creating PR...[/cyan]")
-    await repo._run_git("push", "-u", "origin", branch_name)
+    await repo.run_git("push", "-u", "origin", branch_name)
 
     # Create PR using gh CLI
     pr_body = f"""## Autonomous Optimization
@@ -253,7 +253,7 @@ async def _run_evolve(
     console.print(f"\n[cyan]Creating branch: {branch_name}[/cyan]")
 
     try:
-        await repo._run_git("checkout", "-b", branch_name)
+        await repo.run_git("checkout", "-b", branch_name)
     except Exception as exc:
         console.print(f"[red]Failed to create branch: {exc}[/red]")
         return
@@ -299,18 +299,18 @@ async def _run_evolve(
 
     if not success:
         console.print("[red]Optimization failed. Returning to main branch.[/red]")
-        await repo._run_git("checkout", "main")
-        await repo._run_git("branch", "-D", branch_name)
+        await repo.run_git("checkout", "main")
+        await repo.run_git("branch", "-D", branch_name)
         return
 
     console.print("[green]Optimization successful![/green]")
 
     # Step 6: Determine changed files for targeted testing
-    match await repo._run_git("diff", "--name-only", "main..HEAD"):
+    match await repo.run_git("diff", "--name-only", "main..HEAD"):
         case Err(err):
             console.print(f"[red]Failed to detect changed files: {err}[/red]")
-            await repo._run_git("checkout", "main")
-            await repo._run_git("branch", "-D", branch_name)
+            await repo.run_git("checkout", "main")
+            await repo.run_git("branch", "-D", branch_name)
             return
         case Ok(diff_output):
             changed_paths = [line.strip() for line in diff_output.splitlines() if line.strip()]
@@ -351,9 +351,9 @@ async def _run_evolve(
     pytest_cmd = "pytest"
     if await asyncio.to_thread(shutil.which, "pytest") is None:
         console.print("[red]pytest is not available; aborting evolution.[/red]")
-        await repo._run_git("reset", "--hard", "main")
-        await repo._run_git("checkout", "main")
-        await repo._run_git("branch", "-D", branch_name)
+        await repo.run_git("reset", "--hard", "main")
+        await repo.run_git("checkout", "main")
+        await repo.run_git("branch", "-D", branch_name)
         return
 
     test_args = (
@@ -364,9 +364,9 @@ async def _run_evolve(
     test_result = await run_safe_shell(test_command, root, "evolve.verify", config=config)
     if isinstance(test_result, Err):
         console.print(f"[red]Test execution failed: {test_result.error}[/red]")
-        await repo._run_git("reset", "--hard", "main")
-        await repo._run_git("checkout", "main")
-        await repo._run_git("branch", "-D", branch_name)
+        await repo.run_git("reset", "--hard", "main")
+        await repo.run_git("checkout", "main")
+        await repo.run_git("branch", "-D", branch_name)
         await asyncio.to_thread(
             save_memory,
             f"Evolution aborted: tests could not run. Command: `{test_command}`. Error: {test_result.error}",
@@ -379,9 +379,9 @@ async def _run_evolve(
     if result_payload.returncode != 0:
         console.print(f"[red]Verification failed (exit {result_payload.returncode}).[/red]")
         console.print(result_payload.stdout or result_payload.stderr)
-        await repo._run_git("reset", "--hard", "main")
-        await repo._run_git("checkout", "main")
-        await repo._run_git("branch", "-D", branch_name)
+        await repo.run_git("reset", "--hard", "main")
+        await repo.run_git("checkout", "main")
+        await repo.run_git("branch", "-D", branch_name)
         await asyncio.to_thread(
             save_memory,
             f"Evolution aborted: tests failed. Command: `{test_command}` exit={result_payload.returncode}. Output: {result_payload.stdout or result_payload.stderr}",

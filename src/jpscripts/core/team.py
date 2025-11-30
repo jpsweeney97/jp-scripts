@@ -10,8 +10,15 @@ from typing import Literal, cast
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from ruamel.yaml import YAML
-from ruamel.yaml.error import YAMLError
+
+try:
+    from ruamel.yaml import YAML  # type: ignore[import-not-found]
+    from ruamel.yaml.error import YAMLError  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - optional dependency
+    YAML = None  # type: ignore[assignment]
+
+    class YAMLError(Exception):
+        """Fallback error when ruamel.yaml is unavailable."""
 
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
@@ -56,11 +63,15 @@ class _SwarmConfig(BaseModel):
 
 
 def _load_swarm_config(config_path: Path) -> dict[str, object] | None:
-    yaml_loader = YAML(typ="safe")
+    if YAML is None:
+        logger.debug("ruamel.yaml not installed; skipping swarm config load.")
+        return None
+
+    yaml_loader: YAML = YAML(typ="safe")
 
     def _read() -> dict[str, object] | None:
         with config_path.open("r", encoding="utf-8") as handle:
-            loaded = yaml_loader.load(handle)
+            loaded: object | None = yaml_loader.load(handle)
         if loaded is None:
             return {}
         if isinstance(loaded, dict):
@@ -266,12 +277,12 @@ def _render_swarm_prompt(
         "Use `next_step` only if a single sequential handoff is needed (deprecated)."
     )
 
-    render_context = {
+    render_context: dict[str, str] = {
         "persona_label": persona.label,
         "persona_style": persona.style,
         "objective": objective.strip(),
         "swarm_json": swarm_state.model_dump_json(indent=2),
-        "repo_root": repo_root,
+        "repo_root": str(repo_root),
         "config_summary": _render_config_context(config, safe_mode),
         "context_log": context_section,
         "file_section": file_section,
@@ -344,6 +355,11 @@ def _parse_agent_turn(obj: object, stdout: str = "") -> tuple[AgentTurnResponse 
     raw = getattr(obj, "captured_raw", "") if obj is not None else ""
     fallback = getattr(obj, "captured_stdout", "") if obj is not None else ""
     return _parse_agent_turn_payload(raw, fallback)
+
+
+def parse_agent_turn(obj: object, stdout: str = "") -> tuple[AgentTurnResponse | None, str]:
+    """Public wrapper to parse agent turn output."""
+    return _parse_agent_turn(obj, stdout)
 
 
 def parse_swarm_response(payload: str) -> AgentTurnResponse:

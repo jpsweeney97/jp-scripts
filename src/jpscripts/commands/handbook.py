@@ -651,7 +651,7 @@ def handbook(
             _render_results(results)
             return
 
-        entries, embedding_dim = await _load_or_index_entries(
+        entries, _embedding_dim = await _load_or_index_entries(
             sections,
             embedding_client,
             source_mtime_ns,

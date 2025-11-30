@@ -114,7 +114,7 @@ def test_god_mode_cycle(
     3. Git context is gathered
     4. Agent response is displayed
     """
-    workspace, env, main_py = integration_env
+    _workspace, env, _main_py = integration_env
 
     # Track what prompt was actually prepared
     captured_prompts: list[str] = []
@@ -199,7 +199,7 @@ def test_repair_loop_integration(
     2. Command execution uses real security validation
     3. LLM is actually called through the flow
     """
-    workspace, env, main_py = integration_env
+    _workspace, env, main_py = integration_env
 
     call_count = 0
 
@@ -276,7 +276,7 @@ def test_security_blocks_dangerous_commands_in_fix(
     capture_console: Any,
 ) -> None:
     """Verify that dangerous commands are blocked even through fix --run."""
-    workspace, env, main_py = integration_env
+    _workspace, env, _main_py = integration_env
 
     was_called = False
 
@@ -312,7 +312,7 @@ def test_context_gathering_exercises_ast_truncation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify that large Python files are processed through AST-aware truncation."""
-    workspace, env, main_py = integration_env
+    workspace, env, _main_py = integration_env
 
     # Create a large Python file that would trigger skeleton mode
     large_file = workspace / "large_module.py"
@@ -382,7 +382,7 @@ def test_recent_files_navigation(
     runner: CliRunner,
 ) -> None:
     """Verify the recent files navigation still works after the integration changes."""
-    workspace, env, main_py = integration_env
+    _workspace, env, main_py = integration_env
 
     # Touch main.py to make it recent
     main_py.write_text("def broken():\n    pass\n", encoding="utf-8")
@@ -403,7 +403,7 @@ def test_sync_command_works(
     capture_console: Any,
 ) -> None:
     """Verify the sync command still works in the integration environment."""
-    workspace, env, main_py = integration_env
+    _workspace, env, _main_py = integration_env
 
     result = runner.invoke(app, ["sync"], env=env)
 

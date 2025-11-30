@@ -229,10 +229,7 @@ async def prepare_agent_prompt(
     # Git diff is lowest priority after files and dependencies
     if include_diff and budget.remaining() > 0:
         diff_text = await collect_git_diff(root, 10_000)
-        if diff_text:
-            git_diff_section = budget.allocate(3, diff_text)
-        else:
-            git_diff_section = "NO CHANGES"
+        git_diff_section = budget.allocate(3, diff_text) if diff_text else "NO CHANGES"
 
     # Memory query fallback
     if not relevant_memories:

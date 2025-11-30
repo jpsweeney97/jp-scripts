@@ -309,15 +309,12 @@ def is_path_safe(path: str | Path, root: Path | str) -> bool:
 
 
 __all__ = [
-    # Exception-based API (backward compatible)
-    "validate_workspace_root",
-    "validate_path",
-    "WorkspaceValidationError",
     "PathValidationError",
-    # Result-based API (recommended)
-    "validate_workspace_root_safe",
-    "validate_path_safe",
-    # Utilities
+    "WorkspaceValidationError",
     "is_git_workspace",
     "is_path_safe",
+    "validate_path",
+    "validate_path_safe",
+    "validate_workspace_root",
+    "validate_workspace_root_safe",
 ]

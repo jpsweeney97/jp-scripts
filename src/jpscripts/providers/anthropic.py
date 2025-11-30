@@ -107,10 +107,7 @@ def _convert_messages_to_anthropic(
     for msg in messages:
         if msg.role == "system":
             # Anthropic uses a separate system parameter
-            if system:
-                system = f"{system}\n\n{msg.content}"
-            else:
-                system = msg.content
+            system = f"{system}\n\n{msg.content}" if system else msg.content
         else:
             role = "user" if msg.role == "user" else "assistant"
             converted.append({"role": role, "content": msg.content})

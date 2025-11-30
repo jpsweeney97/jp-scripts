@@ -30,7 +30,7 @@ import asyncio
 import json
 import shutil
 import warnings
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import TYPE_CHECKING, Any
 
 from jpscripts.core.console import get_logger
@@ -80,6 +80,18 @@ class CodexNotFoundError(ProviderError):
 def _find_codex_binary() -> str | None:
     """Find the Codex CLI binary in PATH."""
     return shutil.which("codex")
+
+
+def _coerce_tool_args(payload: Mapping[str, Any]) -> dict[str, Any]:
+    """Extract tool arguments from an event payload as a dict."""
+    candidate = payload.get("arguments") or payload.get("input")
+    if isinstance(candidate, dict):
+        return candidate
+
+    if candidate is not None:
+        logger.debug("Ignoring non-dict tool arguments: %r", candidate)
+
+    return {}
 
 
 def _build_codex_command(
@@ -296,13 +308,13 @@ class CodexProvider(BaseLLMProvider):
             # Extract tool calls
             if event_type == "tool.call":
                 tool_name = data.get("name") or data.get("tool")
-                tool_args = data.get("arguments") or data.get("input") or {}
+                tool_args = _coerce_tool_args(data)
                 if tool_name:
                     tool_calls.append(
                         ToolCall(
                             id=data.get("id", f"call_{len(tool_calls)}"),
                             name=tool_name,
-                            arguments=tool_args if isinstance(tool_args, dict) else {},
+                            arguments=tool_args,
                         )
                     )
 
@@ -401,7 +413,7 @@ class CodexProvider(BaseLLMProvider):
             # Yield tool calls as they happen
             if event_type == "tool.call":
                 tool_name = data.get("name") or data.get("tool")
-                tool_args = data.get("arguments") or data.get("input") or {}
+                tool_args = _coerce_tool_args(data)
                 if tool_name:
                     yield StreamChunk(
                         content="",
@@ -409,7 +421,7 @@ class CodexProvider(BaseLLMProvider):
                             ToolCall(
                                 id=data.get("id", ""),
                                 name=tool_name,
-                                arguments=tool_args if isinstance(tool_args, dict) else {},
+                                arguments=tool_args,
                             )
                         ],
                     )

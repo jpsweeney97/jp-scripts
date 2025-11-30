@@ -372,6 +372,10 @@ class AsyncRepo:
         """Internal helper to run git commands for higher-level ops."""
         return await _run_git(self._root, *args)
 
+    async def run_git(self, *args: str) -> Result[str, GitError]:
+        """Public wrapper around git subprocess execution."""
+        return await self._run_git(*args)
+
     # -------------------------------------------------------------------------
     # Worktree operations
     # -------------------------------------------------------------------------

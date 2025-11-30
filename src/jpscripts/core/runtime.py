@@ -210,6 +210,16 @@ def has_runtime() -> bool:
     return _runtime_ctx.get() is not None
 
 
+def set_runtime_context(ctx: RuntimeContext) -> contextvars.Token[RuntimeContext | None]:
+    """Set the current runtime context (used for CLI bootstrap and tests)."""
+    return _runtime_ctx.set(ctx)
+
+
+def reset_runtime_context(token: contextvars.Token[RuntimeContext | None]) -> None:
+    """Reset the runtime context to a previous token."""
+    _runtime_ctx.reset(token)
+
+
 def get_circuit_breaker() -> CircuitBreaker:
     """Convenience accessor for the active circuit breaker."""
     return get_runtime().get_circuit_breaker()

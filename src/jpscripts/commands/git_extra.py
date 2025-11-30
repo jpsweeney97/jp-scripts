@@ -44,7 +44,7 @@ class PullRequest(BaseModel):
 
 
 @app.callback()
-def _git_extra_callback(ctx: typer.Context) -> None:
+def git_extra_callback(ctx: typer.Context) -> None:
     """Entry point for git extra commands."""
 
 

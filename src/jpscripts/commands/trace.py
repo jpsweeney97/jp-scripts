@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import difflib
 import json
 import time
@@ -145,10 +146,8 @@ def _build_trace_tree(trace_id: str, steps: list[AgentTraceStep]) -> Group:
         usage = step.response.get("usage")
         if usage:
             tokens = usage.get("total_tokens") or usage.get("tokens") or 0
-            try:
+            with contextlib.suppress(TypeError, ValueError):
                 total_tokens += int(tokens)
-            except (TypeError, ValueError):
-                pass
 
         tool_call = step.response.get("tool_call")
         if tool_call:

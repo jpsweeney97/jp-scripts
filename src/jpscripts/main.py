@@ -24,7 +24,7 @@ from .core.config import AppConfig, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 from .core.diagnostics import run_diagnostics_suite
 from .core.registry import discover_commands
-from .core.runtime import RuntimeContext, _runtime_ctx
+from .core.runtime import RuntimeContext, get_runtime_or_none, set_runtime_context
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ def _signal_handler(signum: int, frame: FrameType | None) -> None:
     console.print("\n[yellow]Shutting down gracefully...[/yellow]")
 
     # Get current runtime context if available
-    ctx = _runtime_ctx.get(None)
+    ctx = get_runtime_or_none()
     if ctx:
         console.print("[dim]Note: Active worktrees will be cleaned on next run.[/dim]")
 
@@ -90,7 +90,7 @@ def _establish_cli_runtime(config: AppConfig, dry_run: bool) -> RuntimeContext:
         trace_id=f"cli-{uuid4().hex[:8]}",
         dry_run=dry_run,
     )
-    _cli_runtime_token = _runtime_ctx.set(ctx)
+    _cli_runtime_token = set_runtime_context(ctx)
     return ctx
 
 

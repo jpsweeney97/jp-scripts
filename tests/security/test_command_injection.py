@@ -63,7 +63,7 @@ class TestForbiddenBinaries:
         ],
     )
     def test_interpreter_execution_blocked(self, cmd: str, workspace: Path) -> None:
-        verdict, reason = validate_command(cmd, workspace)
+        verdict, _reason = validate_command(cmd, workspace)
         assert verdict == CommandVerdict.BLOCKED_FORBIDDEN, f"Should block interpreter: {cmd}"
 
     @pytest.mark.parametrize(
@@ -77,7 +77,7 @@ class TestForbiddenBinaries:
         ],
     )
     def test_network_commands_blocked(self, cmd: str, workspace: Path) -> None:
-        verdict, reason = validate_command(cmd, workspace)
+        verdict, _reason = validate_command(cmd, workspace)
         assert verdict == CommandVerdict.BLOCKED_FORBIDDEN, f"Should block network: {cmd}"
 
 
@@ -96,7 +96,7 @@ class TestFullPathBypass:
         ],
     )
     def test_full_path_bypass_blocked(self, cmd: str, workspace: Path) -> None:
-        verdict, reason = validate_command(cmd, workspace)
+        verdict, _reason = validate_command(cmd, workspace)
         assert verdict == CommandVerdict.BLOCKED_FORBIDDEN, f"Should block full path: {cmd}"
 
 
@@ -124,7 +124,7 @@ class TestShellMetacharacters:
     def test_command_substitution_blocked(self, workspace: Path) -> None:
         # Command substitution $(cmd) may be blocked for different reasons
         # because shlex parses it into tokens with dangerous flags
-        verdict, reason = validate_command("echo $(rm -rf /)", workspace)
+        verdict, _reason = validate_command("echo $(rm -rf /)", workspace)
         # Either caught as metachar OR as dangerous flag after parsing
         assert verdict in {
             CommandVerdict.BLOCKED_METACHAR,
@@ -164,7 +164,7 @@ class TestDangerousFlags:
         ],
     )
     def test_dangerous_flags_blocked(self, cmd: str, workspace: Path) -> None:
-        verdict, reason = validate_command(cmd, workspace)
+        verdict, _reason = validate_command(cmd, workspace)
         assert verdict in {
             CommandVerdict.BLOCKED_DANGEROUS_FLAG,
             CommandVerdict.BLOCKED_METACHAR,
@@ -179,7 +179,7 @@ class TestDangerousFlags:
         ],
     )
     def test_context_dangerous_flags_blocked(self, cmd: str, binary: str, workspace: Path) -> None:
-        verdict, reason = validate_command(cmd, workspace)
+        verdict, _reason = validate_command(cmd, workspace)
         assert verdict in {
             CommandVerdict.BLOCKED_FORBIDDEN,
             CommandVerdict.BLOCKED_DANGEROUS_FLAG,
@@ -229,7 +229,7 @@ class TestGitSubcommands:
         ],
     )
     def test_dangerous_git_commands_blocked(self, cmd: str, workspace: Path) -> None:
-        verdict, reason = validate_command(cmd, workspace)
+        verdict, _reason = validate_command(cmd, workspace)
         assert verdict == CommandVerdict.BLOCKED_FORBIDDEN, f"Should block git: {cmd}"
 
 

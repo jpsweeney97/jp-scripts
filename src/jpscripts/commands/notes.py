@@ -142,7 +142,7 @@ async def _detect_user_email(root: Path) -> str | None:
         case Err(_):
             return None
         case Ok(repo):
-            match await repo._run_git("config", "user.email"):
+            match await repo.run_git("config", "user.email"):
                 case Err(_):
                     return None
                 case Ok(email_raw):

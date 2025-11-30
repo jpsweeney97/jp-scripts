@@ -284,7 +284,7 @@ async def _apply_patch_text(patch_text: str, root: Path) -> list[Path]:
         proc = None
 
     if proc:
-        stdout, stderr = await proc.communicate(patch_text.encode())
+        _stdout, stderr = await proc.communicate(patch_text.encode())
         if proc.returncode == 0:
             return target_paths
         logger.debug("git apply failed: %s", stderr.decode(errors="replace"))

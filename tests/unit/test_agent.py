@@ -16,7 +16,7 @@ from jpscripts.commands.agent import codex_exec
 from jpscripts.core.agent import PreparedPrompt, parse_agent_response
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Ok
-from jpscripts.core.runtime import RuntimeContext, _runtime_ctx, runtime_context
+from jpscripts.core.runtime import RuntimeContext, runtime_context, set_runtime_context
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
@@ -40,7 +40,7 @@ def main_callback(ctx: typer.Context) -> None:
         workspace_root=config.workspace_root,
         dry_run=False,
     )
-    _runtime_ctx.set(runtime)
+    set_runtime_context(runtime)
 
     mock_state = MagicMock()
     mock_state.config = config
@@ -193,7 +193,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
 
 
 def test_parse_agent_response_handles_json_variants() -> None:
-    base = {
+    base: dict[str, object] = {
         "thought_process": "Reasoned",
         "criticism": "No issues found",
         "tool_call": None,

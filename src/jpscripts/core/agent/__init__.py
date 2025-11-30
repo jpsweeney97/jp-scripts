@@ -48,27 +48,23 @@ from jpscripts.core.engine import (
 )
 
 __all__ = [
-    # Re-exported from engine (backwards compatibility)
-    "PreparedPrompt",
-    "parse_agent_response",
-    # Prompt building
     "AGENT_TEMPLATE_NAME",
     "GOVERNANCE_ANTI_PATTERNS",
-    "prepare_agent_prompt",
-    # Execution
-    "run_repair_loop",
-    "SecurityError",
     "AttemptContext",
-    "StrategyConfig",
-    "RepairStrategy",
     "PatchFetcher",
+    "PreparedPrompt",
+    "RepairStrategy",
     "ResponseFetcher",
-    # Context helpers (for internal use)
-    "load_constitution",
+    "SecurityError",
+    "StrategyConfig",
+    "build_dependency_section",
+    "build_file_context_section",
     "collect_git_context",
     "collect_git_diff",
-    "build_file_context_section",
-    "build_dependency_section",
     "expand_context_paths",
+    "load_constitution",
+    "parse_agent_response",
+    "prepare_agent_prompt",
+    "run_repair_loop",
     "scan_recent",
 ]

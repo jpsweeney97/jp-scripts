@@ -398,10 +398,7 @@ class ParallelSwarmController:
                 return Err(err)
 
         worktree_root = self.config.worktree_root
-        if worktree_root:
-            worktree_path = worktree_root.expanduser()
-        else:
-            worktree_path = None
+        worktree_path = worktree_root.expanduser() if worktree_root else None
 
         self._worktree_manager = WorktreeManager(
             repo=self._repo,

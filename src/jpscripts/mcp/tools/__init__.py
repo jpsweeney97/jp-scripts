@@ -75,6 +75,11 @@ def _discover_tool_module_names() -> list[str]:
     return sorted(modules)
 
 
+def discover_tool_module_names() -> list[str]:
+    """Public wrapper around tool module discovery."""
+    return _discover_tool_module_names()
+
+
 def _is_mcp_tool(obj: Any) -> TypeGuard[ToolFunction]:
     """Check if an object is decorated with @tool."""
     if not callable(obj):
@@ -92,7 +97,7 @@ def discover_tools() -> dict[str, ToolFunction]:
         Dictionary mapping tool_name -> async tool function.
     """
     tools: dict[str, ToolFunction] = {}
-    module_names = _discover_tool_module_names()
+    module_names = discover_tool_module_names()
 
     for module_name in module_names:
         try:
@@ -126,6 +131,6 @@ def discover_tools() -> dict[str, ToolFunction]:
 
 
 # Legacy export for backward compatibility during migration
-TOOL_MODULES: list[str] = _discover_tool_module_names()
+TOOL_MODULES: list[str] = discover_tool_module_names()
 
-__all__ = ["TOOL_MODULES", "ToolFunction", "discover_tools"]
+__all__ = ["TOOL_MODULES", "ToolFunction", "discover_tool_module_names", "discover_tools"]
