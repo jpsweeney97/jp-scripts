@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/handbook.py
-# hypothesis_version: 6.148.3
-
-[0.0, 1000000000, '## CLI Reference', ', ', '--name', '-n', '.cache', '/', 'AGENTS.md', 'Any', 'HANDBOOK.md', 'Handbook', 'README.md', 'Section', 'SecurityError', '[a-z0-9]+', '^(#{1,2})\\s+(.*)', 'all-MiniLM-L6-v2', 'command', 'commands', 'config', 'content', 'description', 'embedding', 'embedding_dim', 'embedding_server_url', 'entries.jsonl', 'handbook-0', 'handbook_index', 'help', 'hidden', 'id', 'invariants', 'jpscripts', 'lance', 'memory_model', 'meta.json', 'name', 'pre-commit', 'r', 'seconds', 'source_mtime_ns', 'tags', 'tokens', 'ts', 'use_semantic_search', 'utf-8', 'verify-protocol', 'w', '—']

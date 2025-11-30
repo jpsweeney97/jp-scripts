@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/agent.py
-# hypothesis_version: 6.148.3
-
-[8192, '--diff/--no-diff', '--full-auto', '--keep-failed', '--loop/--no-loop', '--max-retries', '--model', '--provider', '--recent', '--run', '--web/--no-web', '-m', '-p', '-r', '-x', '-y', 'Consulting LLM...', 'Final message', 'Parse error', 'Proposed patch', 'Raw agent response', 'Thinking...', 'Thought process', 'Tool call', 'anthropic', 'codex', 'dots', 'openai', 'user']

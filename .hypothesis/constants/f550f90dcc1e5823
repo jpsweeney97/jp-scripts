@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/security.py
-# hypothesis_version: 6.148.3
-
-[128, '-C', 'PathValidationError', 'getuid', 'git', 'is_git_workspace', 'is_path_safe', 'path', 'rev-parse', 'true', 'validate_path', 'validate_path_safe', 'workspace root', 'workspace_root']

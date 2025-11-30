@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/git_extra.py
-# hypothesis_version: 6.148.3
-
-[' -> ', '#', '(detached)', '(unknown)', '--action', '--hard', '--json', '--limit', '--no-fzf', '--repo', '--target', '--web', '-a', '-r', '.', '.git', ':', 'Ahead/Behind', 'Branch', 'Branches', 'Changes', 'Max PRs to list.', 'Open PRs', 'Path', 'Repository path.', 'Status', 'T', 'Title', 'Upstream', 'apply', 'branch', 'checkout', 'commit', 'copy', 'cyan', 'dim', 'drop', 'error', 'fzf', 'gh', 'git@', 'gpr', 'gstage', 'gundo-last', 'https://', 'list', 'none', 'pop', 'pr', 'pr> ', 'red', 'replace', 'repo', 'stage> ', 'stash> ', 'utf-8', 'view', 'white']

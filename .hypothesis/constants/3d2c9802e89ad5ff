@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/ui.py
-# hypothesis_version: 6.148.3
-
-['--ansi', '--multi', '--prompt', '> ', 'fzf', 'replace', 'utf-8']

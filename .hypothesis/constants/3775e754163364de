@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/serialize.py
-# hypothesis_version: 6.148.3
-
-['--format', '--output', '-f', '-o', 'manifest.yaml', 'snapshot', 'yaml']

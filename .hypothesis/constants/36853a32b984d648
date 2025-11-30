@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/search.py
-# hypothesis_version: 6.148.3
-
-['--context', '--follow', '--no-fzf', '--path', '--types', '-C', '-f', '-p', '.', '...', 'BUG', 'Content', 'FIXME', 'File', 'Line', 'Matches', 'Path to scan.', 'Path to search.', 'Root path to search.', 'TODO|FIXME|HACK|BUG', 'Type', 'cyan', 'dim', 'fzf', 'loggrep> ', 'red', 'ripper> ', 'white', 'yellow']

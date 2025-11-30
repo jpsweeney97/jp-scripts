@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/git_ops.py
-# hypothesis_version: 6.148.3
-
-['%Y-%m-%d %H:%M', '(error)', '--all', '--max-depth', '--prune', '--repo', '--root', '-C', '-r', '.', '.git', ':', 'Ahead/Behind', 'Author', 'Branch', 'Changes', 'Date', 'Diffstat', 'Dirty', 'Field', 'Push summary', 'Repo', 'Repository', 'SHA', 'Status', 'Summary', 'Upstream', 'Value', '[green]clean[/]', '[green]fetched[/]', '[remote ', '[yellow]dirty[/]', 'config', 'cyan', 'fetch', 'git', 'gitdir:', 'no', 'none', 'red', 'replace', 'repo', 'utf-8', 'white', 'yellow', 'yes']

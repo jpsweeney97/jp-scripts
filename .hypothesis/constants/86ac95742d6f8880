@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/__init__.py
-# hypothesis_version: 6.148.3
-
-['config', 'console', 'git', 'git_ops']

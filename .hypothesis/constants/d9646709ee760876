@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/registry.py
-# hypothesis_version: 6.148.3
-
-['*.py', '-', '_', '__all__', '__init__', 'agent', 'app', 'audioswap', 'brew-explorer', 'brew_explorer', 'cliphist', 'codex_exec', 'config-fix', 'config_fix', 'fix', 'gbrowse', 'git-branchcheck', 'git_branchcheck', 'git_extra', 'git_ops', 'gpr', 'gstage', 'gundo-last', 'gundo_last', 'init', 'jpscripts.commands', 'loggrep', 'map', 'map_cmd', 'nav', 'note', 'note-search', 'note_search', 'notes', 'panic', 'port-kill', 'port_kill', 'process-kill', 'process_kill', 'proj', 'recent', 'repo-map', 'ripper', 'search', 'ssh-open', 'ssh_open', 'standup', 'standup-note', 'standup_note', 'stashview', 'status-all', 'status_all', 'sync', 'system', 'tmpserver', 'todo-scan', 'todo_scan', 'update', 'web', 'web-snap', 'web_snap', 'whatpush']

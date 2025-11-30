@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/search.py
-# hypothesis_version: 6.148.3
-
-[4096, '\n... [truncated]', '--color=always', '--follow', '--json', '--line-number', '--pcre2', 'TODO', 'TODO|FIXME|HACK|BUG', 'data', 'line_number', 'lines', 'match', 'path', 'rg', 'submatches', 'text', 'type', 'utf-8']

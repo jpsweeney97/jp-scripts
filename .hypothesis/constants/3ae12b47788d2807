@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/system.py
-# hypothesis_version: 6.148.3
-
-['#', '*', '--rm', '-a', '-e', '-s', '-u', '-v', '-w', '.ssh', '/workspace', 'Command not found', 'Invalid command', 'Process not found', 'SwitchAudioSource', 'brew', 'brew info failed', 'brew search failed', 'cmd', 'command', 'config', 'device', 'directory', 'docker', 'dry-run', 'error', 'host ', 'image', 'inet', 'info', 'killed', 'name', 'path', 'pid', 'reason', 'replace', 'returncode', 'run', 'search', 'stderr', 'terminated', 'username', 'utf-8']

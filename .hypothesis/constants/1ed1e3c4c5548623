@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/notes.py
-# hypothesis_version: 6.148.3
-
-[100, 1000, '--action', '--days', '--delimiter', '--limit', '--max-depth', '--message', '--no-fzf', '--nth', '--with-nth', '-a', '-d', '-l', '-m', '.', '.local', '0', '2..', '3..', ':', 'Clipboard history', 'Count', 'HEAD', 'Latest', 'Repo', 'Text', 'When', 'a', 'add', 'clip> ', 'cliphist', 'config', 'cyan', 'fzf', 'history.db', 'history.txt', 'jpscripts', 'note-search> ', 'pick', 'red', 'seconds', 'share', 'show', 'user.email', 'utf-8', 'white']

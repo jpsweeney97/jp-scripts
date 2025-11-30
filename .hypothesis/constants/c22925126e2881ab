@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/agent/prompting.py
-# hypothesis_version: 6.148.3
-
-[0.1, 0.75, 500, 10000, 50000, '\n[... resumes ...]\n', '... [truncated]', 'AGENT_TEMPLATE_NAME', 'NO CHANGES', ']]>', ']]]]><![CDATA[>', 'agent_system.json.j2', 'anti_patterns', 'architecture', 'branch', 'cdata', 'constitution', 'default', 'dependency_section', 'diagnostic_section', 'dirty', 'file_context_section', 'git_diff_section', 'head', 'instruction', 'patterns_section', 'prepare_agent_prompt', 'relevant_memories', 'repository_map', 'response_schema', 'security', 'templates', 'tojson', 'tool_history', 'web_tool', 'workspace_root']

@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/evolve.py
-# hypothesis_version: 6.148.3
-
-[10.0, 8192, '--body', '--dry-run', '--hard', '--limit', '--model', '--name-only', '--threshold', '--title', '-A', '-D', '-b', '-m', '-n', '-t', '-u', '.py', 'Avg CC', 'CC', 'Churn', 'Complexity', 'Complexity Report', 'Debt Score', 'File', 'Fix Freq', 'Function', 'Functions', 'High complexity', 'Line', 'Max CC', 'Rank', 'Total CC', 'add', 'branch', 'checkout', 'commit', 'create', 'cyan', 'debt', 'diff', 'dim', 'evolution', 'evolve', 'evolve.verify', 'failure', 'gh', 'main', 'main..HEAD', 'origin', 'pr', 'push', 'pytest', 'refactor', 'report', 'reset', 'right', 'run', 'success', 'test_*.py', 'tests', 'user', 'yellow']

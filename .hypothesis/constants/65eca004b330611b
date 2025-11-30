@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/watch.py
-# hypothesis_version: 6.148.3
-
-[0.25, 5.0, 512, '--select', '.bmp', '.exe', '.gif', '.gz', '.ico', '.jpeg', '.jpg', '.png', '.py', '.tar', '.zip', 'AppState', 'E9,F821', 'Embeddings refreshed', 'Message', 'Path', 'Recent Events', 'Status', 'Type', 'blocked', 'bold cyan', 'check', 'error', 'fold', 'internal', 'jp watch', 'magenta', 'memory', 'ok', 'pending', 'queue.Queue[Path]', 'replace', 'ruff', 'skipped', 'utf-8', 'watch', 'watcher']

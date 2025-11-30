@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/providers/factory.py
-# hypothesis_version: 6.148.3
-
-[128000, 200000, 'ProviderConfig', 'claude-sonnet-4-5', 'default_model', 'get_default_provider', 'get_provider']

@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/governance.py
-# hypothesis_version: 6.148.3
-
-[0.0, 3.5, '# safety: checked', '# type:', '+', '+++', '+++ ', '+++ b/', '-', '---', '.py', '@@ ', 'Any', 'ConstitutionChecker', 'Path', 'Popen', 'Violation', 'ViolationType', '\\+(\\d+)', '__import__', 'aiofiles', 'b/', 'builtins', 'call', 'check_call', 'check_compliance', 'check_output', 'compile', 'error', 'eval', 'exec', 'from typing import', 'getoutput', 'getstatusoutput', 'has_fatal_violations', 'import typing', 'import_module', 'importlib', 'io', 'name', 'open', 'os', 'remove', 'rmtree', 'run', 'shell', 'shutil', 'subprocess', 'system', 'to_thread', 'type: ignore', 'unlink', 'utf-8', 'value', 'warning']

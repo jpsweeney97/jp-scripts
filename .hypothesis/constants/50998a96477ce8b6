@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/providers/codex.py
-# hypothesis_version: 6.148.3
-
-[100, 128000, 200000, '--full-auto', '--json', '--model', '--search', '-c', 'CODEX_CONTEXT_LIMITS', 'CodexNotFoundError', 'CodexProvider', 'arguments', 'assistant', 'assistant_message', 'codex', 'data', 'error', 'event', 'exec', 'gpt-4-turbo', 'gpt-4o', 'gpt-4o-mini', 'high', 'id', 'input', 'is_codex_available', 'message', 'name', 'o1', 'o1-mini', 'o3-mini', 'replace', 'session.completed', 'stop', 'system', 'tool', 'tool.call', 'turn.completed', 'type', 'user']

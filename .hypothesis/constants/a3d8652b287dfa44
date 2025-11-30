@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/engine.py
-# hypothesis_version: 6.148.3
-
-['+++ ', '- (none)', '--- ', '.jpscripts', '/dev/null', 'ResponseT', 'Unknown', '```json\\s*(.*?)```', 'a', 'a/', 'a/dev/null', 'agent.persona', 'agent.turn', 'agent_response', 'audit.shell', 'b/', 'b/dev/null', 'code.files_touched', 'content', 'dev/null', 'error', 'file_patch', 'jpscripts', 'model_dump', 'otel_export_enabled', 'output', 'role', 'service.name', 'system', 'tool_call', 'tool_output', 'traces', 'usage.prompt_tokens', 'usage.total_tokens', 'utf-8', '{', '}']

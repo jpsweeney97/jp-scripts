@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/memory.py
-# hypothesis_version: 6.148.3
-
-[0.85, '--force', '--limit', '--model', '--tag', '--threshold', '-f', '-l', '-m', '-t', 'Entry', 'Force full re-index', 'Memory', 'Memory Consolidation', 'Search text.', 'add', 'archived', 'consolidate', 'reindex', 'search', 'vacuum', 'white', 'yellow']

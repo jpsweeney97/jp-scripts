@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/core/git.py
-# hypothesis_version: 6.148.3
-
-['\x00', '#', '(unknown)', '+', '-', '--', '--abort', '--all', '--branch', '--date=unix', '--diff-filter=U', '--follow', '--force', '--name-only', '--no-ff', '--oneline', '--porcelain', '--porcelain=v2', '--prune', '--short', '--show-toplevel', '--stat', '-C', '-D', '-b', '-d', '-m', '-z', '.', '.git', '1', '2', '?', 'AsyncRepo', 'Failed to start git', 'HEAD', 'HEAD ', 'Not a git repository', 'Path does not exist', 'add', 'apply', 'args', 'branch', 'branch ', 'branch.ab', 'branch.head', 'branch.upstream', 'checkout', 'commit', 'cwd', 'diff', 'drop', 'error', 'fetch', 'get-url', 'git', 'list', 'locked', 'log', 'merge', 'origin', 'path', 'pop', 'prunable', 'prune', 'refs/heads/', 'remote', 'remove', 'replace', 'reset', 'returncode', 'rev-parse', 'root', 'stash', 'status', 'true', 'u', 'utf-8', 'worktree', 'worktree ']

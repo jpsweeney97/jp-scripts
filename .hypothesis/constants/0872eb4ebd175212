@@ -1,4 +1,0 @@
-# file: /Users/jp/Projects/jp-scripts/src/jpscripts/commands/nav.py
-# hypothesis_version: 6.148.3
-
-['#', '%Y-%m-%d %H:%M', '--files-only', '--include-dirs', '--limit', '--max-depth', '--no-fzf', '--no-sort', '--root', '-l', '-r', 'Path', 'Projects (zoxide)', 'Type', 'When', 'cyan', 'dir', 'dots', 'file', 'fzf', 'not found', 'proj> ', 'recent> ', 'white', 'yellow']
