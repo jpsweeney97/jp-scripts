@@ -2,38 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Protocol, cast
 from unittest.mock import MagicMock, patch
 
 import typer
 from typer.testing import CliRunner
 
-sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
-
 if TYPE_CHECKING:
-    T = TypeVar("T")
-
-    class PreparedPrompt:
-        prompt: str
-        attached_files: list[Path]
-
-    class Ok(Generic[T]):
-        def __init__(self, value: T) -> None: ...
-
     class AgentResponseProto(Protocol):
         final_message: str | None
-
-    def parse_agent_response(payload: str) -> AgentResponseProto: ...
-
-    def codex_exec(*args: Any, **kwargs: Any) -> None: ...
-else:  # pragma: no cover - runtime imports
-    from jpscripts.commands.agent import codex_exec
-    from jpscripts.core.agent import parse_agent_response
-    from jpscripts.core.config import AppConfig
-    from jpscripts.core.result import Ok
-    from jpscripts.core.runtime import RuntimeContext, _runtime_ctx, runtime_context
+from jpscripts.commands.agent import codex_exec
+from jpscripts.core.agent import PreparedPrompt, parse_agent_response
+from jpscripts.core.config import AppConfig
+from jpscripts.core.result import Ok
+from jpscripts.core.runtime import RuntimeContext, _runtime_ctx, runtime_context
 
 # Setup a test harness that mimics the main app's context injection
 agent_app = typer.Typer()
@@ -223,5 +206,5 @@ def test_parse_agent_response_handles_json_variants() -> None:
     prose_json = f"Here you go:\n{raw_json}\nThanks!"
 
     for payload in (raw_json, fenced_json, prose_json):
-        parsed = parse_agent_response(payload)
+        parsed: AgentResponseProto = parse_agent_response(payload)
         assert parsed.final_message == "All good"

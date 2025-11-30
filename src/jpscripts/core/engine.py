@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Generic, Protocol, TypeVar
+from typing import Any, Generic, Protocol, TypeVar
 
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
@@ -29,13 +29,15 @@ from jpscripts.core.runtime import CircuitBreaker
 from jpscripts.core.system import CommandResult, get_sandbox
 
 try:
-    from opentelemetry import trace as otel_trace
-    from opentelemetry.sdk.resources import Resource
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import BatchSpanProcessor
+    from opentelemetry import trace as otel_trace  # type: ignore
+    from opentelemetry.sdk.resources import Resource  # type: ignore
+    from opentelemetry.sdk.trace import TracerProvider  # type: ignore
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor  # type: ignore
 
     try:
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # type: ignore
+            OTLPSpanExporter,
+        )
     except ImportError:  # pragma: no cover - optional dependency
         OTLPSpanExporter = None
 except ImportError:  # pragma: no cover - optional dependency
@@ -45,7 +47,7 @@ except ImportError:  # pragma: no cover - optional dependency
     BatchSpanProcessor = None
     OTLPSpanExporter = None
 
-_otel_tracer: object | None = None
+_otel_tracer: Any | None = None  # Optional tracer when opentelemetry is installed
 _otel_provider_configured = False
 
 logger = get_logger(__name__)

@@ -217,9 +217,7 @@ class ConstitutionChecker(ast.NodeVisitor):
             if _has_safety_override():
                 return
             is_importlib = False
-            if isinstance(func.value, ast.Name) and func.value.id == "importlib":
-                is_importlib = True
-            elif isinstance(func.value, ast.Attribute) and func.value.attr == "importlib":
+            if (isinstance(func.value, ast.Name) and func.value.id == "importlib") or (isinstance(func.value, ast.Attribute) and func.value.attr == "importlib"):
                 is_importlib = True
 
             if is_importlib:
@@ -314,8 +312,8 @@ class ConstitutionChecker(ast.NodeVisitor):
             return
 
         is_open_call = (
-            isinstance(node.func, ast.Name)
-            and node.func.id == "open"
+            (isinstance(node.func, ast.Name)
+            and node.func.id == "open")
             or (
                 isinstance(node.func, ast.Attribute)
                 and node.func.attr == "open"
@@ -689,12 +687,12 @@ def has_fatal_violations(violations: Sequence[Violation]) -> bool:
 
 
 __all__ = [
-    "ViolationType",
-    "Violation",
     "ConstitutionChecker",
+    "Violation",
+    "ViolationType",
     "check_compliance",
     "check_source_compliance",
-    "format_violations_for_agent",
     "count_violations_by_severity",
+    "format_violations_for_agent",
     "has_fatal_violations",
 ]

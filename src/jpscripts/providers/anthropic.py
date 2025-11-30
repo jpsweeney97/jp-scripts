@@ -368,7 +368,7 @@ class AnthropicProvider(BaseLLMProvider):
 
 
 __all__ = [
-    "AnthropicProvider",
     "ANTHROPIC_AVAILABLE_MODELS",
     "ANTHROPIC_CONTEXT_LIMITS",
+    "AnthropicProvider",
 ]

@@ -260,10 +260,7 @@ class DependencyWalker:
     ) -> None:
         """Recursively extract calls from AST nodes."""
         for node in ast.iter_child_nodes(tree):
-            if isinstance(node, ast.FunctionDef):
-                func_scope = f"{scope}.{node.name}" if scope else node.name
-                self._extract_calls_from_function(node, func_scope)
-            elif isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.FunctionDef) or isinstance(node, ast.AsyncFunctionDef):
                 func_scope = f"{scope}.{node.name}" if scope else node.name
                 self._extract_calls_from_function(node, func_scope)
             elif isinstance(node, ast.ClassDef):
@@ -500,8 +497,8 @@ class DependencyWalker:
 
 
 __all__ = [
-    "SymbolKind",
-    "SymbolNode",
     "CallGraph",
     "DependencyWalker",
+    "SymbolKind",
+    "SymbolNode",
 ]

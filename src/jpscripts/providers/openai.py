@@ -443,7 +443,7 @@ class OpenAIProvider(BaseLLMProvider):
 
 
 __all__ = [
-    "OpenAIProvider",
     "OPENAI_AVAILABLE_MODELS",
     "OPENAI_CONTEXT_LIMITS",
+    "OpenAIProvider",
 ]

@@ -205,7 +205,7 @@ async def rate_limited_call(
 
 
 __all__ = [
-    "RateLimiter",
     "RateLimitExceeded",
+    "RateLimiter",
     "rate_limited_call",
 ]

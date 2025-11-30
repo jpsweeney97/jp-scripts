@@ -293,14 +293,14 @@ def override_workspace(workspace: Path) -> Iterator[RuntimeContext]:
 
 
 __all__ = [
+    "CircuitBreaker",
+    "NoRuntimeContextError",
     "RuntimeContext",
     "WarningState",
+    "get_circuit_breaker",
     "get_runtime",
     "get_runtime_or_none",
     "has_runtime",
-    "get_circuit_breaker",
-    "runtime_context",
     "override_workspace",
-    "NoRuntimeContextError",
-    "CircuitBreaker",
+    "runtime_context",
 ]

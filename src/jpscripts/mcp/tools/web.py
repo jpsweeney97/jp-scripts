@@ -14,7 +14,7 @@ async def fetch_url_content(url: str) -> str:
     except ImportError:
         return "Error: trafilatura not installed. Run `pip install jpscripts[full]`"
     except Exception as e:
-        return f"Error fetching URL: {str(e)}"
+        return f"Error fetching URL: {e!s}"
 
 
 def _fetch_content(url: str) -> str:

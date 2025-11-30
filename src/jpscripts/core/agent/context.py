@@ -285,11 +285,11 @@ async def expand_context_paths(
 
 # Re-export scan_recent for backwards compatibility with test patches
 __all__ = [
-    "load_constitution",
+    "build_dependency_section",
+    "build_file_context_section",
     "collect_git_context",
     "collect_git_diff",
-    "build_file_context_section",
-    "build_dependency_section",
     "expand_context_paths",
+    "load_constitution",
     "scan_recent",
 ]

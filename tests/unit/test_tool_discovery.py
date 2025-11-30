@@ -44,7 +44,7 @@ class TestToolDiscovery:
         """TOOL_MODULES should be sorted for deterministic ordering."""
         from jpscripts.mcp.tools import TOOL_MODULES
 
-        assert TOOL_MODULES == sorted(TOOL_MODULES)
+        assert sorted(TOOL_MODULES) == TOOL_MODULES
 
     def test_handles_missing_path_gracefully(self) -> None:
         """Should return empty list and warn when __path__ is None."""
@@ -66,17 +66,19 @@ class TestToolDiscovery:
         """Should return empty list and warn when import fails."""
         from jpscripts.mcp.tools import _discover_tool_module_names
 
-        with patch(
-            "jpscripts.mcp.tools.import_module",
-            side_effect=ImportError("test error"),
+        with (
+            patch(
+                "jpscripts.mcp.tools.import_module",
+                side_effect=ImportError("test error"),
+            ),
+            warnings.catch_warnings(record=True) as caught,
         ):
-            with warnings.catch_warnings(record=True) as caught:
-                warnings.simplefilter("always")
-                result = _discover_tool_module_names()
+            warnings.simplefilter("always")
+            result = _discover_tool_module_names()
 
-                assert result == []
-                assert len(caught) == 1
-                assert "Failed to import" in str(caught[0].message)
+            assert result == []
+            assert len(caught) == 1
+            assert "Failed to import" in str(caught[0].message)
 
     def test_handles_non_iterable_path(self) -> None:
         """Should return empty list and warn when __path__ is not iterable."""

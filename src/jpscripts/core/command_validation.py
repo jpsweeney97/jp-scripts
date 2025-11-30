@@ -449,11 +449,11 @@ def is_command_safe(command: str, workspace_root: Path) -> bool:
 
 
 __all__ = [
-    "CommandVerdict",
-    "validate_command",
-    "is_command_safe",
-    "FORBIDDEN_BINARIES",
     "ALLOWED_BINARIES",
     "ALLOWED_GIT_SUBCOMMANDS",
+    "FORBIDDEN_BINARIES",
     "FORBIDDEN_GIT_SUBCOMMANDS",
+    "CommandVerdict",
+    "is_command_safe",
+    "validate_command",
 ]

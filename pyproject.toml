@@ -43,10 +43,7 @@ ai = [
   "lancedb>=0.9.0",
   "numpy>=1.26.0",
 ]
-otel = [
-  "opentelemetry-api>=1.27.0",
-  "opentelemetry-sdk>=1.27.0",
-]
+otel = ["opentelemetry-api>=1.27.0", "opentelemetry-sdk>=1.27.0"]
 
 [project.scripts]
 jp = "jpscripts.main:app"
@@ -55,17 +52,13 @@ jp = "jpscripts.main:app"
 jpscripts = "jpscripts.mcp.server:main"
 
 [tool.hatch.build]
-include = [
-  "src/jpscripts/templates/**",
-]
+include = ["src/jpscripts/templates/**"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jpscripts"]
 
 [tool.pytest.ini_options]
-markers = [
-  "slow: mark tests that take longer or hit external boundaries",
-]
+markers = ["slow: mark tests that take longer or hit external boundaries"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -82,15 +75,15 @@ plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
 module = [
-    "trafilatura.*",
-    "sentence_transformers.*",
-    "lancedb.*",
-    "mcp.*",
-    "watchdog.*",
-    "tiktoken.*",
-    "pathspec.*",
-    "ruamel.*",
-    "opentelemetry.*",
+  "trafilatura.*",
+  "sentence_transformers.*",
+  "lancedb.*",
+  "mcp.*",
+  "watchdog.*",
+  "tiktoken.*",
+  "pathspec.*",
+  "ruamel.*",
+  "opentelemetry.*",
 ]
 ignore_missing_imports = true
 
@@ -100,23 +93,33 @@ target-version = "py311"
 line-length = 100
 src = ["src", "tests"]
 
+[tool.ruff.format]
+# Explicitly force "Black" style formatting
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true # Awesome feature: formats code snippets INSIDE docstrings
+
 [tool.ruff.lint]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
     "F",      # pyflakes
-    "I",      # isort
-    "B",      # flake8-bugbear
+    "I",      # isort (imports)
+    "B",      # flake8-bugbear (bugs)
     "C4",     # flake8-comprehensions
-    "UP",     # pyupgrade
+    "UP",     # pyupgrade (modern syntax)
+    "SIM",    # flake8-simplify (cleaner logic) -- NEW
+    "RUF",    # Ruff-specific rules -- NEW
 ]
 ignore = [
     "E501",   # line too long (handled by formatter)
     "B008",   # function call in default argument (Typer pattern)
-    "E402",   # module level import not at top (needed for scripts that modify sys.path)
-    "B904",   # raise from - TODO: fix these incrementally
-    "B905",   # zip strict - TODO: add strict=True to zip calls
+    "E402",   # module level import not at top
+    "B904",   # raise from
+    "B905",   # zip strict
 ]
 
 [tool.ruff.lint.isort]
 known-first-party = ["jpscripts"]
+# This makes your imports look cleaner by grouping strict/standard/local
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]

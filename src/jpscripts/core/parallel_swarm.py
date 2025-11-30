@@ -614,8 +614,8 @@ class ParallelSwarmController:
 
 
 __all__ = [
-    "TaskResult",
-    "WorktreeManager",
     "MergeResult",
     "ParallelSwarmController",
+    "TaskResult",
+    "WorktreeManager",
 ]

@@ -418,13 +418,13 @@ def format_complexity_report(complexities: Sequence[FileComplexity]) -> str:
 
 __all__ = [
     "ComplexityError",
-    "FunctionComplexity",
     "FileComplexity",
-    "TechnicalDebtScore",
+    "FunctionComplexity",
     "McCabeVisitor",
+    "TechnicalDebtScore",
+    "analyze_directory_complexity",
     "analyze_file_complexity",
     "analyze_file_complexity_sync",
-    "analyze_directory_complexity",
     "calculate_debt_scores",
     "format_complexity_report",
 ]

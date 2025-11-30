@@ -4,13 +4,11 @@ import asyncio
 import contextvars
 import logging
 import signal
-import sys
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
 from types import FrameType
-from typing import NoReturn
 from uuid import uuid4
 
 import click
@@ -38,7 +36,7 @@ _cli_runtime_token: contextvars.Token[RuntimeContext | None] | None = None
 _shutdown_requested = False
 
 
-def _signal_handler(signum: int, frame: FrameType | None) -> NoReturn | None:
+def _signal_handler(signum: int, frame: FrameType | None) -> None:
     """Handle SIGINT/SIGTERM for graceful shutdown.
 
     First signal prints warning and exits gracefully.

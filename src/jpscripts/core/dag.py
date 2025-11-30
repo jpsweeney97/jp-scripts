@@ -233,8 +233,8 @@ class WorktreeContext(BaseModel):
 
 
 __all__ = [
-    "TaskStatus",
-    "DAGTask",
     "DAGGraph",
+    "DAGTask",
+    "TaskStatus",
     "WorktreeContext",
 ]

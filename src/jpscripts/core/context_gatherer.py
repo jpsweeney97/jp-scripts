@@ -544,12 +544,12 @@ def _validate_structured_prefix(candidate: str, loader: Callable[[str], object])
 
 
 __all__ = [
-    "GatherContextResult",
     "DEFAULT_MODEL_CONTEXT_LIMIT",
     "FILE_PATTERN",
+    "SENSITIVE_PATTERNS",
     "STRUCTURED_EXTENSIONS",
     "SYNTAX_WARNING",
-    "SENSITIVE_PATTERNS",
+    "GatherContextResult",
     "gather_context",
     "get_file_skeleton",
     "read_file_context",

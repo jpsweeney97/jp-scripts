@@ -128,4 +128,4 @@ def discover_tools() -> dict[str, ToolFunction]:
 # Legacy export for backward compatibility during migration
 TOOL_MODULES: list[str] = _discover_tool_module_names()
 
-__all__ = ["discover_tools", "ToolFunction", "TOOL_MODULES"]
+__all__ = ["TOOL_MODULES", "ToolFunction", "discover_tools"]

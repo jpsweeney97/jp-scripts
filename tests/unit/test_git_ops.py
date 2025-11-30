@@ -61,7 +61,7 @@ class _FakeAsyncRepo:
     def __init__(self, output: str) -> None:
         self.output = output
 
-    async def _run_git(self, *args: str) -> Ok[str]:  # noqa: ANN204
+    async def _run_git(self, *args: str) -> Ok[str]:
         return Ok(self.output)
 
 
