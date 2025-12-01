@@ -27,6 +27,7 @@ from jpscripts.core.parallel_swarm.types import MergeResult, TaskResult
 from jpscripts.core.parallel_swarm.worktree import WorktreeManager
 from jpscripts.core.result import (
     Err,
+    GitError,
     Ok,
     Result,
     ValidationError,
@@ -98,7 +99,7 @@ class ParallelSwarmController:
         self._completed_tasks: set[str] = set()
         self._task_results: dict[str, TaskResult] = {}
 
-    async def _initialize(self) -> Result[None, Exception]:
+    async def _initialize(self) -> Result[None, GitError]:
         """Initialize the controller and worktree manager."""
         match await AsyncRepo.open(self.repo_root):
             case Ok(repo):

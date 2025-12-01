@@ -12,6 +12,7 @@ import contextvars
 import inspect
 
 from fastmcp import FastMCP
+from fastmcp.tools import Tool
 
 from jpscripts.core.config import AppConfig, load_config
 from jpscripts.core.runtime import RuntimeContext, _runtime_ctx
@@ -82,7 +83,8 @@ def register_tools(mcp: FastMCP) -> None:
                 )
 
         try:
-            mcp.add_tool(func, **metadata)
+            tool = Tool.from_function(func, **metadata)
+            mcp.add_tool(tool)
             registered_count += 1
         except Exception as exc:
             logger.error("Failed to register tool %s", tool_name, exc_info=exc)
