@@ -576,9 +576,7 @@ class ParallelSwarmController:
                     changed_files.update(applied_paths)
 
                     # Patch applied successfully, break the loop
-                    logger.info(
-                        "Task %s: Patch applied to %d files", task.id, len(applied_paths)
-                    )
+                    logger.info("Task %s: Patch applied to %d files", task.id, len(applied_paths))
                     break
 
                 # Final message without action - task considered complete
@@ -591,9 +589,7 @@ class ParallelSwarmController:
             if changed_files:
                 add_result = await worktree_repo.add(all=True)
                 if isinstance(add_result, Err):
-                    logger.warning(
-                        "Task %s: git add failed: %s", task.id, add_result.error
-                    )
+                    logger.warning("Task %s: git add failed: %s", task.id, add_result.error)
 
                 commit_msg = f"[swarm] {task.id}: {task.objective[:50]}"
                 commit_result = await worktree_repo.commit(commit_msg)
@@ -601,9 +597,7 @@ class ParallelSwarmController:
                     commit_sha = commit_result.value
                     logger.info("Task %s: Created commit %s", task.id, commit_sha[:8])
                 else:
-                    logger.warning(
-                        "Task %s: Commit failed: %s", task.id, commit_result.error
-                    )
+                    logger.warning("Task %s: Commit failed: %s", task.id, commit_result.error)
 
             return TaskResult(
                 task_id=task.id,
@@ -721,7 +715,11 @@ class ParallelSwarmController:
             result = await run_safe_shell(command, worktree_path, "swarm.task_executor")
             if isinstance(result, Err):
                 return f"Command blocked: {result.error}"
-            exit_code, stdout, stderr = result.value.returncode, result.value.stdout, result.value.stderr
+            exit_code, stdout, stderr = (
+                result.value.returncode,
+                result.value.stdout,
+                result.value.stderr,
+            )
             output = (stdout + stderr).strip()
             if exit_code != 0:
                 return f"Command failed (exit {exit_code}):\n{output}"

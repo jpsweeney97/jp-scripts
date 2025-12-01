@@ -106,7 +106,9 @@ class MockProvider:
             NotImplementedError: Always, as mock doesn't support streaming.
         """
         raise NotImplementedError("MockProvider does not support streaming")
-        yield StreamChunk(content="")  # pragma: no cover - unreachable, needed for async generator type
+        yield StreamChunk(
+            content=""
+        )  # pragma: no cover - unreachable, needed for async generator type
 
     def supports_streaming(self) -> bool:
         """Return False - mock doesn't support streaming."""

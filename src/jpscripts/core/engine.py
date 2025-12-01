@@ -298,7 +298,7 @@ def _extract_from_code_fence(text: str) -> str | None:
             return None
         # Check if "json" follows on same line
         line_end = text.find("\n", fence_start)
-        prefix = text_lower[fence_start : line_end] if line_end != -1 else text_lower[fence_start:]
+        prefix = text_lower[fence_start:line_end] if line_end != -1 else text_lower[fence_start:]
         if "json" not in prefix:
             return None
 

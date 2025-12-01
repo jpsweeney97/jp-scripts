@@ -51,9 +51,7 @@ def outside_dir(tmp_path: Path) -> Path:
 class TestSimpleSymlinkEscape:
     """Test basic symlink escape scenarios."""
 
-    def test_symlink_to_outside_file(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_symlink_to_outside_file(self, workspace: Path, outside_dir: Path) -> None:
         """Symlink pointing to file outside workspace should be rejected."""
         # Create file outside workspace
         outside_file = outside_dir / "secret.txt"
@@ -66,9 +64,7 @@ class TestSimpleSymlinkEscape:
         with pytest.raises((PermissionError, PathValidationError)):
             validate_path(malicious_link, workspace)
 
-    def test_symlink_to_outside_directory(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_symlink_to_outside_directory(self, workspace: Path, outside_dir: Path) -> None:
         """Symlink pointing to directory outside workspace should be rejected."""
         malicious_link = workspace / "data"
         malicious_link.symlink_to(outside_dir)
@@ -84,9 +80,7 @@ class TestSimpleSymlinkEscape:
         with pytest.raises((PermissionError, PathValidationError)):
             validate_path(malicious_link, workspace)
 
-    def test_relative_symlink_escape(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_relative_symlink_escape(self, workspace: Path, outside_dir: Path) -> None:
         """Relative symlink that escapes workspace should be rejected."""
         # Create file outside
         outside_file = outside_dir / "data.txt"
@@ -118,9 +112,7 @@ class TestSimpleSymlinkEscape:
 class TestChainedSymlinks:
     """Test multi-hop symlink chains."""
 
-    def test_double_symlink_escape(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_double_symlink_escape(self, workspace: Path, outside_dir: Path) -> None:
         """Chain of symlinks eventually escaping should be rejected."""
         # Create target outside
         outside_file = outside_dir / "secret.txt"
@@ -186,9 +178,7 @@ class TestSystemDirectoryProtection:
         assert _is_forbidden_path(Path("/etc"))
         assert _is_forbidden_path(Path("/etc/passwd"))
 
-    def test_reject_system_path_via_symlink(
-        self, workspace: Path, tmp_path: Path
-    ) -> None:
+    def test_reject_system_path_via_symlink(self, workspace: Path, tmp_path: Path) -> None:
         """Symlink to system directory should be rejected."""
         # Create symlink to /etc (if it exists)
         if Path("/etc").exists():
@@ -209,9 +199,7 @@ class TestSystemDirectoryProtection:
 class TestPathTraversalWithSymlinks:
     """Test combined path traversal and symlink attacks."""
 
-    def test_symlink_then_traversal(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_symlink_then_traversal(self, workspace: Path, outside_dir: Path) -> None:
         """Path traversal after symlink should be blocked."""
         # Create a directory symlink inside workspace
         subdir = workspace / "subdir"
@@ -223,9 +211,7 @@ class TestPathTraversalWithSymlinks:
         with pytest.raises((PermissionError, PathValidationError)):
             validate_path(traversal_path, workspace)
 
-    def test_traversal_to_symlink(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_traversal_to_symlink(self, workspace: Path, outside_dir: Path) -> None:
         """Symlink reached via traversal should still be validated."""
         # Create nested structure
         subdir = workspace / "a" / "b"
@@ -241,9 +227,7 @@ class TestPathTraversalWithSymlinks:
         with pytest.raises((PermissionError, PathValidationError)):
             validate_path(traversal, workspace)
 
-    def test_mixed_attack_vectors(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_mixed_attack_vectors(self, workspace: Path, outside_dir: Path) -> None:
         """Combination of symlinks and traversal should be blocked."""
         # Create outside target
         outside_file = outside_dir / "secret.txt"
@@ -276,9 +260,7 @@ class TestValidateAndOpen:
             content = f.read()
             assert content == "hello world"
 
-    def test_validate_and_open_rejects_symlink(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    def test_validate_and_open_rejects_symlink(self, workspace: Path, outside_dir: Path) -> None:
         """Opening a symlink to outside should fail."""
         outside_file = outside_dir / "secret.txt"
         outside_file.write_text("secret")
@@ -349,9 +331,7 @@ class TestAsyncValidation:
         assert isinstance(result, Ok)
         assert result.value == workspace.resolve()
 
-    async def test_async_validate_rejects_escape(
-        self, workspace: Path, outside_dir: Path
-    ) -> None:
+    async def test_async_validate_rejects_escape(self, workspace: Path, outside_dir: Path) -> None:
         """Async validation should reject escapes."""
         link = workspace / "escape"
         link.symlink_to(outside_dir)
@@ -371,9 +351,7 @@ class TestAsyncValidation:
             files.append(f)
 
         # Validate all concurrently
-        results = await asyncio.gather(
-            *[validate_path_safe_async(f, workspace) for f in files]
-        )
+        results = await asyncio.gather(*[validate_path_safe_async(f, workspace) for f in files])
 
         assert all(isinstance(r, Ok) for r in results)
 

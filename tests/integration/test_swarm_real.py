@@ -96,24 +96,28 @@ def create_mock_agent(
 
         for file_path, content in file_patches.items():
             if file_path in prompt_text:
-                return json.dumps({
-                    "thought_process": f"Creating {file_path} with requested content",
-                    "criticism": None,
-                    "file_patch": f"""--- /dev/null
+                return json.dumps(
+                    {
+                        "thought_process": f"Creating {file_path} with requested content",
+                        "criticism": None,
+                        "file_patch": f"""--- /dev/null
 +++ b/{file_path}
 @@ -0,0 +1 @@
 +{content}
 """,
-                    "final_message": f"Created {file_path}",
-                })
+                        "final_message": f"Created {file_path}",
+                    }
+                )
 
         # Fallback: no-op response
-        return json.dumps({
-            "thought_process": "No specific file to modify",
-            "criticism": None,
-            "file_patch": None,
-            "final_message": "No changes needed",
-        })
+        return json.dumps(
+            {
+                "thought_process": "No specific file to modify",
+                "criticism": None,
+                "file_patch": None,
+                "final_message": "No changes needed",
+            }
+        )
 
     return mock_fetch_response
 

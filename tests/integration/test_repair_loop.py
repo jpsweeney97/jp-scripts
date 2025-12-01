@@ -62,13 +62,15 @@ class TestRepairLoopIntegration:
 
         # Mock returns the fix
         async def mock_fetch(prepared: PreparedPrompt) -> str:
-            return json.dumps({
-                "thought_process": "Detected syntax error in foo() definition",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": fix_patch,
-                "final_message": None,
-            })
+            return json.dumps(
+                {
+                    "thought_process": "Detected syntax error in foo() definition",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": fix_patch,
+                    "final_message": None,
+                }
+            )
 
         config = AppConfig(
             workspace_root=tmp_path,
@@ -117,13 +119,15 @@ class TestRepairLoopIntegration:
             """)
 
         async def mock_fetch(prepared: PreparedPrompt) -> str:
-            return json.dumps({
-                "thought_process": "Script exits with error, replacing with print",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": fix_patch,
-                "final_message": None,
-            })
+            return json.dumps(
+                {
+                    "thought_process": "Script exits with error, replacing with print",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": fix_patch,
+                    "final_message": None,
+                }
+            )
 
         config = AppConfig(
             workspace_root=tmp_path,
@@ -162,13 +166,15 @@ class TestRepairLoopIntegration:
         script.write_text("print('already works')\n", encoding="utf-8")
 
         async def mock_fetch(prepared: PreparedPrompt) -> str:
-            return json.dumps({
-                "thought_process": "No fix needed",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": None,
-                "final_message": "Code is already working",
-            })
+            return json.dumps(
+                {
+                    "thought_process": "No fix needed",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": None,
+                    "final_message": "Code is already working",
+                }
+            )
 
         config = AppConfig(
             workspace_root=tmp_path,
@@ -206,13 +212,15 @@ class TestRepairLoopIntegration:
             nonlocal call_count
             call_count += 1
             # Return patches that don't actually fix the syntax error
-            return json.dumps({
-                "thought_process": f"Attempt {call_count}",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": None,  # No patch = no fix
-                "final_message": None,
-            })
+            return json.dumps(
+                {
+                    "thought_process": f"Attempt {call_count}",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": None,  # No patch = no fix
+                    "final_message": None,
+                }
+            )
 
         config = AppConfig(
             workspace_root=tmp_path,
@@ -251,13 +259,15 @@ class TestCircuitBreaker:
         huge_content = "x" * 200_000  # ~200KB of garbage
 
         async def mock_fetch(prepared: PreparedPrompt) -> str:
-            return json.dumps({
-                "thought_process": huge_content,
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": None,
-                "final_message": None,
-            })
+            return json.dumps(
+                {
+                    "thought_process": huge_content,
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": None,
+                    "final_message": None,
+                }
+            )
 
         config = AppConfig(
             workspace_root=tmp_path,

@@ -30,9 +30,9 @@ class TestGovernancePatchBlindSpot:
 +    os.system('rm -rf /')
 """
         violations = check_compliance(diff, tmp_path)
-        assert any(
-            v.type == ViolationType.OS_SYSTEM for v in violations
-        ), f"Expected OS_SYSTEM violation, got: {violations}"
+        assert any(v.type == ViolationType.OS_SYSTEM for v in violations), (
+            f"Expected OS_SYSTEM violation, got: {violations}"
+        )
 
     def test_catches_shell_true_in_new_file(self, tmp_path: Path) -> None:
         """Governance MUST detect shell=True in NEW files."""
@@ -45,9 +45,9 @@ class TestGovernancePatchBlindSpot:
 +    subprocess.run("ls -la", shell=True)
 """
         violations = check_compliance(diff, tmp_path)
-        assert any(
-            v.type == ViolationType.SHELL_TRUE for v in violations
-        ), f"Expected SHELL_TRUE violation, got: {violations}"
+        assert any(v.type == ViolationType.SHELL_TRUE for v in violations), (
+            f"Expected SHELL_TRUE violation, got: {violations}"
+        )
 
     def test_catches_bare_except_in_new_file(self, tmp_path: Path) -> None:
         """Governance MUST detect bare except in NEW files."""
@@ -62,9 +62,9 @@ class TestGovernancePatchBlindSpot:
 +        pass
 """
         violations = check_compliance(diff, tmp_path)
-        assert any(
-            v.type == ViolationType.BARE_EXCEPT for v in violations
-        ), f"Expected BARE_EXCEPT violation, got: {violations}"
+        assert any(v.type == ViolationType.BARE_EXCEPT for v in violations), (
+            f"Expected BARE_EXCEPT violation, got: {violations}"
+        )
 
     def test_catches_violation_added_to_existing_file(self, tmp_path: Path) -> None:
         """Governance MUST detect violations ADDED to existing files.
@@ -88,9 +88,9 @@ class TestGovernancePatchBlindSpot:
 +    os.system('rm -rf /')
 """
         violations = check_compliance(diff, tmp_path)
-        assert any(
-            v.type == ViolationType.OS_SYSTEM for v in violations
-        ), f"Expected OS_SYSTEM violation, got: {violations}"
+        assert any(v.type == ViolationType.OS_SYSTEM for v in violations), (
+            f"Expected OS_SYSTEM violation, got: {violations}"
+        )
 
     def test_catches_debug_leftover_in_new_file(self, tmp_path: Path) -> None:
         """Governance MUST detect debug breakpoints in NEW files."""
@@ -103,9 +103,9 @@ class TestGovernancePatchBlindSpot:
 +    return 42
 """
         violations = check_compliance(diff, tmp_path)
-        assert any(
-            v.type == ViolationType.DEBUG_LEFTOVER for v in violations
-        ), f"Expected DEBUG_LEFTOVER violation, got: {violations}"
+        assert any(v.type == ViolationType.DEBUG_LEFTOVER for v in violations), (
+            f"Expected DEBUG_LEFTOVER violation, got: {violations}"
+        )
 
     def test_catches_sync_subprocess_in_async_new_file(self, tmp_path: Path) -> None:
         """Governance MUST detect sync subprocess in async context in NEW files."""
@@ -119,9 +119,9 @@ class TestGovernancePatchBlindSpot:
 +    return result
 """
         violations = check_compliance(diff, tmp_path)
-        assert any(
-            v.type == ViolationType.SYNC_SUBPROCESS for v in violations
-        ), f"Expected SYNC_SUBPROCESS violation, got: {violations}"
+        assert any(v.type == ViolationType.SYNC_SUBPROCESS for v in violations), (
+            f"Expected SYNC_SUBPROCESS violation, got: {violations}"
+        )
 
 
 class TestGovernancePatchMultipleFiles:

@@ -24,7 +24,9 @@ from jpscripts.core.governance import (
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check codebase for constitutional violations")
-    parser.add_argument("--strict", action="store_true", help="Exit with code 1 on fatal violations")
+    parser.add_argument(
+        "--strict", action="store_true", help="Exit with code 1 on fatal violations"
+    )
     args = parser.parse_args()
 
     src_dir = Path(__file__).resolve().parent.parent / "src"
