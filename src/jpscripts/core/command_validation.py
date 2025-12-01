@@ -305,7 +305,11 @@ def _get_binary_name(token: str) -> str:
 
 
 def _check_path_escape(token: str, workspace_root: Path) -> bool:
-    """Check if a path token would escape the workspace."""
+    """Check if a path token would escape the workspace.
+
+    Handles both absolute paths and relative paths that might contain symlinks
+    pointing outside the workspace.
+    """
     # Skip flags
     if token.startswith("-"):
         return False
@@ -314,16 +318,25 @@ def _check_path_escape(token: str, workspace_root: Path) -> bool:
     if ".." in token:
         return True
 
-    # Check absolute paths
     try:
         candidate = Path(token).expanduser()
+        workspace_resolved = workspace_root.resolve()
+
         if candidate.is_absolute():
+            # Absolute path: resolve symlinks and check containment
             resolved = candidate.resolve()
-            workspace_resolved = workspace_root.resolve()
             if not str(resolved).startswith(str(workspace_resolved)):
                 return True
-    except Exception:
-        pass  # Non-path arguments are fine
+        else:
+            # Relative path: resolve against workspace and check symlinks
+            # This catches symlinks like ./escape -> /etc/passwd
+            full_path = workspace_resolved / candidate
+            if full_path.exists():
+                resolved = full_path.resolve()
+                if not str(resolved).startswith(str(workspace_resolved)):
+                    return True
+    except (OSError, ValueError):
+        pass  # Non-path arguments or permission errors are fine
 
     return False
 

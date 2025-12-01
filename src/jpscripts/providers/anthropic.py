@@ -17,6 +17,7 @@ Usage:
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import AsyncIterator
 from contextlib import AbstractAsyncContextManager
 from typing import Protocol, cast
@@ -39,6 +40,32 @@ from jpscripts.providers import (
     ToolCall,
     ToolDefinition,
 )
+
+# Pattern to match potential API keys in error messages
+_API_KEY_PATTERN = re.compile(
+    r"""
+    # Anthropic key pattern: sk-ant-[base64 chars]
+    sk-ant-[A-Za-z0-9_\-]{20,}|
+    # Generic API key patterns that might appear in error messages
+    (?:api[_-]?key|secret|token|password|credential)
+    \s*[=:]\s*
+    ['"]?[A-Za-z0-9_\-]{16,}['"]?
+    """,
+    re.IGNORECASE | re.VERBOSE,
+)
+
+
+def _redact_api_key(message: str) -> str:
+    """Remove potential API keys from error messages to prevent leaking secrets."""
+    # Also check the environment variable value directly
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if api_key and api_key in message:
+        message = message.replace(api_key, "[REDACTED]")
+
+    # Apply pattern-based redaction for other potential secrets
+    message = _API_KEY_PATTERN.sub("[REDACTED]", message)
+
+    return message
 
 
 class _ContentBlock(Protocol):
@@ -389,29 +416,35 @@ class AnthropicProvider(BaseLLMProvider):
             self._handle_api_error(exc)
 
     def _handle_api_error(self, exc: Exception) -> None:
-        """Convert Anthropic exceptions to our error types."""
+        """Convert Anthropic exceptions to our error types.
+
+        All error messages are redacted to prevent API key leakage.
+        """
         try:
             import anthropic  # pyright: ignore[reportMissingImports]
         except ImportError:
-            raise ProviderError(str(exc)) from exc
+            raise ProviderError(_redact_api_key(str(exc))) from exc
+
+        # Redact the error message to prevent API key leakage
+        safe_msg = _redact_api_key(str(exc))
 
         if isinstance(exc, anthropic.AuthenticationError):
-            raise AuthenticationError(str(exc)) from exc
+            raise AuthenticationError(safe_msg) from exc
         if isinstance(exc, anthropic.RateLimitError):
-            raise RateLimitError(str(exc)) from exc
+            raise RateLimitError(safe_msg) from exc
         if isinstance(exc, anthropic.NotFoundError):
-            raise ModelNotFoundError(str(exc)) from exc
+            raise ModelNotFoundError(safe_msg) from exc
         if isinstance(exc, anthropic.BadRequestError):
-            msg = str(exc).lower()
-            if "context" in msg or "token" in msg:
-                raise ContextLengthError(str(exc)) from exc
-            if "content" in msg or "filter" in msg or "safety" in msg:
-                raise ContentFilterError(str(exc)) from exc
-            raise ProviderError(str(exc)) from exc
+            msg_lower = safe_msg.lower()
+            if "context" in msg_lower or "token" in msg_lower:
+                raise ContextLengthError(safe_msg) from exc
+            if "content" in msg_lower or "filter" in msg_lower or "safety" in msg_lower:
+                raise ContentFilterError(safe_msg) from exc
+            raise ProviderError(safe_msg) from exc
         if isinstance(exc, anthropic.APIError):
-            raise ProviderError(str(exc)) from exc
+            raise ProviderError(safe_msg) from exc
 
-        raise ProviderError(str(exc)) from exc
+        raise ProviderError(safe_msg) from exc
 
 
 __all__ = [

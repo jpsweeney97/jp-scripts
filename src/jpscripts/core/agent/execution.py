@@ -225,8 +225,12 @@ async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
         return
 
     try:
+        # Disable git hooks to prevent malicious hook execution during revert.
+        # The -c flag must come before the subcommand.
         proc = await asyncio.create_subprocess_exec(
             "git",
+            "-c",
+            "core.hooksPath=/dev/null",
             "checkout",
             "--",
             *[str(path) for path in safe_paths],

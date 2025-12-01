@@ -6,6 +6,7 @@ import shutil
 from pathlib import Path
 
 from jpscripts.core.context import smart_read_context
+from jpscripts.core.rate_limit import RateLimiter
 from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
 from jpscripts.core.security import (
@@ -16,9 +17,21 @@ from jpscripts.core.security import (
 )
 from jpscripts.mcp import logger, tool, tool_error_handler
 
+# Rate limiter for MCP file operations to prevent DoS abuse.
+# Allows 100 operations per minute (generous for normal use, limiting for abuse).
+_file_rate_limiter = RateLimiter(max_calls=100, window_seconds=60.0)
+
 
 class ToolExecutionError(RuntimeError):
     """Raised when a patch operation cannot be completed."""
+
+
+async def _check_rate_limit() -> str | None:
+    """Check rate limit and return error message if exceeded, None otherwise."""
+    if not await _file_rate_limiter.acquire():
+        wait_time = _file_rate_limiter.time_until_available()
+        return f"Error: Rate limit exceeded. Too many file operations. Try again in {wait_time:.1f} seconds."
+    return None
 
 
 @tool()
@@ -28,6 +41,9 @@ async def read_file(path: str) -> str:
     Read the content of a file (truncated to JP_MAX_FILE_CONTEXT_CHARS).
     Use this to inspect code, config files, or logs.
     """
+    if error := await _check_rate_limit():
+        return error
+
     ctx = get_runtime()
     root = ctx.workspace_root
 
@@ -61,6 +77,9 @@ async def read_file_paged(path: str, offset: int = 0, limit: int = 20000) -> str
     """
     Read a file segment starting at byte offset. Use this to read large files.
     """
+    if error := await _check_rate_limit():
+        return error
+
     ctx = get_runtime()
     root = ctx.workspace_root
 
@@ -94,6 +113,9 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
     Create or overwrite a file with the given content.
     Enforces workspace sandbox. Requires overwrite=True to replace existing files.
     """
+    if error := await _check_rate_limit():
+        return error
+
     ctx = get_runtime()
 
     if ctx.dry_run:
@@ -135,6 +157,9 @@ async def list_directory(path: str) -> str:
     List contents of a directory (like ls).
     Returns a list of 'd: dir_name' and 'f: file_name'.
     """
+    if error := await _check_rate_limit():
+        return error
+
     ctx = get_runtime()
     root = ctx.workspace_root
 
@@ -296,6 +321,9 @@ async def apply_patch(path: str, diff: str) -> str:
     Returns:
         Status message describing whether the patch was applied.
     """
+    if error := await _check_rate_limit():
+        return error
+
     ctx = get_runtime()
     root = ctx.workspace_root
 
