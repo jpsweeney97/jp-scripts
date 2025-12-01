@@ -192,6 +192,8 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
                 attach_recent=False,
                 include_diff=False,
                 fetch_response=fake_fetch,
+                app_config=config,
+                workspace_root=tmp_path,
                 auto_archive=True,
                 max_retries=1,
                 keep_failed=False,

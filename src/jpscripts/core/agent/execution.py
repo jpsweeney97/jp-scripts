@@ -8,13 +8,13 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
+from typing import Any
 
 from pydantic import ValidationError
-from rich import box
-from rich.panel import Panel
 
 from jpscripts.core import security
 from jpscripts.core.agent.context import expand_context_paths
@@ -29,7 +29,8 @@ from jpscripts.core.agent.strategies import (
     build_strategy_plan,
     detect_repeated_failure,
 )
-from jpscripts.core.console import console, get_logger
+from jpscripts.core.config import AppConfig
+from jpscripts.core.console import get_logger
 from jpscripts.core.engine import (
     AgentEngine,
     AgentResponse,
@@ -40,7 +41,6 @@ from jpscripts.core.engine import (
 )
 from jpscripts.core.memory import save_memory
 from jpscripts.core.result import Err, Ok
-from jpscripts.core.runtime import get_runtime
 from jpscripts.core.system import run_safe_shell
 
 logger = get_logger(__name__)
@@ -54,6 +54,34 @@ class SecurityError(RuntimeError):
 
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
 ResponseFetcher = Callable[[PreparedPrompt], Awaitable[str]]
+
+
+class EventKind(Enum):
+    """Types of events from the repair loop."""
+
+    ATTEMPT_START = "attempt_start"
+    COMMAND_SUCCESS = "command_success"
+    COMMAND_FAILED = "command_failed"
+    TOOL_CALL = "tool_call"
+    TOOL_OUTPUT = "tool_output"
+    PATCH_PROPOSED = "patch_proposed"
+    PATCH_APPLIED = "patch_applied"
+    SYNTAX_ERROR = "syntax_error"
+    DUPLICATE_PATCH = "duplicate_patch"
+    LOOP_DETECTED = "loop_detected"
+    VALIDATION_ERROR = "validation_error"
+    NO_PATCH = "no_patch"
+    REVERTING = "reverting"
+    COMPLETE = "complete"
+
+
+@dataclass(frozen=True, slots=True)
+class AgentEvent:
+    """Structured event from repair loop operations."""
+
+    kind: EventKind
+    message: str
+    data: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -162,11 +190,14 @@ class _TurnResult:
     """Error message if turn failed."""
     applied_paths: list[Path] | None = None
     """Paths modified by patch application."""
+    events: list[AgentEvent] = field(default_factory=list)
+    """Events generated during this turn."""
 
 
 async def _handle_success_and_archive(
     auto_archive: bool,
     fetch_response: ResponseFetcher,
+    config: AppConfig,
     base_prompt: str,
     command: str,
     last_error: str | None,
@@ -177,6 +208,7 @@ async def _handle_success_and_archive(
     if auto_archive:
         await _archive_session_summary(
             fetch_response,
+            config,
             base_prompt=base_prompt,
             command=command,
             last_error=last_error,
@@ -190,22 +222,31 @@ async def _process_tool_call(
     tool_call: ToolCall,
     thought: str,
     history: list[Message],
-) -> None:
-    """Process a tool call from the agent."""
+) -> list[AgentEvent]:
+    """Process a tool call from the agent.
+
+    Returns:
+        List of events generated during tool processing.
+    """
+    events: list[AgentEvent] = []
     tool_name = tool_call.tool
     tool_args = tool_call.arguments
-    console.print(
-        Panel(
-            f"Agent invoking {tool_name} with args {tool_args}",
-            title="Tool Call",
-            box=box.SIMPLE,
+
+    events.append(
+        AgentEvent(
+            EventKind.TOOL_CALL,
+            f"Agent invoking {tool_name}",
+            {"tool_name": tool_name, "arguments": tool_args},
         )
     )
+
     try:
         output = await engine.execute_tool(tool_call)
     except Exception as exc:
         output = f"Tool execution failed: {exc}"
-    console.print(Panel(output, title="Tool Output", box=box.SIMPLE, style="cyan"))
+
+    events.append(AgentEvent(EventKind.TOOL_OUTPUT, output, {"output": output}))
+
     history_entry = (
         "<Turn>\n"
         f"Agent thought: {thought}\n"
@@ -214,6 +255,8 @@ async def _process_tool_call(
         "</Turn>"
     )
     _append_history(history, Message(role="system", content=history_entry))
+
+    return events
 
 
 async def _process_patch(
@@ -225,9 +268,13 @@ async def _process_patch(
     history: list[Message],
 ) -> _TurnResult:
     """Process a patch from the agent."""
+    events: list[AgentEvent] = []
     patch_hash = compute_patch_hash(patch_text)
+
     if patch_hash in seen_patch_hashes:
-        console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
+        events.append(
+            AgentEvent(EventKind.DUPLICATE_PATCH, "Duplicate patch detected - skipping.")
+        )
         _append_history(
             history,
             Message(
@@ -235,15 +282,28 @@ async def _process_patch(
                 content="<GovernanceViolation> You proposed a patch identical to a previous failed attempt. You are looping. Try a different approach. </GovernanceViolation>",
             ),
         )
-        return _TurnResult(should_break=False)
+        return _TurnResult(should_break=False, events=events)
 
     seen_patch_hashes.add(patch_hash)
-    console.print("[green]Agent proposed a fix.[/green]")
+    events.append(AgentEvent(EventKind.PATCH_PROPOSED, "Agent proposed a fix."))
     applied_paths = await apply_patch_text(patch_text, root)
+    events.append(
+        AgentEvent(
+            EventKind.PATCH_APPLIED,
+            f"Applied patch to {len(applied_paths)} file(s)",
+            {"files": [str(p) for p in applied_paths]},
+        )
+    )
     syntax_error = await verify_syntax(applied_paths)
 
     if syntax_error:
-        console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
+        events.append(
+            AgentEvent(
+                EventKind.SYNTAX_ERROR,
+                "Syntax check failed",
+                {"error": syntax_error},
+            )
+        )
         _append_history(
             history,
             Message(
@@ -258,10 +318,10 @@ async def _process_patch(
             ),
         )
         changed_files.update(applied_paths)
-        return _TurnResult(should_break=False, error_message=syntax_error)
+        return _TurnResult(should_break=False, error_message=syntax_error, events=events)
 
     changed_files.update(applied_paths)
-    return _TurnResult(should_break=True, applied_paths=applied_paths)
+    return _TurnResult(should_break=True, applied_paths=applied_paths, events=events)
 
 
 def _handle_no_patch(
@@ -271,7 +331,7 @@ def _handle_no_patch(
 ) -> _TurnResult:
     """Handle when agent returns no patch."""
     message = agent_response.final_message or "Agent returned no patch content."
-    console.print(f"[yellow]{message}[/yellow]")
+    events = [AgentEvent(EventKind.NO_PATCH, message, {"message": message})]
     _append_history(
         history,
         Message(
@@ -285,7 +345,7 @@ def _handle_no_patch(
             ),
         ),
     )
-    return _TurnResult(should_break=True)
+    return _TurnResult(should_break=True, events=events)
 
 
 @dataclass
@@ -296,6 +356,8 @@ class _LoopContext:
     strategy_override: str | None
     reasoning_hint: str | None
     temperature_override: float | None
+    event: AgentEvent | None = None
+    """Event to emit if loop was detected."""
 
 
 def _setup_loop_context(
@@ -304,9 +366,11 @@ def _setup_loop_context(
 ) -> _LoopContext:
     """Set up context based on loop detection."""
     loop_detected = detect_repeated_failure(attempt_history, current_error)
+    event: AgentEvent | None = None
     if loop_detected:
-        console.print(
-            "[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]"
+        event = AgentEvent(
+            EventKind.LOOP_DETECTED,
+            "Repeated failure detected; applying strategy override and higher reasoning effort.",
         )
     return _LoopContext(
         loop_detected=loop_detected,
@@ -317,6 +381,7 @@ def _setup_loop_context(
             else None
         ),
         temperature_override=0.7 if loop_detected else None,
+        event=event,
     )
 
 
@@ -381,6 +446,7 @@ async def verify_syntax(files: list[Path]) -> str | None:
 
 async def _archive_session_summary(
     fetch_response: ResponseFetcher,
+    config: AppConfig,
     *,
     base_prompt: str,
     command: str,
@@ -388,8 +454,6 @@ async def _archive_session_summary(
     model: str | None,
     web_access: bool = False,
 ) -> None:
-    runtime = get_runtime()
-    config = runtime.config
     summary_prompt = (
         "Summarize the error fixed and the solution applied in one sentence for a knowledge base.\n"
         f"Command: {command}\n"
@@ -487,6 +551,8 @@ class RepairLoopOrchestrator:
         model: str | None,
         fetch_response: ResponseFetcher,
         config: RepairLoopConfig,
+        app_config: AppConfig,
+        workspace_root: Path,
     ) -> None:
         """Initialize the repair loop orchestrator.
 
@@ -496,6 +562,8 @@ class RepairLoopOrchestrator:
             model: LLM model ID to use.
             fetch_response: Async function to fetch LLM responses.
             config: Configuration for the repair loop.
+            app_config: Application configuration (injected).
+            workspace_root: Workspace root path (injected).
         """
         # Configuration (immutable)
         self.base_prompt = base_prompt
@@ -503,6 +571,8 @@ class RepairLoopOrchestrator:
         self.model = model
         self.fetch_response = fetch_response
         self.loop_config = config
+        self._app_config = app_config
+        self._workspace_root = workspace_root
 
         # State (mutable, exposed for testing)
         self.changed_files: set[Path] = set()
@@ -512,16 +582,15 @@ class RepairLoopOrchestrator:
 
         # Internal state (set during _setup)
         self._root: Path | None = None
-        self._runtime_config: object | None = None
+        self._runtime_config: AppConfig | None = None
         self._strategies: list[StrategyConfig] = []
         self._attempt_cap: int = 0
 
     def _setup(self) -> None:
-        """Initialize runtime state from context."""
-        runtime = get_runtime()
-        self._runtime_config = runtime.config
+        """Initialize runtime state from injected configuration."""
+        self._runtime_config = self._app_config
         self._root = security.validate_workspace_root(
-            runtime.workspace_root or runtime.config.notes_dir
+            self._workspace_root or self._app_config.notes_dir
         )
         self._attempt_cap = max(1, self.loop_config.max_retries)
         self._strategies = build_strategy_plan(self._attempt_cap)
@@ -590,11 +659,11 @@ class RepairLoopOrchestrator:
         current_error: str,
         loop_ctx: _LoopContext,
         dynamic_paths: set[Path],
-    ) -> str:
+    ) -> AsyncIterator[AgentEvent]:
         """Execute the inner turn loop for agent interactions.
 
-        Returns:
-            The current error message (may be updated by turns).
+        Yields:
+            AgentEvent objects as the turn progresses.
         """
         assert self._root is not None
         config = self._runtime_config
@@ -634,7 +703,11 @@ class RepairLoopOrchestrator:
                 agent_response = await engine.step(self.history)
             except ValidationError as exc:
                 validation_error = f"Agent response validation failed: {exc}"
-                console.print(f"[red]{validation_error}[/red]")
+                yield AgentEvent(
+                    EventKind.VALIDATION_ERROR,
+                    validation_error,
+                    {"error": validation_error},
+                )
                 _append_history(
                     self.history,
                     Message(
@@ -653,7 +726,9 @@ class RepairLoopOrchestrator:
             thought = agent_response.thought_process
 
             if tool_call:
-                await _process_tool_call(engine, tool_call, thought, self.history)
+                events = await _process_tool_call(engine, tool_call, thought, self.history)
+                for event in events:
+                    yield event
                 continue
 
             if patch_text:
@@ -665,69 +740,97 @@ class RepairLoopOrchestrator:
                     self.changed_files,
                     self.history,
                 )
+                for event in result.events:
+                    yield event
                 if result.error_message:
                     current_error = result.error_message
                 if result.should_break:
                     break
                 continue
 
-            _handle_no_patch(agent_response, thought, self.history)
+            result = _handle_no_patch(agent_response, thought, self.history)
+            for event in result.events:
+                yield event
             break
 
-        return current_error
-
-    async def _run_attempt(self, attempt: int) -> tuple[bool, str]:
+    async def _run_attempt(self, attempt: int) -> AsyncIterator[AgentEvent]:
         """Execute a single repair attempt.
 
         Args:
             attempt: The attempt number (0-indexed).
 
-        Returns:
-            Tuple of (success, current_error).
+        Yields:
+            AgentEvent objects as the attempt progresses.
+            COMMAND_SUCCESS indicates the attempt succeeded.
         """
         assert self._root is not None
         config = self._runtime_config
 
         strategy_cfg = self._strategies[min(attempt, len(self._strategies) - 1)]
-        console.print(
-            f"[cyan]Attempt {attempt + 1}/{self._attempt_cap} "
-            f"({strategy_cfg.label}): running `{self.command}`[/cyan]"
+        yield AgentEvent(
+            EventKind.ATTEMPT_START,
+            f"Attempt {attempt + 1}/{self._attempt_cap} ({strategy_cfg.label})",
+            {
+                "attempt": attempt + 1,
+                "max": self._attempt_cap,
+                "strategy": strategy_cfg.label,
+                "command": self.command,
+            },
         )
 
         # Initial command run
         exit_code, stdout, stderr = await _run_command(self.command, self._root)
         if exit_code == 0:
-            console.print("[green]Command succeeded. Exiting repair loop.[/green]")
-            return True, ""
+            yield AgentEvent(
+                EventKind.COMMAND_SUCCESS,
+                "Command succeeded. Exiting repair loop.",
+                {"attempt": attempt + 1, "phase": "initial"},
+            )
+            return
 
         current_error = _summarize_output(
             stdout,
             stderr,
             config.max_command_output_chars,  # type: ignore[union-attr]
         )
-        console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
+        yield AgentEvent(
+            EventKind.COMMAND_FAILED,
+            f"Attempt {attempt + 1} failed",
+            {"attempt": attempt + 1, "error": current_error, "phase": "initial"},
+        )
 
         # Set up loop context and dynamic paths
         loop_ctx = self._get_loop_context(current_error)
+        if loop_ctx.event:
+            yield loop_ctx.event
         dynamic_paths = await self._get_dynamic_paths(strategy_cfg.name, current_error)
 
-        # Run the turn loop
-        current_error = await self._run_turn_loop(
+        # Run the turn loop and yield all events
+        async for event in self._run_turn_loop(
             strategy_cfg, current_error, loop_ctx, dynamic_paths
-        )
+        ):
+            yield event
 
         # Verify after turns
         exit_code, stdout, stderr = await _run_command(self.command, self._root)
         if exit_code == 0:
-            console.print("[green]Command succeeded after applying fixes.[/green]")
-            return True, current_error
+            yield AgentEvent(
+                EventKind.COMMAND_SUCCESS,
+                "Command succeeded after applying fixes.",
+                {"attempt": attempt + 1, "phase": "verification", "after_fixes": True},
+            )
+            return
 
         failure_msg = _summarize_output(
             stdout,
             stderr,
             config.max_command_output_chars,  # type: ignore[union-attr]
         )
-        console.print(f"[yellow]Verification failed:[/yellow] {failure_msg}")
+        yield AgentEvent(
+            EventKind.COMMAND_FAILED,
+            "Verification failed",
+            {"attempt": attempt + 1, "error": failure_msg, "phase": "verification"},
+        )
 
         # Record attempt history
         self.attempt_history.append(
@@ -746,40 +849,53 @@ class RepairLoopOrchestrator:
             ),
         )
 
-        return False, failure_msg
-
-    async def _verify_final(self) -> bool:
+    async def _verify_final(self) -> AsyncIterator[AgentEvent]:
         """Perform final verification after all attempts.
 
-        Returns:
-            True if the final verification succeeded.
+        Yields:
+            AgentEvent objects. COMMAND_SUCCESS indicates success.
         """
         assert self._root is not None
         config = self._runtime_config
 
-        console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
+        yield AgentEvent(
+            EventKind.COMMAND_FAILED,
+            "Max retries reached. Verifying one last time...",
+            {"phase": "final_verification_start"},
+        )
         exit_code, stdout, stderr = await _run_command(self.command, self._root)
 
         if exit_code == 0:
-            console.print("[green]Command succeeded after final verification.[/green]")
-            return True
+            yield AgentEvent(
+                EventKind.COMMAND_SUCCESS,
+                "Command succeeded after final verification.",
+                {"phase": "final_verification"},
+            )
+            return
 
-        console.print(
-            f"[red]Command still failing:[/red] "
-            f"{_summarize_output(stdout, stderr, config.max_command_output_chars)}"  # type: ignore[union-attr]
+        error_msg = _summarize_output(
+            stdout, stderr, config.max_command_output_chars  # type: ignore[union-attr]
+        )
+        yield AgentEvent(
+            EventKind.COMMAND_FAILED,
+            "Command still failing",
+            {"error": error_msg, "phase": "final"},
         )
 
         if self.changed_files and not self.loop_config.keep_failed:
-            console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
+            yield AgentEvent(
+                EventKind.REVERTING,
+                "Reverting changes from failed attempts.",
+                {"files": [str(p) for p in self.changed_files]},
+            )
             await _revert_changed_files(list(self.changed_files), self._root)
 
-        return False
-
-    async def run(self) -> bool:
+    async def run(self) -> AsyncIterator[AgentEvent]:
         """Execute the autonomous repair loop.
 
-        Returns:
-            True if the repair succeeded, False otherwise.
+        Yields:
+            AgentEvent objects as the repair progresses.
+            The final event is COMPLETE with data["success"] indicating result.
         """
         global _ACTIVE_ROOT
         self._setup()
@@ -792,11 +908,21 @@ class RepairLoopOrchestrator:
             last_error: str | None = None
 
             for attempt in range(self._attempt_cap):
-                success, current_error = await self._run_attempt(attempt)
+                success = False
+                async for event in self._run_attempt(attempt):
+                    yield event
+                    # Track success from COMMAND_SUCCESS events
+                    if event.kind == EventKind.COMMAND_SUCCESS:
+                        success = True
+                    # Track last error for archiving
+                    if event.kind == EventKind.COMMAND_FAILED:
+                        last_error = event.data.get("error")
+
                 if success:
                     await _handle_success_and_archive(
                         self.loop_config.auto_archive,
                         self.fetch_response,
+                        self._app_config,
                         self.base_prompt,
                         self.command,
                         last_error
@@ -804,23 +930,43 @@ class RepairLoopOrchestrator:
                         self.model,
                         self.loop_config.web_access,
                     )
-                    return True
-                last_error = current_error
+                    yield AgentEvent(
+                        EventKind.COMPLETE,
+                        "Repair succeeded",
+                        {"success": True},
+                    )
+                    return
 
             # Final verification
-            if await self._verify_final():
+            final_success = False
+            async for event in self._verify_final():
+                yield event
+                if event.kind == EventKind.COMMAND_SUCCESS:
+                    final_success = True
+
+            if final_success:
                 await _handle_success_and_archive(
                     self.loop_config.auto_archive,
                     self.fetch_response,
+                    self._app_config,
                     self.base_prompt,
                     self.command,
                     self.attempt_history[-1].last_error if self.attempt_history else None,
                     self.model,
                     self.loop_config.web_access,
                 )
-                return True
+                yield AgentEvent(
+                    EventKind.COMPLETE,
+                    "Repair succeeded after final verification",
+                    {"success": True},
+                )
+                return
 
-            return False
+            yield AgentEvent(
+                EventKind.COMPLETE,
+                "Repair failed after exhausting all attempts",
+                {"success": False},
+            )
         finally:
             _ACTIVE_ROOT = previous_active_root  # pyright: ignore[reportConstantRedefinition]
 
@@ -833,6 +979,8 @@ async def run_repair_loop(
     attach_recent: bool,
     include_diff: bool,
     fetch_response: ResponseFetcher,
+    app_config: AppConfig,
+    workspace_root: Path,
     auto_archive: bool = True,
     max_retries: int = 3,
     keep_failed: bool = False,
@@ -841,7 +989,7 @@ async def run_repair_loop(
     """Execute an autonomous repair loop (backward-compatible wrapper).
 
     This function wraps RepairLoopOrchestrator for backward compatibility
-    with existing callers.
+    with existing callers. Events are consumed internally without rendering.
 
     Args:
         base_prompt: The user's repair instruction.
@@ -850,6 +998,8 @@ async def run_repair_loop(
         attach_recent: Attach recently modified files to context.
         include_diff: Include git diff in context.
         fetch_response: Async function to fetch LLM responses.
+        app_config: Application configuration (injected).
+        workspace_root: Workspace root path (injected).
         auto_archive: Archive successful fixes to memory.
         max_retries: Maximum repair attempts before giving up.
         keep_failed: Keep changes even if repair loop fails.
@@ -872,13 +1022,22 @@ async def run_repair_loop(
         model=model,
         fetch_response=fetch_response,
         config=config,
+        app_config=app_config,
+        workspace_root=workspace_root,
     )
-    return await orchestrator.run()
+    # Consume events silently and extract final success status
+    success = False
+    async for event in orchestrator.run():
+        if event.kind == EventKind.COMPLETE:
+            success = event.data.get("success", False)
+    return success
 
 
 __all__ = [
     "STRATEGY_OVERRIDE_TEXT",
+    "AgentEvent",
     "AttemptContext",
+    "EventKind",
     "PatchFetcher",
     "RepairLoopConfig",
     "RepairLoopOrchestrator",

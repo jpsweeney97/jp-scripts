@@ -23,6 +23,7 @@ from rich import box
 from rich.panel import Panel
 
 from jpscripts.core.agent import (
+    EventKind,
     PreparedPrompt,
     RepairLoopConfig,
     RepairLoopOrchestrator,
@@ -164,6 +165,91 @@ async def _fetch_agent_response(
 
 
 # ---------------------------------------------------------------------------
+# Event consumer for repair loop
+# ---------------------------------------------------------------------------
+
+
+async def _run_repair_loop_with_events(orchestrator: RepairLoopOrchestrator) -> bool:
+    """Consume repair loop events and render UI.
+
+    Args:
+        orchestrator: The configured repair loop orchestrator.
+
+    Returns:
+        True if the repair succeeded, False otherwise.
+    """
+    success = False
+
+    async for event in orchestrator.run():
+        match event.kind:
+            case EventKind.ATTEMPT_START:
+                console.print(
+                    f"[cyan]Attempt {event.data['attempt']}/{event.data['max']} "
+                    f"({event.data['strategy']}): running `{event.data['command']}`[/cyan]"
+                )
+            case EventKind.COMMAND_SUCCESS:
+                phase = event.data.get("phase", "")
+                if phase == "initial":
+                    console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+                elif event.data.get("after_fixes"):
+                    console.print("[green]Command succeeded after applying fixes.[/green]")
+                elif phase == "final_verification":
+                    console.print("[green]Command succeeded after final verification.[/green]")
+                else:
+                    console.print(f"[green]{event.message}[/green]")
+            case EventKind.COMMAND_FAILED:
+                phase = event.data.get("phase", "")
+                error = event.data.get("error", "")
+                if phase == "initial":
+                    console.print(f"[yellow]{event.message}:[/yellow] {error}")
+                elif phase == "verification":
+                    console.print(f"[yellow]Verification failed:[/yellow] {error}")
+                elif phase == "final_verification_start":
+                    console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
+                elif phase == "final":
+                    console.print(f"[red]Command still failing:[/red] {error}")
+                else:
+                    console.print(f"[yellow]{event.message}:[/yellow] {error}")
+            case EventKind.TOOL_CALL:
+                console.print(
+                    Panel(
+                        f"Agent invoking {event.data['tool_name']} with args {event.data['arguments']}",
+                        title="Tool Call",
+                        box=box.SIMPLE,
+                    )
+                )
+            case EventKind.TOOL_OUTPUT:
+                console.print(
+                    Panel(event.data["output"], title="Tool Output", box=box.SIMPLE, style="cyan")
+                )
+            case EventKind.PATCH_PROPOSED:
+                console.print("[green]Agent proposed a fix.[/green]")
+            case EventKind.PATCH_APPLIED:
+                pass  # Implied by PATCH_PROPOSED
+            case EventKind.SYNTAX_ERROR:
+                console.print(
+                    f"[red]Syntax Check Failed (Self-Correction):[/red] {event.data['error']}"
+                )
+            case EventKind.DUPLICATE_PATCH:
+                console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
+            case EventKind.LOOP_DETECTED:
+                console.print(
+                    "[yellow]Repeated failure detected; applying strategy override "
+                    "and higher reasoning effort.[/yellow]"
+                )
+            case EventKind.VALIDATION_ERROR:
+                console.print(f"[red]{event.message}[/red]")
+            case EventKind.NO_PATCH:
+                console.print(f"[yellow]{event.data.get('message', event.message)}[/yellow]")
+            case EventKind.REVERTING:
+                console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
+            case EventKind.COMPLETE:
+                success = event.data.get("success", False)
+
+    return success
+
+
+# ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
 
@@ -285,8 +371,10 @@ def codex_exec(
                 keep_failed=keep_failed,
                 web_access=web,
             ),
+            app_config=state.config,
+            workspace_root=state.runtime_ctx.workspace_root,
         )
-        success = asyncio.run(orchestrator.run())
+        success = asyncio.run(_run_repair_loop_with_events(orchestrator))
         if not success:
             console.print("[red]Repair loop exhausted without a clean run.[/red]")
         return

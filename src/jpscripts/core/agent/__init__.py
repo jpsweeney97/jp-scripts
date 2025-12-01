@@ -25,6 +25,8 @@ from jpscripts.core.agent.context import (
 
 # Export from execution module
 from jpscripts.core.agent.execution import (
+    AgentEvent,
+    EventKind,
     PatchFetcher,
     RepairLoopConfig,
     RepairLoopOrchestrator,
@@ -58,7 +60,9 @@ from jpscripts.core.engine import (
 __all__ = [
     "AGENT_TEMPLATE_NAME",
     "GOVERNANCE_ANTI_PATTERNS",
+    "AgentEvent",
     "AttemptContext",
+    "EventKind",
     "PatchFetcher",
     "PreparedPrompt",
     "RepairLoopConfig",
