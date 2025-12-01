@@ -23,6 +23,7 @@ dependencies = [
   "tiktoken>=0.7.0",
   "watchdog>=4.0.0",
   "mcp>=0.1.0,<2",
+  "fastmcp>=2.0.0",
 ]
 
 [project.optional-dependencies]

@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextvars
 import inspect
 
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
 
 from jpscripts.core.config import AppConfig, load_config
 from jpscripts.core.runtime import RuntimeContext, _runtime_ctx
