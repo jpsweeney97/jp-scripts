@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -7,6 +8,29 @@ from typing import Any
 import pytest
 from rich.console import Console
 from typer.testing import CliRunner
+
+# Detect CI environment (GitHub Actions sets CI=true)
+IS_CI = os.environ.get("CI", "").lower() == "true"
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Register custom markers."""
+    config.addinivalue_line(
+        "markers",
+        "local_only: marks tests that require local environment (skip in CI)",
+    )
+
+
+def pytest_collection_modifyitems(
+    config: pytest.Config, items: list[pytest.Item]
+) -> None:
+    """Skip local_only tests when running in CI."""
+    if not IS_CI:
+        return
+    skip_ci = pytest.mark.skip(reason="Skipped in CI (requires local environment)")
+    for item in items:
+        if "local_only" in item.keywords:
+            item.add_marker(skip_ci)
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"

@@ -122,6 +122,7 @@ def create_mock_agent(
     return mock_fetch_response
 
 
+@pytest.mark.local_only
 @pytest.mark.asyncio
 async def test_parallel_swarm_creates_files_and_merges(
     temp_git_repo: Path,

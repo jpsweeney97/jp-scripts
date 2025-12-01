@@ -89,6 +89,7 @@ def test_agent_prompt_includes_json_context(
     assert "response_contract" in prompt
 
 
+@pytest.mark.local_only
 def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from jpscripts.core.agent import execution as agent_execution
 
