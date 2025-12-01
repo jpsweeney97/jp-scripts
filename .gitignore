@@ -39,5 +39,8 @@ tmp-repo-test/
 fake_*.py
 *.log
 
+# Generated documentation
+docs/api/
+
 # Local notes/audits
 TECH_DEBT_AUDIT.md

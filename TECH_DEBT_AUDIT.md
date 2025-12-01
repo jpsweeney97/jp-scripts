@@ -807,31 +807,39 @@ This is the authoritative, sequenced checklist of ALL items. Work through in ord
 ### Phase 12: Documentation (Days 36-40)
 *Final polish for contributor experience.*
 
-- [ ] **12.1** 📄 Expand CONTRIBUTING.md - testing guidelines (1 hour)
+- [✅ 2025-12-01] **12.1** 📄 Expand CONTRIBUTING.md - testing guidelines (1 hour)
       Content: How to run tests, pytest markers, coverage expectations
+      Note: Expanded from 46 to 460 lines with comprehensive testing guide
 
-- [ ] **12.2** 📄 Expand CONTRIBUTING.md - git workflow (30 min)
+- [✅ 2025-12-01] **12.2** 📄 Expand CONTRIBUTING.md - git workflow (30 min)
       Content: Branch naming, PR conventions, commit messages
+      Note: Added conventional commits guide and PR process
 
-- [ ] **12.3** 📄 Expand CONTRIBUTING.md - debugging guide (1 hour)
+- [✅ 2025-12-01] **12.3** 📄 Expand CONTRIBUTING.md - debugging guide (1 hour)
       Content: Common issues, debugging tools, logging
+      Note: Added import errors, test failures, type errors, logging, tracing
 
-- [ ] **12.4** 📄 Expand CONTRIBUTING.md - release process (30 min)
+- [✅ 2025-12-01] **12.4** 📄 Expand CONTRIBUTING.md - release process (30 min)
       Content: Versioning, changelog, deployment
+      Note: Added semantic versioning and release checklist
 
-- [ ] **12.5** 📄 Create architecture diagram - module interactions (2 hours)
-      Location: `docs/` or README
+- [✅ 2025-12-01] **12.5** 📄 Create architecture diagram - module interactions (2 hours)
+      Location: `docs/ARCHITECTURE.md`
       Tool: Mermaid
+      Note: Created comprehensive module interaction graph
 
-- [ ] **12.6** 📄 Create architecture diagram - data flow (1.5 hours)
+- [✅ 2025-12-01] **12.6** 📄 Create architecture diagram - data flow (1.5 hours)
       Content: Request → Agent → Provider → Response flow
+      Note: Added sequence diagram + request flow + security architecture
 
-- [ ] **12.7** 📄 Create "Extending jpscripts" guide (2 hours)
+- [✅ 2025-12-01] **12.7** 📄 Create "Extending jpscripts" guide (2 hours)
       Content: How to add custom agent, command, MCP tool
+      Note: Created docs/EXTENDING.md with examples for CLI, MCP, providers, patterns
 
-- [ ] **12.8** 📄 Set up API documentation generation (2 hours)
-      Tool: Sphinx or pdoc
-      Action: Configure, generate initial docs
+- [✅ 2025-12-01] **12.8** 📄 Set up API documentation generation (2 hours)
+      Tool: pdoc
+      Action: Added pdoc to dev deps, `make docs` and `make docs-serve` targets
+      Note: Created docs/README.md with usage instructions
 
 ---
 
@@ -892,8 +900,8 @@ This is the authoritative, sequenced checklist of ALL items. Work through in ord
 
 **Started**: 2025-11-30
 **Last Updated**: 2025-12-01
-**Current Phase**: 11 (complete)
-**Current Item**: 12.1 (next: CONTRIBUTING.md - testing guidelines)
+**Current Phase**: 12 (complete)
+**Current Item**: 13.1 (next: Document Result vs Exception usage)
 **Baseline**: 507 passed, 4 failed (test_repair_loop.py), 53% coverage
 **Current**: 674 passed, 0 failed, ~57% coverage
 
@@ -911,9 +919,9 @@ This is the authoritative, sequenced checklist of ALL items. Work through in ord
 | 9 | 8 | 8 | 0 | 0 | 0 | 0 |
 | 10 | 3 | 3 | 0 | 0 | 0 | 0 |
 | 11 | 5 | 5 | 0 | 0 | 0 | 0 |
-| 12 | 8 | 0 | 0 | 0 | 0 | 8 |
+| 12 | 8 | 8 | 0 | 0 | 0 | 0 |
 | 13 | 5 | 0 | 0 | 0 | 0 | 5 |
-| **Total** | **89** | **75** | **1** | **0** | **0** | **13** |
+| **Total** | **89** | **83** | **1** | **0** | **0** | **5** |
 
 ---
 
