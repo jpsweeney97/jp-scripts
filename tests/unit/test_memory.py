@@ -100,9 +100,12 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
         def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
-    monkeypatch.setattr(memory_core, "_load_lancedb_dependencies", lambda: ("db", object))
-    monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
-    monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
+    # Patch at the module where the import occurs
+    monkeypatch.setattr(
+        "jpscripts.core.memory.store._load_lancedb_dependencies", lambda: ("db", object)
+    )
+    monkeypatch.setattr("jpscripts.core.memory.store.LanceDBStore", FakeStore)
+    monkeypatch.setattr("jpscripts.core.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
         "vector", config=_dummy_config(store, use_semantic=True), store_path=store
@@ -167,9 +170,12 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
         def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
-    monkeypatch.setattr(memory_core, "_load_lancedb_dependencies", lambda: ("db", object))
-    monkeypatch.setattr(memory_core, "EmbeddingClient", FakeEmbeddingClient)
-    monkeypatch.setattr(memory_core, "LanceDBStore", FakeStore)
+    # Patch at the module where the import occurs
+    monkeypatch.setattr(
+        "jpscripts.core.memory.store._load_lancedb_dependencies", lambda: ("db", object)
+    )
+    monkeypatch.setattr("jpscripts.core.memory.store.LanceDBStore", FakeStore)
+    monkeypatch.setattr("jpscripts.core.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
         "banana", config=_dummy_config(store, use_semantic=True), store_path=store, limit=5

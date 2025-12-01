@@ -416,6 +416,7 @@ class TestAnthropicErrorHandling:
         # If installed but no key, it raises AuthenticationError
         try:
             import anthropic  # noqa: F401
+
             with pytest.raises(AuthenticationError, match="ANTHROPIC_API_KEY"):
                 provider._get_client()
         except ImportError:
@@ -426,6 +427,7 @@ class TestAnthropicErrorHandling:
         # Skip if anthropic is installed - can't easily test missing import
         try:
             import anthropic  # noqa: F401
+
             pytest.skip("anthropic package is installed")
         except ImportError:
             from jpscripts.core.config import AppConfig
@@ -469,6 +471,7 @@ class TestOpenAIErrorHandling:
         # If installed but no key, it raises AuthenticationError
         try:
             import openai  # noqa: F401
+
             with pytest.raises(AuthenticationError, match="OPENAI_API_KEY"):
                 provider._get_client()
         except ImportError:
@@ -490,7 +493,9 @@ class TestCodexErrorHandling:
         from jpscripts.providers.codex import is_codex_available
 
         # Mock shutil.which to return a path
-        monkeypatch.setattr("shutil.which", lambda x: "/usr/local/bin/codex" if x == "codex" else None)
+        monkeypatch.setattr(
+            "shutil.which", lambda x: "/usr/local/bin/codex" if x == "codex" else None
+        )
         assert is_codex_available() is True
 
     def test_format_messages_empty(self) -> None:

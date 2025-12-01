@@ -7,15 +7,12 @@ including error paths, rate limiting, and security validation.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from jpscripts.core.config import AppConfig
-from jpscripts.core.result import Err, Ok
-from jpscripts.core.security import SecurityError
 
 
 class TestReadFile:
@@ -40,7 +37,11 @@ class TestReadFile:
         test_file.write_text("Hello, World!")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await read_file(str(test_file))
 
         assert "Hello, World!" in result
@@ -50,7 +51,11 @@ class TestReadFile:
         from jpscripts.mcp.tools.filesystem import read_file
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await read_file(str(tmp_path / "nonexistent.txt"))
 
         assert "Error:" in result
@@ -61,7 +66,11 @@ class TestReadFile:
         from jpscripts.mcp.tools.filesystem import read_file
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await read_file(str(tmp_path))
 
         assert "Error:" in result
@@ -75,8 +84,15 @@ class TestReadFile:
         test_file.write_text("content")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=False):
-                with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.time_until_available", return_value=5.0):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                with patch(
+                    "jpscripts.mcp.tools.filesystem._file_rate_limiter.time_until_available",
+                    return_value=5.0,
+                ):
                     result = await read_file(str(test_file))
 
         assert "Rate limit exceeded" in result
@@ -100,21 +116,31 @@ class TestWriteFile:
         test_file = tmp_path / "new_file.txt"
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await write_file(str(test_file), "New content")
 
         assert "Successfully wrote" in result
         assert test_file.read_text() == "New content"
 
     @pytest.mark.asyncio
-    async def test_write_file_overwrite_required(self, tmp_path: Path, mock_runtime: MagicMock) -> None:
+    async def test_write_file_overwrite_required(
+        self, tmp_path: Path, mock_runtime: MagicMock
+    ) -> None:
         from jpscripts.mcp.tools.filesystem import write_file
 
         test_file = tmp_path / "existing.txt"
         test_file.write_text("Original")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await write_file(str(test_file), "New content", overwrite=False)
 
         assert "Error:" in result
@@ -122,14 +148,20 @@ class TestWriteFile:
         assert test_file.read_text() == "Original"
 
     @pytest.mark.asyncio
-    async def test_write_file_overwrite_allowed(self, tmp_path: Path, mock_runtime: MagicMock) -> None:
+    async def test_write_file_overwrite_allowed(
+        self, tmp_path: Path, mock_runtime: MagicMock
+    ) -> None:
         from jpscripts.mcp.tools.filesystem import write_file
 
         test_file = tmp_path / "existing.txt"
         test_file.write_text("Original")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await write_file(str(test_file), "New content", overwrite=True)
 
         assert "Successfully wrote" in result
@@ -143,7 +175,11 @@ class TestWriteFile:
         test_file = tmp_path / "dry_run.txt"
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await write_file(str(test_file), "Content")
 
         assert "Simulated write" in result
@@ -171,7 +207,11 @@ class TestListDirectory:
         (tmp_path / "subdir").mkdir()
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await list_directory(str(tmp_path))
 
         assert "f: file1.txt" in result
@@ -183,7 +223,11 @@ class TestListDirectory:
         from jpscripts.mcp.tools.filesystem import list_directory
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await list_directory(str(tmp_path / "nonexistent"))
 
         assert "Error:" in result
@@ -197,7 +241,11 @@ class TestListDirectory:
         test_file.write_text("content")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await list_directory(str(test_file))
 
         assert "Error:" in result
@@ -222,35 +270,51 @@ class TestReadFilePaged:
         test_file.write_text("0123456789" * 100)
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await read_file_paged(str(test_file), offset=10, limit=20)
 
         assert len(result) == 20
         assert result.startswith("0123456789")
 
     @pytest.mark.asyncio
-    async def test_read_file_paged_invalid_offset(self, tmp_path: Path, mock_runtime: MagicMock) -> None:
+    async def test_read_file_paged_invalid_offset(
+        self, tmp_path: Path, mock_runtime: MagicMock
+    ) -> None:
         from jpscripts.mcp.tools.filesystem import read_file_paged
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("content")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await read_file_paged(str(test_file), offset=-1)
 
         assert "Error:" in result
         assert "offset must be non-negative" in result
 
     @pytest.mark.asyncio
-    async def test_read_file_paged_invalid_limit(self, tmp_path: Path, mock_runtime: MagicMock) -> None:
+    async def test_read_file_paged_invalid_limit(
+        self, tmp_path: Path, mock_runtime: MagicMock
+    ) -> None:
         from jpscripts.mcp.tools.filesystem import read_file_paged
 
         test_file = tmp_path / "test.txt"
         test_file.write_text("content")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await read_file_paged(str(test_file), limit=0)
 
         assert "Error:" in result
@@ -276,7 +340,11 @@ class TestApplyPatch:
         test_file.write_text("content")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await apply_patch(str(test_file), "   ")
 
         assert "Error" in result or "empty" in result.lower()
@@ -292,7 +360,11 @@ class TestApplyPatch:
 +new"""
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=True):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=True,
+            ):
                 result = await apply_patch(str(tmp_path), diff)
 
         assert "Error" in result or "directory" in result.lower()
@@ -305,8 +377,15 @@ class TestApplyPatch:
         test_file.write_text("content")
 
         with patch("jpscripts.mcp.tools.filesystem.get_runtime", return_value=mock_runtime):
-            with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire", new_callable=AsyncMock, return_value=False):
-                with patch("jpscripts.mcp.tools.filesystem._file_rate_limiter.time_until_available", return_value=5.0):
+            with patch(
+                "jpscripts.mcp.tools.filesystem._file_rate_limiter.acquire",
+                new_callable=AsyncMock,
+                return_value=False,
+            ):
+                with patch(
+                    "jpscripts.mcp.tools.filesystem._file_rate_limiter.time_until_available",
+                    return_value=5.0,
+                ):
                     result = await apply_patch(str(test_file), "diff content")
 
         assert "Rate limit exceeded" in result
