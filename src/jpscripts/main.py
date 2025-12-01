@@ -105,6 +105,12 @@ def main(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable debug logging."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Enable dry-run mode (no side effects)."),
 ) -> None:
+    # Safety check: ensure commands were registered via cli(), not app() directly
+    if not _commands_registered:
+        raise RuntimeError(
+            "Commands not registered. Use cli() entry point, not app() directly. "
+            "For tests, use the ensure_commands_registered fixture from conftest.py."
+        )
     # We no longer try/except here because load_config is safe
     loaded_config, meta = load_config(config_path=config)
     if dry_run:
