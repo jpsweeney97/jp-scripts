@@ -19,7 +19,6 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import AsyncIterator
-from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Protocol, cast
 
 from jpscripts.providers import (
@@ -99,12 +98,24 @@ class _StreamEvent(Protocol):
     delta: _ContentDelta | None
 
 
-class _StreamSession(AsyncIterator[_StreamEvent], Protocol):
+class _StreamSession(Protocol):
+    """Protocol for streaming session (Python 3.11 compatible)."""
+
+    def __aiter__(self) -> AsyncIterator[_StreamEvent]: ...
+    async def __anext__(self) -> _StreamEvent: ...
     async def get_final_message(self) -> _MessageResponse: ...
 
 
-class _MessagesStream(AbstractAsyncContextManager[_StreamSession], Protocol):
-    pass
+class _MessagesStream(Protocol):
+    """Protocol for messages stream context manager (Python 3.11 compatible)."""
+
+    async def __aenter__(self) -> _StreamSession: ...
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: object,
+    ) -> None: ...
 
 
 class _MessagesAPI(Protocol):

@@ -21,9 +21,7 @@ def pytest_configure(config: pytest.Config) -> None:
     )
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """Skip local_only tests when running in CI."""
     if not IS_CI:
         return
@@ -31,6 +29,7 @@ def pytest_collection_modifyitems(
     for item in items:
         if "local_only" in item.keywords:
             item.add_marker(skip_ci)
+
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
