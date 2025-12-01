@@ -41,6 +41,3 @@ fake_*.py
 
 # Generated documentation
 docs/api/
-
-# Local notes/audits
-TECH_DEBT_AUDIT.md
