@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from jpscripts.core.governance import (
     ConstitutionChecker,
     Violation,
@@ -330,7 +328,7 @@ class TestScanCodebaseCompliance:
         (tmp_path / "good.py").write_text("def good():\n    return 42\n")
 
         # This should not raise even if some files have issues
-        violations, file_count = scan_codebase_compliance(tmp_path)
+        _violations, file_count = scan_codebase_compliance(tmp_path)
         assert file_count >= 1
 
 

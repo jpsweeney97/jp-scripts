@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -31,7 +30,7 @@ class TestEnsureRg:
         """Raises RuntimeError when ripgrep is not found."""
         with (
             patch("shutil.which", return_value=None),
-            pytest.raises(RuntimeError, match="ripgrep.*not found"),
+            pytest.raises(RuntimeError, match=r"ripgrep.*not found"),
         ):
             _ensure_rg()
 

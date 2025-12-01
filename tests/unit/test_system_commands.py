@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import psutil
@@ -21,7 +19,6 @@ from jpscripts.commands.system import (
     process_kill,
     ssh_open,
     tmpserver,
-    update,
 )
 from jpscripts.core.result import Err, Ok, SystemResourceError
 from jpscripts.core.system import ProcessInfo

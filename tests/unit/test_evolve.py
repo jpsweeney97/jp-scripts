@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -546,7 +543,7 @@ class TestEvolveRunCLICommand:
 
             # Check that _run_evolve was called with the right parameters
             mock_run.assert_called_once()
-            args, kwargs = mock_run.call_args
+            args, _kwargs = mock_run.call_args
             assert args[0] == test_config  # config
             assert args[1] is True  # dry_run
             assert args[2] == "gpt-4o"  # model
@@ -562,7 +559,7 @@ class TestEvolveRunCLICommand:
         with patch("jpscripts.commands.evolve._run_evolve", new_callable=AsyncMock) as mock_run:
             evolve_run(mock_ctx, dry_run=False, model=None, threshold=10.0)
 
-            args, kwargs = mock_run.call_args
+            args, _kwargs = mock_run.call_args
             # threshold is 4th positional argument
             assert args[3] == 10.0
 

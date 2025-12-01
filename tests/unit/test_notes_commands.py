@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import datetime as dt
 import sqlite3
 from pathlib import Path
@@ -12,8 +11,6 @@ import pytest
 import typer
 
 from jpscripts.commands.notes import (
-    CLIPHIST_DB,
-    CLIPHIST_DIR,
     RepoSummary,
     _collect_repo_commits,
     _detect_user_email,
