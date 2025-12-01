@@ -89,9 +89,7 @@ class TestNote:
             note(mock_ctx, message="")
             mock_editor.assert_called_once()
 
-    def test_note_editor_failure(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_note_editor_failure(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Editor returning non-zero shows error."""
         with patch(
             "jpscripts.commands.notes._launch_editor",
@@ -101,9 +99,7 @@ class TestNote:
             # Should not raise, just print error
             note(mock_ctx, message="")
 
-    def test_note_editor_not_found(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_note_editor_not_found(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Missing editor raises Exit."""
         with (
             patch(
@@ -128,9 +124,7 @@ class TestNoteSearch:
         with pytest.raises(typer.Exit):
             note_search(mock_ctx, query="test", no_fzf=True)
 
-    def test_search_without_fzf(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_search_without_fzf(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Search without fzf runs ripgrep directly."""
         with (
             patch("shutil.which", return_value=None),
@@ -141,9 +135,7 @@ class TestNoteSearch:
         ):
             note_search(mock_ctx, query="test", no_fzf=True)
 
-    def test_search_no_matches(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_search_no_matches(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Search with no matches shows message."""
         with (
             patch("shutil.which", return_value=None),
@@ -154,9 +146,7 @@ class TestNoteSearch:
         ):
             note_search(mock_ctx, query="nomatch", no_fzf=True)
 
-    def test_search_ripgrep_error(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_search_ripgrep_error(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Ripgrep error raises Exit."""
         with (
             patch("shutil.which", return_value=None),
@@ -238,9 +228,7 @@ class TestCollectRepoCommits:
             "jpscripts.commands.notes.git_core.AsyncRepo.open",
             return_value=Ok(mock_repo),
         ):
-            result = await _collect_repo_commits(
-                tmp_path, since, "author@example.com", 100
-            )
+            result = await _collect_repo_commits(tmp_path, since, "author@example.com", 100)
 
         # Only new_commit should be included (recent + matching author)
         assert len(result.commits) == 1
@@ -312,9 +300,7 @@ class TestStandup:
         ):
             standup(mock_ctx, days=3, max_depth=2)
 
-    def test_iter_repos_error(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_iter_repos_error(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Repo iteration error raises Exit."""
         with (
             patch(
@@ -330,9 +316,7 @@ class TestStandup:
 class TestStandupNote:
     """Tests for the standup_note command."""
 
-    def test_appends_standup_to_note(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_appends_standup_to_note(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """Standup output is appended to note."""
         with (
             patch(
@@ -344,9 +328,7 @@ class TestStandupNote:
             # Should complete without error even with no standup content
             standup_note(mock_ctx, days=3)
 
-    def test_no_standup_output(
-        self, mock_ctx: MagicMock, test_config: AppConfig
-    ) -> None:
+    def test_no_standup_output(self, mock_ctx: MagicMock, test_config: AppConfig) -> None:
         """No standup output shows message."""
         with (
             patch(

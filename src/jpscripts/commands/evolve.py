@@ -381,8 +381,12 @@ async def _run_evolve(
     pytest_cmd = "pytest"
     if await asyncio.to_thread(shutil.which, "pytest") is None:
         await _abort_evolution(
-            repo, branch_name, "pytest is not available; aborting evolution.",
-            [], config, reset_hard=True
+            repo,
+            branch_name,
+            "pytest is not available; aborting evolution.",
+            [],
+            config,
+            reset_hard=True,
         )
         return
 
@@ -394,10 +398,12 @@ async def _run_evolve(
     test_result = await run_safe_shell(test_command, root, "evolve.verify", config=config)
     if isinstance(test_result, Err):
         await _abort_evolution(
-            repo, branch_name,
+            repo,
+            branch_name,
             f"Test execution failed: {test_result.error}",
             ["evolve", "failure", "tests"],
-            config, reset_hard=True
+            config,
+            reset_hard=True,
         )
         return
 
@@ -405,10 +411,12 @@ async def _run_evolve(
     if result_payload.returncode != 0:
         console.print(result_payload.stdout or result_payload.stderr)
         await _abort_evolution(
-            repo, branch_name,
+            repo,
+            branch_name,
             f"Verification failed (exit {result_payload.returncode}).",
             ["evolve", "failure", "tests"],
-            config, reset_hard=True
+            config,
+            reset_hard=True,
         )
         return
 

@@ -234,7 +234,9 @@ def brew_explorer(
                 table.add_row(item)
             console.print(table)
             console.print(
-                Panel("fzf not available; re-run with fzf for interactive selection.", style="yellow")
+                Panel(
+                    "fzf not available; re-run with fzf for interactive selection.", style="yellow"
+                )
             )
             return
 

@@ -169,9 +169,7 @@ def complex_func(x, y, z):
         mock_repo.run_git.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_dry_run_with_below_threshold_score(
-        self, test_config: AppConfig
-    ) -> None:
+    async def test_dry_run_with_below_threshold_score(self, test_config: AppConfig) -> None:
         """Dry run with scores below threshold shows no optimization needed."""
         mock_repo = AsyncMock()
         mock_repo.status.return_value = Ok(MagicMock(dirty=False))
@@ -288,9 +286,7 @@ class TestEvolveReport:
         commands = {cmd.name for cmd in app.registered_commands}
         assert "report" in commands
 
-    def test_report_handles_no_python_files(
-        self, test_config: AppConfig, tmp_path: Path
-    ) -> None:
+    def test_report_handles_no_python_files(self, test_config: AppConfig, tmp_path: Path) -> None:
         """Report handles directories with no Python files."""
         # Create mock context
         mock_ctx = MagicMock()
@@ -305,9 +301,7 @@ class TestEvolveReport:
             # Should complete without error
             evolve_report(mock_ctx, limit=20)
 
-    def test_report_handles_analysis_error(
-        self, test_config: AppConfig
-    ) -> None:
+    def test_report_handles_analysis_error(self, test_config: AppConfig) -> None:
         """Report handles complexity analysis errors."""
         mock_ctx = MagicMock()
         mock_state = MagicMock()
@@ -515,9 +509,7 @@ class TestCreateEvolutionPR:
 
         # Verify git operations were called
         mock_repo.run_git.assert_any_call("add", "-A")
-        commit_call = next(
-            c for c in mock_repo.run_git.call_args_list if "commit" in c.args
-        )
+        commit_call = next(c for c in mock_repo.run_git.call_args_list if "commit" in c.args)
         assert "refactor" in commit_call.args[2]
 
 
@@ -691,9 +683,7 @@ class TestRunEvolveWithBranchCreation:
     """Tests for branch creation flow in _run_evolve."""
 
     @pytest.mark.asyncio
-    async def test_branch_creation_failure_handled(
-        self, test_config: AppConfig
-    ) -> None:
+    async def test_branch_creation_failure_handled(self, test_config: AppConfig) -> None:
         """Branch creation failures are handled gracefully."""
         mock_repo = AsyncMock()
         mock_repo.status.return_value = Ok(MagicMock(dirty=False))

@@ -95,9 +95,7 @@ async def _build_diagnostic_context(
         else _summarize_stack_trace(output, command_output_limit)
     )
     raw_diagnostic = (
-        f"Command: {run_command}\n"
-        f"Output (summary up to {command_output_limit} chars):\n"
-        f"{trimmed}\n"
+        f"Command: {run_command}\nOutput (summary up to {command_output_limit} chars):\n{trimmed}\n"
     )
     diagnostic_section = budget.allocate(1, raw_diagnostic)
 
@@ -134,14 +132,10 @@ async def _query_memory_from_prompt(
         if tag in lowered_prompt:
             boosted_tags.append(tag)
 
-    boosted_query = (
-        f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
-    )
+    boosted_query = f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
 
     try:
-        return await asyncio.to_thread(
-            lambda: query_memory(boosted_query, 3, config=config)
-        )
+        return await asyncio.to_thread(lambda: query_memory(boosted_query, 3, config=config))
     except Exception as exc:
         logger.debug("Memory query from base prompt failed: %s", exc)
         return []

@@ -298,9 +298,7 @@ class TestScanTodos:
             json_line = json.dumps(json_match).encode() + b"\n"
 
             mock_proc = AsyncMock()
-            mock_proc.stdout.readline = AsyncMock(
-                side_effect=[json_line, b""]
-            )
+            mock_proc.stdout.readline = AsyncMock(side_effect=[json_line, b""])
             mock_proc.wait = AsyncMock()
 
             with patch(
@@ -444,9 +442,7 @@ class TestScanTodos:
             json_line = json.dumps(json_match).encode() + b"\n"
 
             mock_proc = AsyncMock()
-            mock_proc.stdout.readline = AsyncMock(
-                side_effect=[json_line, b""]
-            )
+            mock_proc.stdout.readline = AsyncMock(side_effect=[json_line, b""])
             mock_proc.wait = AsyncMock()
 
             with patch(

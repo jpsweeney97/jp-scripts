@@ -120,11 +120,7 @@ def _parse_codex_event(event: dict[str, Any], tool_call_index: int) -> _CodexEve
     result = _CodexEventResult(event_type=event_type)
 
     # Extract assistant message
-    message = (
-        data.get("assistant_message")
-        or event.get("assistant_message")
-        or data.get("message")
-    )
+    message = data.get("assistant_message") or event.get("assistant_message") or data.get("message")
     if isinstance(message, str) and message.strip():
         result.message = message.strip()
 

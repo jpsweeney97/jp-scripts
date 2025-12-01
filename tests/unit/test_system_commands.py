@@ -37,15 +37,14 @@ class TestUnwrapResult:
 
     def test_unwrap_err_raises_exit(self) -> None:
         """Err values cause typer.Exit."""
-        result: Err[int, SystemResourceError] = Err(
-            SystemResourceError("Something went wrong")
-        )
+        result: Err[int, SystemResourceError] = Err(SystemResourceError("Something went wrong"))
         with pytest.raises(typer.Exit) as exc_info:
             _unwrap_result(result)
         assert exc_info.value.exit_code == 1
 
     def test_unwrap_err_without_message_attr(self) -> None:
         """Err with string error is handled."""
+
         # Create a simple error type without message attribute
         class SimpleError:
             def __str__(self) -> str:
@@ -499,7 +498,5 @@ class TestProcessInfoDataclass:
 
     def test_label_property(self) -> None:
         """Label combines pid, name and username."""
-        proc = ProcessInfo(
-            pid=123, username="testuser", name="python", cmdline="python script.py"
-        )
+        proc = ProcessInfo(pid=123, username="testuser", name="python", cmdline="python script.py")
         assert proc.label == "123 - python (testuser)"

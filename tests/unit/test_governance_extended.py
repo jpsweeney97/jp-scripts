@@ -134,7 +134,9 @@ class TestDynamicExecution:
 
     def test_import_module_safety_override(self, tmp_path: Path) -> None:
         """import_module with # safety: checked should be allowed."""
-        source = 'import importlib\ndef ok():\n    importlib.import_module("os")  # safety: checked\n'
+        source = (
+            'import importlib\ndef ok():\n    importlib.import_module("os")  # safety: checked\n'
+        )
         violations = check_source_compliance(source, tmp_path / "test.py")
         assert not any(v.type == ViolationType.DYNAMIC_EXECUTION for v in violations)
 
@@ -144,7 +146,7 @@ class TestPathUnlinkDetection:
 
     def test_detects_path_unlink_direct(self, tmp_path: Path) -> None:
         """Path.unlink() on Path name should be flagged."""
-        source = 'from pathlib import Path\ndef bad():\n    Path.unlink(p)\n'
+        source = "from pathlib import Path\ndef bad():\n    Path.unlink(p)\n"
         violations = check_source_compliance(source, tmp_path / "test.py")
         assert any(v.type == ViolationType.DESTRUCTIVE_FS for v in violations)
 
@@ -178,7 +180,7 @@ class TestSyntaxErrorHandling:
 
     def test_syntax_error_returns_violation(self, tmp_path: Path) -> None:
         """Syntax errors should return a SYNTAX_ERROR violation."""
-        source = 'def bad(\n'  # Missing closing paren
+        source = "def bad(\n"  # Missing closing paren
         violations = check_source_compliance(source, tmp_path / "test.py")
         assert any(v.type == ViolationType.SYNTAX_ERROR for v in violations)
         syntax_violation = next(v for v in violations if v.type == ViolationType.SYNTAX_ERROR)
@@ -202,7 +204,7 @@ class TestAnyTypeDetection:
 
     def test_detects_any_without_type_ignore(self, tmp_path: Path) -> None:
         """Any type without type: ignore should be flagged."""
-        source = 'from typing import Any\ndef foo(x: Any) -> None:\n    pass\n'
+        source = "from typing import Any\ndef foo(x: Any) -> None:\n    pass\n"
         violations = check_source_compliance(source, tmp_path / "test.py")
         # Note: this depends on heuristics - the violation may or may not trigger
         # based on whether the import appears in first 50 lines
@@ -210,7 +212,7 @@ class TestAnyTypeDetection:
 
     def test_any_with_type_ignore_ok(self, tmp_path: Path) -> None:
         """Any with type: ignore should not be flagged."""
-        source = 'from typing import Any\ndef foo(x: Any) -> None:  # type: ignore[explicit-any]\n    pass\n'
+        source = "from typing import Any\ndef foo(x: Any) -> None:  # type: ignore[explicit-any]\n    pass\n"
         violations = check_source_compliance(source, tmp_path / "test.py")
         assert not any(v.type == ViolationType.UNTYPED_ANY for v in violations)
 
@@ -454,7 +456,7 @@ class TestWildcardImport:
 
     def test_wildcard_import_tracked(self, tmp_path: Path) -> None:
         """Wildcard imports don't crash the checker."""
-        source = 'from os import *\ndef foo():\n    pass\n'
+        source = "from os import *\ndef foo():\n    pass\n"
         # Should not raise
         violations = check_source_compliance(source, tmp_path / "test.py")
         assert isinstance(violations, list)
@@ -714,7 +716,7 @@ class TestAnyTypeInSubscript:
 
     def test_any_in_list_annotation(self, tmp_path: Path) -> None:
         """Any in list[Any] should be detected."""
-        source = 'from typing import Any, List\ndef foo() -> List[Any]:\n    pass\n'
+        source = "from typing import Any, List\ndef foo() -> List[Any]:\n    pass\n"
         violations = check_source_compliance(source, tmp_path / "test.py")
         # visit_Subscript is called but may not flag depending on heuristics
         assert isinstance(violations, list)
