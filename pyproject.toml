@@ -139,6 +139,7 @@ ignore = [
     "E402",   # module level import not at top
     "B904",   # raise from
     "B905",   # zip strict
+    "SIM117", # nested with statements (readability preference in tests)
 ]
 
 [tool.ruff.lint.isort]

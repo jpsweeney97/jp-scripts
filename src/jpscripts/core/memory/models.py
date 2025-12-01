@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar
 
 from jpscripts.core.result import JPScriptsError, Result
@@ -158,7 +159,7 @@ class MemoryStore(Protocol):
         query_tokens: list[str] | None = None,
     ) -> Result[list[MemoryEntry], JPScriptsError]: ...
 
-    def prune(self, root: Path) -> Result[int, JPScriptsError]: ...  # noqa: F821
+    def prune(self, root: Path) -> Result[int, JPScriptsError]: ...
 
 
 class EmbeddingClientProtocol(Protocol):

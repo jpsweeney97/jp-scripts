@@ -20,6 +20,7 @@ from typer.main import get_command
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
 from jpscripts.core.engine import AUDIT_PREFIX, run_safe_shell
+from jpscripts.core.mcp_registry import get_tool_metadata, get_tool_registry
 from jpscripts.core.memory import (
     STOPWORDS,
     EmbeddingClient,
@@ -29,8 +30,6 @@ from jpscripts.core.memory import (
 )
 from jpscripts.core.result import CapabilityMissingError, Err, Ok
 from jpscripts.core.security import validate_path, validate_workspace_root
-from jpscripts.mcp import get_tool_metadata
-from jpscripts.mcp.tools import discover_tools
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
@@ -116,7 +115,7 @@ def _type_name(obj: object) -> str:
 
 
 def _collect_mcp_tools() -> list[MCPToolRef]:
-    tools = discover_tools()
+    tools = get_tool_registry()
     refs: list[MCPToolRef] = []
     for name, func in sorted(tools.items(), key=lambda item: item[0]):
         sig = inspect.signature(func)

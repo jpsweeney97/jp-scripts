@@ -129,13 +129,16 @@ class TraceRecorder:
 # -----------------------------------------------------------------------------
 
 
-def _load_otel_deps() -> tuple[
-    TraceModuleProtocol,
-    type[ResourceProtocol],
-    type[TracerProviderProtocol],
-    type[BatchSpanProcessorProtocol],
-    type[OTLPSpanExporterProtocol],
-] | None:
+def _load_otel_deps() -> (
+    tuple[
+        TraceModuleProtocol,
+        type[ResourceProtocol],
+        type[TracerProviderProtocol],
+        type[BatchSpanProcessorProtocol],
+        type[OTLPSpanExporterProtocol],
+    ]
+    | None
+):
     """Load OpenTelemetry dependencies if available.
 
     Returns None if opentelemetry packages are not installed.

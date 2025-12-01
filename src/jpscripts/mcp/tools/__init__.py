@@ -2,15 +2,18 @@ from __future__ import annotations
 
 import pkgutil
 import warnings
-from collections.abc import Awaitable, Callable
 from importlib import import_module
-from typing import Any, TypeGuard
+
+from jpscripts.core.mcp_registry import (
+    TOOL_METADATA_ATTR,
+    ToolFunction,
+    is_mcp_tool,
+)
 
 _PACKAGE_NAME = "jpscripts.mcp.tools"
-_TOOL_METADATA_ATTR = "__mcp_tool_metadata__"
-
-# Type alias for tool functions
-ToolFunction = Callable[..., Awaitable[str]]
+# Re-export for backwards compatibility
+_TOOL_METADATA_ATTR = TOOL_METADATA_ATTR
+_is_mcp_tool = is_mcp_tool
 
 
 def _discover_tool_module_names() -> list[str]:
@@ -80,11 +83,7 @@ def discover_tool_module_names() -> list[str]:
     return _discover_tool_module_names()
 
 
-def _is_mcp_tool(obj: Any) -> TypeGuard[ToolFunction]:
-    """Check if an object is decorated with @tool."""
-    if not callable(obj):
-        return False
-    return hasattr(obj, _TOOL_METADATA_ATTR)
+# _is_mcp_tool is now aliased from core.mcp_registry.is_mcp_tool above
 
 
 def discover_tools() -> dict[str, ToolFunction]:

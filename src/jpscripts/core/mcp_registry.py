@@ -3,7 +3,7 @@ from __future__ import annotations
 import functools
 import warnings
 from collections.abc import Awaitable, Callable
-from typing import ParamSpec, TypeVar
+from typing import Any, ParamSpec, TypeGuard, TypeVar
 
 from pydantic import ValidationError, validate_call
 
@@ -17,6 +17,9 @@ R = TypeVar("R")
 
 # Type alias for tool functions (matches jpscripts.mcp.tools.ToolFunction)
 ToolFunction = Callable[..., Awaitable[str]]
+
+# Single source of truth for the tool metadata attribute name
+TOOL_METADATA_ATTR = "__mcp_tool_metadata__"
 
 
 def strict_tool_validator(fn: Callable[P, R]) -> Callable[P, R]:
@@ -34,6 +37,36 @@ def strict_tool_validator(fn: Callable[P, R]) -> Callable[P, R]:
             raise ToolValidationError(str(exc)) from exc
 
     return wrapper
+
+
+def is_mcp_tool(obj: Any) -> TypeGuard[ToolFunction]:
+    """Check if an object is decorated with @tool.
+
+    This is the single source of truth for determining if a callable
+    is an MCP tool, used by tool discovery.
+    """
+    if not callable(obj):
+        return False
+    return hasattr(obj, TOOL_METADATA_ATTR)
+
+
+def get_tool_metadata(obj: object) -> dict[str, Any] | None:
+    """Return metadata for decorated tool functions.
+
+    This is the single source of truth for accessing tool metadata,
+    used by both MCP server and CLI commands.
+    """
+    if not callable(obj):
+        return None
+
+    metadata = getattr(obj, TOOL_METADATA_ATTR, None)
+    if metadata is None:
+        return None
+
+    if metadata == {}:
+        return {}
+
+    return metadata if isinstance(metadata, dict) else None
 
 
 def get_tool_registry() -> dict[str, ToolFunction]:
@@ -86,3 +119,16 @@ def iter_mcp_tools(
         stacklevel=2,
     )
     return []
+
+
+__all__ = [
+    "TOOL_METADATA_ATTR",
+    "ToolFunction",
+    "ToolValidationError",
+    "get_tool_metadata",
+    "get_tool_registry",
+    "import_tool_modules",
+    "is_mcp_tool",
+    "iter_mcp_tools",
+    "strict_tool_validator",
+]

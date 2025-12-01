@@ -10,14 +10,19 @@ from typing import Any, ParamSpec, TypeVar
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.core.mcp_registry import strict_tool_validator
+from jpscripts.core.mcp_registry import (
+    TOOL_METADATA_ATTR,
+    get_tool_metadata,
+    strict_tool_validator,
+)
 from jpscripts.core.runtime import get_runtime
 
 logger = get_logger("mcp")
 
 P = ParamSpec("P")
 R = TypeVar("R")
-_TOOL_METADATA_ATTR = "__mcp_tool_metadata__"
+# Re-export for backwards compatibility
+_TOOL_METADATA_ATTR = TOOL_METADATA_ATTR
 ToolAsyncCallable = Callable[P, Awaitable[str]]
 
 
@@ -48,25 +53,13 @@ def tool(**metadata: Any) -> Callable[[Callable[P, R]], Callable[P, R]]:
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         wrapped = strict_tool_validator(fn)
-        setattr(wrapped, _TOOL_METADATA_ATTR, metadata)
+        setattr(wrapped, TOOL_METADATA_ATTR, metadata)
         return functools.wraps(fn)(wrapped)
 
     return decorator
 
 
-def get_tool_metadata(obj: object) -> dict[str, Any] | None:
-    """Return metadata for decorated tool functions."""
-    if not callable(obj):
-        return None
-
-    metadata = getattr(obj, _TOOL_METADATA_ATTR, None)
-    if metadata is None:
-        return None
-
-    if metadata == {}:
-        return {}
-
-    return metadata if isinstance(metadata, dict) else None
+# get_tool_metadata is now imported from core.mcp_registry and re-exported
 
 
 def _extract_error_path(

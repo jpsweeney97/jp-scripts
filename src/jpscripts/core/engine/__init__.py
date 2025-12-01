@@ -23,6 +23,8 @@ from typing import Generic
 
 from pydantic import BaseModel
 
+from jpscripts.core.cost_tracker import TokenUsage
+
 from .governance_enforcer import enforce_governance
 from .models import (
     AgentResponse,
@@ -106,7 +108,7 @@ class AgentEngine(Generic[ResponseT]):
         self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
         self._workspace_root = workspace_root
         self._governance_enabled = governance_enabled
-        self._last_usage_snapshot = None
+        self._last_usage_snapshot: TokenUsage | None = None
         self._last_files_touched: list[Path] = []
 
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
