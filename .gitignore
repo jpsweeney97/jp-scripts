@@ -37,3 +37,6 @@ venv/
 tmp-repo-test/
 fake_*.py
 *.log
+
+# Local notes/audits
+TECH_DEBT_AUDIT.md
