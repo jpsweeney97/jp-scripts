@@ -9,9 +9,7 @@ from __future__ import annotations
 import asyncio
 import sys
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
 
 from pydantic import ValidationError
 from rich import box
@@ -21,6 +19,15 @@ from jpscripts.core import security
 from jpscripts.core.agent.context import expand_context_paths
 from jpscripts.core.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.core.agent.prompting import prepare_agent_prompt
+from jpscripts.core.agent.strategies import (
+    STRATEGY_OVERRIDE_TEXT,
+    AttemptContext,
+    RepairStrategy,
+    StrategyConfig,
+    build_repair_instruction,
+    build_strategy_plan,
+    detect_repeated_failure,
+)
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.engine import (
     AgentEngine,
@@ -37,34 +44,11 @@ from jpscripts.core.system import run_safe_shell
 
 logger = get_logger(__name__)
 
-STRATEGY_OVERRIDE_TEXT = (
-    "You are stuck in a loop. Stop editing code. Analyze the error trace and the file content again. "
-    "List three possible root causes before proposing a new patch."
-)
 _ACTIVE_ROOT: Path | None = None
 
 
 class SecurityError(RuntimeError):
     """Raised when a tool invocation is considered unsafe."""
-
-
-@dataclass
-class AttemptContext:
-    iteration: int
-    last_error: str
-    files_changed: list[Path]
-    strategy: Literal["fast", "deep", "step_back"]
-
-
-RepairStrategy = Literal["fast", "deep", "step_back"]
-
-
-@dataclass(frozen=True)
-class StrategyConfig:
-    name: RepairStrategy
-    label: str
-    description: str
-    system_notice: str = ""
 
 
 PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
@@ -118,89 +102,6 @@ def _append_history(history: list[Message], entry: Message, keep: int = 3) -> No
     history.append(entry)
     if len(history) > keep:
         del history[:-keep]
-
-
-def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str:
-    if not history:
-        return "None yet."
-
-    lines: list[str] = []
-    for attempt in history:
-        relative_files: list[str] = []
-        for path in attempt.files_changed:
-            try:
-                relative_files.append(str(path.relative_to(root)))
-            except ValueError:
-                relative_files.append(str(path))
-        file_part = f" | files: {', '.join(relative_files)}" if relative_files else ""
-        lines.append(f"Attempt {attempt.iteration}: {attempt.last_error}{file_part}")
-
-    return "\n".join(lines)
-
-
-def _detect_repeated_failure(history: Sequence[AttemptContext], current_error: str) -> bool:
-    normalized_current = current_error.strip()
-    if not normalized_current:
-        return False
-    occurrences = sum(1 for attempt in history if attempt.last_error.strip() == normalized_current)
-    return occurrences + 1 >= 2
-
-
-def _build_strategy_plan(attempt_cap: int) -> list[StrategyConfig]:
-    base: list[StrategyConfig] = [
-        StrategyConfig(
-            name="fast",
-            label="FAST - Immediate Context",
-            description="Focus on the specific error line and immediate file context.",
-        ),
-        StrategyConfig(
-            name="deep",
-            label="DEEP - Cross-Module Analysis",
-            description="Analyze imported dependencies and cross-module interactions. The error may be non-local.",
-            system_notice="Context has been expanded to include imported dependencies and referenced modules.",
-        ),
-        StrategyConfig(
-            name="step_back",
-            label="STEP_BACK - Root Cause Analysis",
-            description="Disregard previous assumptions. Formulate a Root Cause Analysis before writing code.",
-            system_notice="Tool use is disabled for this turn. Perform Root Cause Analysis and propose a brief plan before patching.",
-        ),
-    ]
-
-    if attempt_cap <= len(base):
-        return base[:attempt_cap]
-
-    tail_fill = [base[-1]] * (attempt_cap - len(base))
-    return base + tail_fill
-
-
-def _build_repair_instruction(
-    base_prompt: str,
-    current_error: str,
-    history: Sequence[AttemptContext],
-    root: Path,
-    *,
-    strategy_override: str | None = None,
-    reasoning_hint: str | None = None,
-    strategy: StrategyConfig,
-) -> str:
-    history_block = _build_history_summary(history, root)
-    override_block = f"\n\nStrategy Override:\n{strategy_override}" if strategy_override else ""
-    reasoning_block = (
-        f"\n\nHigh reasoning effort requested: {reasoning_hint}" if reasoning_hint else ""
-    )
-    strategy_block = f"\n\n[Current Strategy: {strategy.label}]\n{strategy.description}"
-    if strategy.system_notice:
-        strategy_block += f"\n{strategy.system_notice}"
-    return (
-        f"{strategy_block}\n\n"
-        f"{base_prompt.strip()}\n\n"
-        "Autonomous repair loop in progress. Use the failure details to craft a minimal fix.\n"
-        f"Current error:\n{current_error.strip()}\n\n"
-        f"Previous attempts:\n{history_block}{override_block}{reasoning_block}\n\n"
-        "Respond with a single JSON object that matches the AgentResponse schema. "
-        "Place the unified diff in `file_patch`. Do not return Markdown or prose."
-    )
 
 
 async def _run_command(command: str, root: Path) -> tuple[int, str, str]:
@@ -364,7 +265,7 @@ async def run_repair_loop(
     config = runtime.config
     root = security.validate_workspace_root(runtime.workspace_root or config.notes_dir)
     attempt_cap = max(1, max_retries)
-    strategies = _build_strategy_plan(attempt_cap)
+    strategies = build_strategy_plan(attempt_cap)
     changed_files: set[Path] = set()
     attempt_history: list[AttemptContext] = []
     history: list[Message] = []
@@ -428,7 +329,7 @@ async def run_repair_loop(
             current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
             console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
 
-            loop_detected = _detect_repeated_failure(attempt_history, current_error)
+            loop_detected = detect_repeated_failure(attempt_history, current_error)
             strategy_override = STRATEGY_OVERRIDE_TEXT if loop_detected else None
             reasoning_hint = (
                 "Increase temperature or reasoning effort to escape repetition."
@@ -451,7 +352,7 @@ async def run_repair_loop(
 
             applied_paths: list[Path] = []
             for _turn in range(5):
-                iteration_prompt = _build_repair_instruction(
+                iteration_prompt = build_repair_instruction(
                     base_prompt,
                     current_error,
                     attempt_history,

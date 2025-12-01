@@ -25,12 +25,9 @@ from jpscripts.core.agent.context import (
 
 # Export from execution module
 from jpscripts.core.agent.execution import (
-    AttemptContext,
     PatchFetcher,
-    RepairStrategy,
     ResponseFetcher,
     SecurityError,
-    StrategyConfig,
     apply_patch_text,
     run_repair_loop,
     verify_syntax,
@@ -41,6 +38,13 @@ from jpscripts.core.agent.prompting import (
     AGENT_TEMPLATE_NAME,
     GOVERNANCE_ANTI_PATTERNS,
     prepare_agent_prompt,
+)
+
+# Export from strategies module
+from jpscripts.core.agent.strategies import (
+    AttemptContext,
+    RepairStrategy,
+    StrategyConfig,
 )
 
 # Re-export from engine for backwards compatibility
@@ -69,7 +73,6 @@ __all__ = [
     "parse_agent_response",
     "prepare_agent_prompt",
     "run_repair_loop",
-    "run_shell_command",
     "scan_recent",
     "verify_syntax",
 ]

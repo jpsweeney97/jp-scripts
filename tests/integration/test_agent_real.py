@@ -11,6 +11,7 @@ from typing import Any, cast
 
 import pytest
 import typer
+from tests.mocks.mock_provider import MockProvider
 
 from jpscripts.commands import agent as agent_cmd
 from jpscripts.core import agent as agent_core
@@ -23,6 +24,7 @@ from jpscripts.core.runtime import runtime_context
 def test_agent_prompt_includes_json_context(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    # Mock git context (external dependency)
     async def fake_git_context(_root: Path) -> tuple[str, str, bool]:
         return "main", "abcdef0", False
 
@@ -32,29 +34,14 @@ def test_agent_prompt_includes_json_context(
     monkeypatch.setattr(agent_prompting, "collect_git_context", fake_git_context)
     monkeypatch.setattr(agent_prompting, "collect_git_diff", fake_git_diff)
 
-    captured_prompt: str | None = None
+    # Create MockProvider - it already returns valid agent JSON responses
+    mock_provider = MockProvider()
 
-    async def fake_fetch_agent_response(
-        prepared: agent_core.PreparedPrompt,
-        config: Any,
-        model: str,
-        provider_type: Any,
-        **kwargs: Any,
-    ) -> str:
-        nonlocal captured_prompt
-        captured_prompt = prepared.prompt
-        # Return a valid JSON response
-        return json.dumps(
-            {
-                "thought_process": "done",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": None,
-                "final_message": "Completed",
-            }
-        )
+    # Patch get_provider in agent_cmd module (tests the full provider stack)
+    def fake_get_provider(*_args: Any, **_kwargs: Any) -> MockProvider:
+        return mock_provider
 
-    monkeypatch.setattr(agent_cmd, "_fetch_agent_response", fake_fetch_agent_response)
+    monkeypatch.setattr(agent_cmd, "get_provider", fake_get_provider)
 
     config = AppConfig(
         workspace_root=tmp_path,
@@ -85,7 +72,15 @@ def test_agent_prompt_includes_json_context(
             web=False,
         )
 
-    assert captured_prompt is not None
+    # Verify prompt was sent through the provider stack
+    call_log = mock_provider.call_log
+    assert len(call_log) > 0, "MockProvider should have received at least one message"
+
+    # Get the prompt content from the captured message
+    captured_message = call_log[0]
+    assert captured_message is not None
+    captured_prompt = captured_message.content
+
     prompt = json.loads(captured_prompt)
     assert "system_context" in prompt
     assert prompt["system_context"]["git_context"]["head"] == "abcdef0"
@@ -95,6 +90,8 @@ def test_agent_prompt_includes_json_context(
 
 
 def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from jpscripts.core.agent import execution as agent_execution
+
     subprocess.run(["git", "init"], cwd=tmp_path, check=True)
     script = tmp_path / "script.py"
     script.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
@@ -107,6 +104,23 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
         return agent_core.PreparedPrompt(prompt=base_prompt, attached_files=[])
 
     monkeypatch.setattr(agent_core, "prepare_agent_prompt", fake_prepare_agent_prompt)
+
+    # Mock _run_command to bypass security policy in tests
+    async def fake_run_command(command: str, root: Path) -> tuple[int, str, str]:
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return (
+            proc.returncode or 0,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
+
+    monkeypatch.setattr(agent_execution, "_run_command", fake_run_command)
 
     patch_text = textwrap.dedent(
         """\

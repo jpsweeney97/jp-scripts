@@ -163,7 +163,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
 
     config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
 
-    async def fake_run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
+    async def fake_run_command(command: str, root: Path) -> tuple[int, str, str]:
         return 0, "ok", ""
 
     calls: list[str] = []
@@ -184,7 +184,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
         saved.append((content, tags))
         return MagicMock()
 
-    monkeypatch.setattr(agent_execution, "run_shell_command", fake_run_shell_command)
+    monkeypatch.setattr(agent_execution, "_run_command", fake_run_command)
     monkeypatch.setattr(agent_execution, "save_memory", fake_save_memory)
 
     with runtime_context(config, workspace=tmp_path):
