@@ -37,6 +37,7 @@ from jpscripts.providers import (
     TokenUsage,
     ToolCall,
     ToolDefinition,
+    register_provider,
 )
 
 if TYPE_CHECKING:
@@ -290,6 +291,7 @@ def _parse_tool_calls(
     return result
 
 
+@register_provider(ProviderType.OPENAI)
 class OpenAIProvider(BaseLLMProvider):
     """OpenAI provider implementation.
 

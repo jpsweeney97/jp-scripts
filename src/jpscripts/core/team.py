@@ -33,7 +33,7 @@ from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
-from jpscripts.core.engine import AgentEngine, Message, PreparedPrompt
+from jpscripts.engine import AgentEngine, Message, PreparedPrompt
 from jpscripts.providers import (
     CompletionOptions,
     LLMProvider,
@@ -233,12 +233,12 @@ class AgentUpdate:
 
 def _render_config_context(config: AppConfig, safe_mode: bool) -> str:
     lines = [
-        f"workspace_root: {config.workspace_root.expanduser()}",
-        f"notes_dir: {config.notes_dir.expanduser()}",
-        f"log_level: {config.log_level}",
+        f"workspace_root: {config.user.workspace_root.expanduser()}",
+        f"notes_dir: {config.user.notes_dir.expanduser()}",
+        f"log_level: {config.user.log_level}",
     ]
-    if config.worktree_root:
-        lines.append(f"worktree_root: {config.worktree_root.expanduser()}")
+    if config.infra.worktree_root:
+        lines.append(f"worktree_root: {config.infra.worktree_root.expanduser()}")
     if safe_mode:
         lines.append("safe_mode: true (default config due to load error)")
     return "\n".join(lines)
@@ -333,7 +333,7 @@ async def _collect_repo_context(repo_root: Path, config: AppConfig) -> tuple[str
     """
     Run git status with a configurable timeout to prevent hanging swarm startup.
     """
-    timeout = max(config.git_status_timeout, 0.1)
+    timeout = max(config.user.git_status_timeout, 0.1)
     try:
         context_result = await asyncio.wait_for(
             gather_context("git status --short", repo_root), timeout=timeout
@@ -400,7 +400,7 @@ class SwarmController:
         self.roles = list(roles)
         self.config = config or AppConfig()
         self.root = (repo_root or Path.cwd()).expanduser()
-        self.model = model or self.config.default_model
+        self.model = model or self.config.ai.default_model
         self.safe_mode = safe_mode
         self.max_turns = max_turns
         self.queue: asyncio.Queue[AgentUpdate] = asyncio.Queue()
@@ -413,7 +413,7 @@ class SwarmController:
             current_phase="planning",
             artifacts=[],
         )
-        self.max_file_context_chars = self.config.max_file_context_chars
+        self.max_file_context_chars = self.config.ai.max_file_context_chars
         self._next_role: Persona | None = None
         self._engines: dict[str, AgentEngine[AgentTurnResponse]] = {}
         self.pending_tasks: list[SpawnRequest] = []

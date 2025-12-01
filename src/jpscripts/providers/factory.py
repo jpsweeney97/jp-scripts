@@ -28,6 +28,7 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from jpscripts.providers import (
+    PROVIDER_REGISTRY,
     BaseLLMProvider,
     LLMProvider,
     ModelNotFoundError,
@@ -81,29 +82,15 @@ class ProviderConfig:
     _provider_cache: dict[ProviderType, BaseLLMProvider] = field(default_factory=dict, repr=False)
 
 
-def _create_anthropic_provider(config: AppConfig) -> BaseLLMProvider:
-    """Create an Anthropic provider instance."""
-    from jpscripts.providers.anthropic import AnthropicProvider
+def _ensure_providers_registered() -> None:
+    """Ensure provider modules are imported so decorators run.
 
-    return AnthropicProvider(config)
-
-
-def _create_openai_provider(config: AppConfig) -> BaseLLMProvider:
-    """Create an OpenAI provider instance."""
-    from jpscripts.providers.openai import OpenAIProvider
-
-    return OpenAIProvider(config)
-
-
-def _create_codex_provider(
-    config: AppConfig,
-    full_auto: bool = False,
-    web_enabled: bool = False,
-) -> BaseLLMProvider:
-    """Create a Codex provider instance."""
-    from jpscripts.providers.codex import CodexProvider
-
-    return CodexProvider(config, full_auto=full_auto, web_enabled=web_enabled)
+    The registry is populated when provider modules are imported,
+    which triggers the @register_provider decorators. This function
+    lazily imports all provider modules on first use.
+    """
+    if not PROVIDER_REGISTRY:
+        from jpscripts.providers import anthropic, codex, openai  # noqa: F401
 
 
 def get_provider(
@@ -171,27 +158,27 @@ def _instantiate_provider(
     ptype: ProviderType,
     pconfig: ProviderConfig,
 ) -> BaseLLMProvider:
-    """Create a provider instance for the given type."""
+    """Create a provider instance for the given type using the registry."""
     # Check cache first
     if ptype in pconfig._provider_cache:
         return pconfig._provider_cache[ptype]
 
-    provider: BaseLLMProvider
+    # Ensure provider modules are imported so registry is populated
+    _ensure_providers_registered()
 
-    if ptype == ProviderType.ANTHROPIC:
-        provider = _create_anthropic_provider(config)
-    elif ptype == ProviderType.OPENAI:
-        provider = _create_openai_provider(config)
-    elif ptype == ProviderType.CODEX:
-        provider = _create_codex_provider(
-            config,
-            full_auto=pconfig.codex_full_auto,
-            web_enabled=pconfig.codex_web_enabled,
-        )
-    else:
+    # Look up factory in registry
+    factory = PROVIDER_REGISTRY.get(ptype)
+    if factory is None:
         raise ProviderError(f"Unknown provider type: {ptype}")
 
-    # Cache the provider
+    # Build provider-specific kwargs
+    kwargs: dict[str, object] = {}
+    if ptype == ProviderType.CODEX:
+        kwargs["full_auto"] = pconfig.codex_full_auto
+        kwargs["web_enabled"] = pconfig.codex_web_enabled
+
+    # Create and cache the provider
+    provider = factory(config, **kwargs)
     pconfig._provider_cache[ptype] = provider
     return provider
 

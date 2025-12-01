@@ -7,22 +7,21 @@ without touching real shell commands or LLM providers.
 from __future__ import annotations
 
 import json
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Generator
 
 import pytest
 
-from jpscripts.core.agent import execution
-from jpscripts.core.agent.execution import (
+from jpscripts.agent import execution
+from jpscripts.agent.execution import (
     AgentEvent,
     EventKind,
     RepairLoopConfig,
     RepairLoopOrchestrator,
 )
 from jpscripts.core.config import AppConfig
-from jpscripts.core.engine import PreparedPrompt
 from jpscripts.core.runtime import RuntimeContext, runtime_context
-
+from jpscripts.engine import PreparedPrompt
 
 # ---------------------------------------------------------------------------
 # Fixtures

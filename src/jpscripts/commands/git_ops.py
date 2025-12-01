@@ -119,7 +119,7 @@ def status_all(
 ) -> None:
     """Summarize git status across repositories with a live-updating table."""
     state = ctx.obj
-    base_root = root or state.config.worktree_root or state.config.workspace_root
+    base_root = root or state.config.infra.worktree_root or state.config.user.workspace_root
     base_root = base_root.expanduser()
 
     if not base_root.exists():
@@ -308,7 +308,7 @@ def sync(
 ) -> None:
     """Parallel git fetch across all repositories."""
     state = ctx.obj
-    base_root = root or state.config.worktree_root or state.config.workspace_root
+    base_root = root or state.config.infra.worktree_root or state.config.user.workspace_root
     base_root = base_root.expanduser()
 
     match asyncio.run(git_core.iter_git_repos(base_root, max_depth=max_depth)):

@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from jpscripts.core import memory as memory_core
+from jpscripts import memory as memory_core
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Ok
 
@@ -109,10 +109,10 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
 
     # Patch at the module where the import occurs
     monkeypatch.setattr(
-        "jpscripts.core.memory.store._load_lancedb_dependencies", lambda: ("db", object)
+        "jpscripts.memory.store._load_lancedb_dependencies", lambda: ("db", object)
     )
-    monkeypatch.setattr("jpscripts.core.memory.store.LanceDBStore", FakeStore)
-    monkeypatch.setattr("jpscripts.core.memory.api.EmbeddingClient", FakeEmbeddingClient)
+    monkeypatch.setattr("jpscripts.memory.store.LanceDBStore", FakeStore)
+    monkeypatch.setattr("jpscripts.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
         "vector", config=_dummy_config(store, use_semantic=True), store_path=store
@@ -185,10 +185,10 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
 
     # Patch at the module where the import occurs
     monkeypatch.setattr(
-        "jpscripts.core.memory.store._load_lancedb_dependencies", lambda: ("db", object)
+        "jpscripts.memory.store._load_lancedb_dependencies", lambda: ("db", object)
     )
-    monkeypatch.setattr("jpscripts.core.memory.store.LanceDBStore", FakeStore)
-    monkeypatch.setattr("jpscripts.core.memory.api.EmbeddingClient", FakeEmbeddingClient)
+    monkeypatch.setattr("jpscripts.memory.store.LanceDBStore", FakeStore)
+    monkeypatch.setattr("jpscripts.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
         "banana", config=_dummy_config(store, use_semantic=True), store_path=store, limit=5
@@ -589,10 +589,10 @@ def test_hybrid_search_returns_both_vector_and_keyword_matches(
             return Ok(0)
 
     monkeypatch.setattr(
-        "jpscripts.core.memory.store._load_lancedb_dependencies", lambda: ("db", object)
+        "jpscripts.memory.store._load_lancedb_dependencies", lambda: ("db", object)
     )
-    monkeypatch.setattr("jpscripts.core.memory.store.LanceDBStore", FakeStore)
-    monkeypatch.setattr("jpscripts.core.memory.api.EmbeddingClient", FakeEmbeddingClient)
+    monkeypatch.setattr("jpscripts.memory.store.LanceDBStore", FakeStore)
+    monkeypatch.setattr("jpscripts.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
         "banana", config=_dummy_config(store, use_semantic=True), store_path=store, limit=10
@@ -606,7 +606,7 @@ def test_hybrid_search_returns_both_vector_and_keyword_matches(
 
 def test_hybrid_search_empty_results() -> None:
     """When neither vector nor keyword search finds matches, return empty."""
-    from jpscripts.core.memory.store import HybridMemoryStore, JsonlArchiver
+    from jpscripts.memory.store import HybridMemoryStore, JsonlArchiver
 
     archiver = JsonlArchiver(Path("/tmp/empty.jsonl"))
     store = HybridMemoryStore(archiver, vector_store=None)
@@ -619,7 +619,7 @@ def test_hybrid_search_empty_results() -> None:
 
 def test_hybrid_search_keyword_only_no_vector_store(tmp_path: Path) -> None:
     """Without vector store, should fall back to keyword-only search."""
-    from jpscripts.core.memory.store import HybridMemoryStore, JsonlArchiver
+    from jpscripts.memory.store import HybridMemoryStore, JsonlArchiver
 
     fallback = tmp_path / "test.jsonl"
     entry = memory_core.MemoryEntry(

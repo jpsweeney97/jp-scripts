@@ -44,6 +44,7 @@ from jpscripts.providers import (
     ProviderType,
     StreamChunk,
     ToolCall,
+    register_provider,
 )
 
 if TYPE_CHECKING:
@@ -231,6 +232,7 @@ def _format_messages_for_codex(
     return "\n".join(parts)
 
 
+@register_provider(ProviderType.CODEX)
 class CodexProvider(BaseLLMProvider):
     """Codex CLI provider adapter.
 

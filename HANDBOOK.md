@@ -160,7 +160,7 @@ async with manager.create_worktree("task-001") as ctx:
 ### Usage
 
 ```python
-from jpscripts.core.parallel_swarm import ParallelSwarmController
+from jpscripts.swarm import ParallelSwarmController
 from jpscripts.core.dag import DAGGraph, DAGTask
 
 dag = DAGGraph(tasks=[...])

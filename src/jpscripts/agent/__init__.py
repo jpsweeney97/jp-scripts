@@ -13,7 +13,7 @@ Public API:
 from __future__ import annotations
 
 # Export context helpers for internal use and test patching
-from jpscripts.core.agent.context import (
+from jpscripts.agent.context import (
     build_dependency_section,
     build_file_context_section,
     collect_git_context,
@@ -24,7 +24,7 @@ from jpscripts.core.agent.context import (
 )
 
 # Export from execution module
-from jpscripts.core.agent.execution import (
+from jpscripts.agent.execution import (
     AgentEvent,
     EventKind,
     PatchFetcher,
@@ -38,21 +38,21 @@ from jpscripts.core.agent.execution import (
 )
 
 # Export from prompting module
-from jpscripts.core.agent.prompting import (
+from jpscripts.agent.prompting import (
     AGENT_TEMPLATE_NAME,
     GOVERNANCE_ANTI_PATTERNS,
     prepare_agent_prompt,
 )
 
 # Export from strategies module
-from jpscripts.core.agent.strategies import (
+from jpscripts.agent.strategies import (
     AttemptContext,
     RepairStrategy,
     StrategyConfig,
 )
 
 # Re-export from engine for backwards compatibility
-from jpscripts.core.engine import (
+from jpscripts.engine import (
     PreparedPrompt,
     parse_agent_response,
 )

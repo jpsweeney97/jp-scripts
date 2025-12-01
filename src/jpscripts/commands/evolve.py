@@ -23,7 +23,7 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
-from jpscripts.core.agent import PreparedPrompt, run_repair_loop
+from jpscripts.agent import PreparedPrompt, run_repair_loop
 from jpscripts.core.complexity import (
     FileComplexity,
     FunctionComplexity,
@@ -33,12 +33,12 @@ from jpscripts.core.complexity import (
 )
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.memory import save_memory
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.structure import get_import_dependencies
 from jpscripts.core.system import run_safe_shell
 from jpscripts.git import client as git_core
 from jpscripts.main import AppState
+from jpscripts.memory import save_memory
 from jpscripts.providers import CompletionOptions, Message, ProviderType, infer_provider_type
 from jpscripts.providers.factory import get_provider
 
@@ -226,7 +226,7 @@ async def _run_evolve(
     threshold: float,
 ) -> None:
     """Core evolution logic."""
-    root = Path(config.workspace_root).expanduser().resolve()
+    root = Path(config.user.workspace_root).expanduser().resolve()
 
     # Step 1: Check clean git state
     console.print("[cyan]Checking git state...[/cyan]")
@@ -313,7 +313,7 @@ async def _run_evolve(
     # Step 5: Launch optimizer agent
     console.print("[cyan]Launching optimizer agent...[/cyan]")
     optimizer_prompt = _build_optimizer_prompt(target)
-    target_model = model or config.default_model
+    target_model = model or config.ai.default_model
 
     # Determine provider (force native, not Codex)
     ptype = infer_provider_type(target_model)
@@ -344,6 +344,8 @@ async def _run_evolve(
         attach_recent=False,
         include_diff=True,
         fetch_response=fetcher,
+        app_config=config,
+        workspace_root=root,
         auto_archive=True,
         max_retries=3,
         keep_failed=False,
@@ -472,10 +474,10 @@ def evolve_report(
     Displays the most complex files and functions without making changes.
     """
     state: AppState = ctx.obj
-    root = Path(state.config.workspace_root).expanduser().resolve()
+    root = Path(state.config.user.workspace_root).expanduser().resolve()
 
     async def _report() -> None:
-        match await analyze_directory_complexity(root, state.config.ignore_dirs):
+        match await analyze_directory_complexity(root, state.config.user.ignore_dirs):
             case Err(complexity_err):
                 console.print(f"[red]Analysis failed: {complexity_err}[/red]")
                 return
@@ -570,7 +572,7 @@ def evolve_debt(
     need fixes, making them prime candidates for refactoring.
     """
     state: AppState = ctx.obj
-    root = Path(state.config.workspace_root).expanduser().resolve()
+    root = Path(state.config.user.workspace_root).expanduser().resolve()
 
     async def _debt() -> None:
         console.print("[cyan]Calculating technical debt scores...[/cyan]")

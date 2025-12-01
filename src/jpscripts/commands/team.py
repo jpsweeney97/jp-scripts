@@ -79,7 +79,7 @@ async def _run_swarm(
             roles=roles,
             config=state.config,
             repo_root=None,
-            model=state.config.default_model,
+            model=state.config.ai.default_model,
             safe_mode=safe_mode,
         ):
             if update.kind in {UpdateKind.STDOUT, UpdateKind.STDERR}:

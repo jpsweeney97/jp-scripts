@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from jpscripts.core.agent import prepare_agent_prompt
+from jpscripts.agent import prepare_agent_prompt
 from jpscripts.core.config import AppConfig
 from jpscripts.core.context import GatherContextResult
 from jpscripts.core.runtime import runtime_context
@@ -18,15 +18,15 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
 
     with (
         patch(
-            "jpscripts.core.agent.prompting.collect_git_context",
+            "jpscripts.agent.prompting.collect_git_context",
             AsyncMock(return_value=("feature/test", "abc1234", False)),
         ),
         patch(
-            "jpscripts.core.agent.prompting.gather_context",
+            "jpscripts.agent.prompting.gather_context",
             AsyncMock(return_value=GatherContextResult(output="log output", files={file_path})),
         ),
         patch(
-            "jpscripts.core.agent.prompting.smart_read_context",
+            "jpscripts.agent.prompting.smart_read_context",
             return_value="file snippet",
         ),
     ):
@@ -58,11 +58,11 @@ async def test_prepare_agent_prompt_includes_git_context(tmp_path: Path) -> None
 async def test_prepare_agent_prompt_marks_dirty_and_handles_empty_diff(tmp_path: Path) -> None:
     with (
         patch(
-            "jpscripts.core.agent.prompting.collect_git_context",
+            "jpscripts.agent.prompting.collect_git_context",
             AsyncMock(return_value=("main", "deadbee", True)),
         ),
         patch(
-            "jpscripts.core.agent.prompting.collect_git_diff",
+            "jpscripts.agent.prompting.collect_git_diff",
             AsyncMock(return_value=None),
         ),
     ):
@@ -93,7 +93,7 @@ async def test_prepare_agent_prompt_includes_constitution_file(tmp_path: Path) -
     )
 
     with patch(
-        "jpscripts.core.agent.prompting.collect_git_context",
+        "jpscripts.agent.prompting.collect_git_context",
         AsyncMock(return_value=("main", "deadbee", False)),
     ):
         config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)

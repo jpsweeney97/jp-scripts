@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jpscripts.core.config import AppConfig
-from jpscripts.core.memory import (
+from jpscripts.core.config import AppConfig, UserConfig
+from jpscripts.memory import (
     _compute_file_hash,
     _fallback_path,
     _load_entries,
@@ -19,9 +19,11 @@ def _test_config(tmp_path: Path) -> AppConfig:
     """Create a test config with semantic search disabled."""
     store_path = tmp_path / "memory.lance"
     return AppConfig(
-        workspace_root=tmp_path,
-        memory_store=store_path,
-        use_semantic_search=False,
+        user=UserConfig(
+            workspace_root=tmp_path,
+            memory_store=store_path,
+            use_semantic_search=False,
+        ),
     )
 
 

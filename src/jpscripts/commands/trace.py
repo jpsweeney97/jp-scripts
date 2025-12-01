@@ -22,12 +22,12 @@ from rich.tree import Tree
 
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
-from jpscripts.core.engine import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.core.replay import (
     RecordedAgentResponse,
     ReplayDivergenceError,
     ReplayProvider,
 )
+from jpscripts.engine import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.providers import Message as ProviderMessage
 
 app = typer.Typer(help="Inspect agentic execution traces.")

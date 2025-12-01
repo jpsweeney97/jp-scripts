@@ -16,11 +16,10 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from jpscripts.core import security
-from jpscripts.core.agent.context import expand_context_paths
-from jpscripts.core.agent.patching import apply_patch_text, compute_patch_hash
-from jpscripts.core.agent.prompting import prepare_agent_prompt
-from jpscripts.core.agent.strategies import (
+from jpscripts.agent.context import expand_context_paths
+from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
+from jpscripts.agent.prompting import prepare_agent_prompt
+from jpscripts.agent.strategies import (
     STRATEGY_OVERRIDE_TEXT,
     AttemptContext,
     RepairStrategy,
@@ -29,9 +28,12 @@ from jpscripts.core.agent.strategies import (
     build_strategy_plan,
     detect_repeated_failure,
 )
+from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.core.engine import (
+from jpscripts.core.result import Err, Ok
+from jpscripts.core.system import run_safe_shell
+from jpscripts.engine import (
     AgentEngine,
     AgentResponse,
     Message,
@@ -39,9 +41,7 @@ from jpscripts.core.engine import (
     ToolCall,
     parse_agent_response,
 )
-from jpscripts.core.memory import save_memory
-from jpscripts.core.result import Err, Ok
-from jpscripts.core.system import run_safe_shell
+from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)
 
@@ -590,7 +590,7 @@ class RepairLoopOrchestrator:
         """Initialize runtime state from injected configuration."""
         self._runtime_config = self._app_config
         self._root = security.validate_workspace_root(
-            self._workspace_root or self._app_config.notes_dir
+            self._workspace_root or self._app_config.user.notes_dir
         )
         self._attempt_cap = max(1, self.loop_config.max_retries)
         self._strategies = build_strategy_plan(self._attempt_cap)
@@ -618,9 +618,9 @@ class RepairLoopOrchestrator:
             run_command=run_cmd,
             attach_recent=self.loop_config.attach_recent,
             include_diff=self.loop_config.include_diff,
-            ignore_dirs=config.ignore_dirs,  # type: ignore[union-attr]
-            max_file_context_chars=config.max_file_context_chars,  # type: ignore[union-attr]
-            max_command_output_chars=config.max_command_output_chars,  # type: ignore[union-attr]
+            ignore_dirs=config.user.ignore_dirs,  # type: ignore[union-attr]
+            max_file_context_chars=config.ai.max_file_context_chars,  # type: ignore[union-attr]
+            max_command_output_chars=config.ai.max_command_output_chars,  # type: ignore[union-attr]
             reasoning_effort=reasoning,
             temperature=temp_override,
             tool_history=history_text,
@@ -649,7 +649,7 @@ class RepairLoopOrchestrator:
                 current_error,
                 self._root,
                 self.changed_files,
-                config.ignore_dirs,  # type: ignore[union-attr]
+                config.user.ignore_dirs,  # type: ignore[union-attr]
             )
         return set(self.changed_files)
 
@@ -684,7 +684,7 @@ class RepairLoopOrchestrator:
             # workspace_root enables governance checks for constitutional compliance
             engine = AgentEngine[AgentResponse](
                 persona="Engineer",
-                model=self.model or config.default_model,  # type: ignore[union-attr]
+                model=self.model or config.ai.default_model,  # type: ignore[union-attr]
                 prompt_builder=lambda msgs,  # type: ignore[misc]
                 ip=iteration_prompt,
                 ld=loop_ctx.loop_detected,
@@ -791,7 +791,7 @@ class RepairLoopOrchestrator:
         current_error = _summarize_output(
             stdout,
             stderr,
-            config.max_command_output_chars,  # type: ignore[union-attr]
+            config.ai.max_command_output_chars,  # type: ignore[union-attr]
         )
         yield AgentEvent(
             EventKind.COMMAND_FAILED,
@@ -824,7 +824,7 @@ class RepairLoopOrchestrator:
         failure_msg = _summarize_output(
             stdout,
             stderr,
-            config.max_command_output_chars,  # type: ignore[union-attr]
+            config.ai.max_command_output_chars,  # type: ignore[union-attr]
         )
         yield AgentEvent(
             EventKind.COMMAND_FAILED,
@@ -874,7 +874,7 @@ class RepairLoopOrchestrator:
             return
 
         error_msg = _summarize_output(
-            stdout, stderr, config.max_command_output_chars  # type: ignore[union-attr]
+            stdout, stderr, config.ai.max_command_output_chars  # type: ignore[union-attr]
         )
         yield AgentEvent(
             EventKind.COMMAND_FAILED,

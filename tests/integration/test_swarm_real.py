@@ -9,12 +9,12 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AIConfig, AppConfig, InfraConfig, UserConfig
 from jpscripts.core.dag import DAGGraph, DAGTask
-from jpscripts.core.engine import PreparedPrompt
-from jpscripts.core.parallel_swarm import ParallelSwarmController
 from jpscripts.core.result import Ok
 from jpscripts.core.runtime import RuntimeContext, reset_runtime_context, set_runtime_context
+from jpscripts.engine import PreparedPrompt
+from jpscripts.swarm import ParallelSwarmController
 
 
 @pytest.fixture
@@ -56,14 +56,20 @@ def swarm_config(tmp_path: Path, temp_git_repo: Path) -> AppConfig:
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir(exist_ok=True)
     return AppConfig(
-        workspace_root=temp_git_repo,
-        notes_dir=notes_dir,
-        default_model="gpt-4o",
-        ignore_dirs=[".git"],
-        use_semantic_search=False,
-        max_file_context_chars=5000,
-        max_command_output_chars=5000,
-        worktree_root=tmp_path / "worktrees",
+        ai=AIConfig(
+            default_model="gpt-4o",
+            max_file_context_chars=5000,
+            max_command_output_chars=5000,
+        ),
+        infra=InfraConfig(
+            worktree_root=tmp_path / "worktrees",
+        ),
+        user=UserConfig(
+            workspace_root=temp_git_repo,
+            notes_dir=notes_dir,
+            ignore_dirs=[".git"],
+            use_semantic_search=False,
+        ),
     )
 
 
@@ -72,7 +78,7 @@ def runtime_ctx(swarm_config: AppConfig) -> Generator[RuntimeContext, None, None
     """Set up runtime context for the test."""
     ctx = RuntimeContext(
         config=swarm_config,
-        workspace_root=swarm_config.workspace_root,
+        workspace_root=swarm_config.user.workspace_root,
         trace_id="test-swarm",
         dry_run=False,
     )

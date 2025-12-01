@@ -20,7 +20,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
-from jpscripts.core import memory as memory_core
+from jpscripts import memory as memory_core
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Err
 from jpscripts.core.security import WorkspaceValidationError, validate_workspace_root
@@ -67,8 +67,8 @@ class ConfigCheck(DiagnosticCheck):
             issues.append(f"Config file missing: {self.config_path}")
 
         for label, path in (
-            ("workspace_root", self.config.workspace_root),
-            ("notes_dir", self.config.notes_dir),
+            ("workspace_root", self.config.user.workspace_root),
+            ("notes_dir", self.config.user.notes_dir),
         ):
             expanded = path.expanduser()
             if not expanded.exists():
@@ -93,7 +93,7 @@ class AuthCheck(DiagnosticCheck):
         self.name = "Auth"
 
     async def run(self) -> tuple[str, str]:
-        model = (self.config.default_model or "").lower()
+        model = (self.config.ai.default_model or "").lower()
         if "local" in model or "offline" in model:
             return "ok", "Local model in use; API key not required."
         if os.environ.get("OPENAI_API_KEY"):
@@ -107,7 +107,7 @@ class VectorDBCheck(DiagnosticCheck):
         self.name = "VectorDB"
 
     async def run(self) -> tuple[str, str]:
-        store_path = Path(self.config.memory_store).expanduser()
+        store_path = Path(self.config.user.memory_store).expanduser()
         try:
             deps = memory_core._load_lancedb_dependencies()  # pyright: ignore[reportPrivateUsage]
             if deps is None:

@@ -12,8 +12,8 @@ Key invariants enforced:
 - No untyped Any without type: ignore comment
 """
 
-from jpscripts.core.governance.ast_checker import ConstitutionChecker
-from jpscripts.core.governance.compliance import (
+from jpscripts.governance.ast_checker import ConstitutionChecker
+from jpscripts.governance.compliance import (
     check_compliance,
     check_source_compliance,
     count_violations_by_severity,
@@ -21,9 +21,9 @@ from jpscripts.core.governance.compliance import (
     has_fatal_violations,
     scan_codebase_compliance,
 )
-from jpscripts.core.governance.diff_parser import apply_patch_in_memory
-from jpscripts.core.governance.secret_scanner import check_for_secrets
-from jpscripts.core.governance.types import Violation, ViolationType
+from jpscripts.governance.diff_parser import apply_patch_in_memory
+from jpscripts.governance.secret_scanner import check_for_secrets
+from jpscripts.governance.types import Violation, ViolationType
 
 __all__ = [
     "ConstitutionChecker",

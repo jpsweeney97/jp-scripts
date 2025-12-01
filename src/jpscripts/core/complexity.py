@@ -22,9 +22,9 @@ from pathlib import Path
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.core.memory import query_memory
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result
 from jpscripts.git import AsyncRepo
+from jpscripts.memory import query_memory
 
 logger = get_logger(__name__)
 
@@ -330,7 +330,7 @@ async def calculate_debt_scores(
         case Err(repo_err):
             logger.debug("Git repository unavailable for churn calculation: %s", repo_err)
 
-    match await analyze_directory_complexity(root, config.ignore_dirs):
+    match await analyze_directory_complexity(root, config.user.ignore_dirs):
         case Err(complexity_err):
             return Err(complexity_err)
         case Ok(complexities):

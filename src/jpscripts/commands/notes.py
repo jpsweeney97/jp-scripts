@@ -42,7 +42,7 @@ def note(
 ) -> None:
     """Append to today's note or open it in the configured editor."""
     state = ctx.obj
-    notes_dir = state.config.notes_dir.expanduser()
+    notes_dir = state.config.user.notes_dir.expanduser()
 
     # Use core logic to get the path
     notes_impl.ensure_notes_dir(notes_dir)
@@ -55,13 +55,13 @@ def note(
             console.print(f"[green]Appended to[/green] {note_path}")
             return
 
-        editor_cmd = shlex.split(state.config.editor)
+        editor_cmd = shlex.split(state.config.user.editor)
         try:
             exit_code = await _launch_editor(editor_cmd, note_path)
             if exit_code != 0:
                 console.print(f"[red]Editor exited with code {exit_code}[/red]")
         except FileNotFoundError:
-            console.print(f"[red]Editor not found:[/red] {state.config.editor}")
+            console.print(f"[red]Editor not found:[/red] {state.config.user.editor}")
             raise typer.Exit(code=1)
 
     asyncio.run(_run())
@@ -74,7 +74,7 @@ def note_search(
 ) -> None:
     """Search notes with ripgrep and optionally fzf."""
     state = ctx.obj
-    notes_dir = state.config.notes_dir.expanduser()
+    notes_dir = state.config.user.notes_dir.expanduser()
     if not notes_dir.exists():
         console.print(f"[yellow]Notes directory {notes_dir} does not exist.[/yellow]")
         raise typer.Exit(code=1)
@@ -170,7 +170,7 @@ def standup(
 ) -> None:
     """Summarize recent commits across repos."""
     state = ctx.obj
-    root = state.config.worktree_root or state.config.workspace_root
+    root = state.config.infra.worktree_root or state.config.user.workspace_root
     root = root.expanduser()
     since = dt.datetime.now() - dt.timedelta(days=days)
     commit_limit = min(1000, max(100, days * 100))
@@ -229,7 +229,7 @@ def standup_note(
 ) -> None:
     """Run standup and append its output to today's note."""
     state = ctx.obj
-    notes_dir = state.config.notes_dir.expanduser()
+    notes_dir = state.config.user.notes_dir.expanduser()
 
     notes_impl.ensure_notes_dir(notes_dir)
     note_path = notes_impl.get_today_path(notes_dir)

@@ -16,9 +16,9 @@ if TYPE_CHECKING:
         final_message: str | None
 
 
+from jpscripts.agent import PreparedPrompt, parse_agent_response
 from jpscripts.commands.agent import codex_exec
-from jpscripts.core.agent import PreparedPrompt, parse_agent_response
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 from jpscripts.core.result import Ok
 from jpscripts.core.runtime import RuntimeContext, runtime_context, set_runtime_context
 
@@ -42,18 +42,22 @@ def main_callback(ctx: typer.Context) -> None:
     # Inject a real config and runtime context so get_runtime() succeeds
     temp_dir = _get_test_temp_dir()
     config = AppConfig(
-        workspace_root=temp_dir,
-        notes_dir=temp_dir / "notes",
-        ignore_dirs=[".git", "node_modules"],
-        max_file_context_chars=50_000,
-        max_command_output_chars=20_000,
-        default_model="gpt-4o",
-        model_context_limits={"gpt-4o": 128_000, "default": 50_000},
-        use_semantic_search=False,
+        ai=AIConfig(
+            default_model="gpt-4o",
+            model_context_limits={"gpt-4o": 128_000, "default": 50_000},
+            max_file_context_chars=50_000,
+            max_command_output_chars=20_000,
+        ),
+        user=UserConfig(
+            workspace_root=temp_dir,
+            notes_dir=temp_dir / "notes",
+            ignore_dirs=[".git", "node_modules"],
+            use_semantic_search=False,
+        ),
     )
     runtime = RuntimeContext(
         config=config,
-        workspace_root=config.workspace_root,
+        workspace_root=config.user.workspace_root,
         dry_run=False,
     )
     set_runtime_context(runtime)
@@ -137,7 +141,7 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
             patch(
                 "jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response
             ),
-            patch("jpscripts.core.agent.prompting.scan_recent", side_effect=fake_scan_recent),
+            patch("jpscripts.agent.prompting.scan_recent", side_effect=fake_scan_recent),
         ):
             result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
 
@@ -152,12 +156,19 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
 def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None:
     from importlib import import_module
 
-    agent_core = import_module("jpscripts.core.agent")
-    agent_execution = import_module("jpscripts.core.agent.execution")
+    agent_core = import_module("jpscripts.agent")
+    agent_execution = import_module("jpscripts.agent.execution")
     config_mod = import_module("jpscripts.core.config")
     AppConfig = cast(Any, config_mod).AppConfig
+    UserConfig = cast(Any, config_mod).UserConfig
 
-    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
+    config = AppConfig(
+        user=UserConfig(
+            workspace_root=tmp_path,
+            notes_dir=tmp_path,
+            use_semantic_search=False,
+        ),
+    )
 
     async def fake_run_command(command: str, root: Path) -> tuple[int, str, str]:
         return 0, "ok", ""
@@ -188,7 +199,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
             agent_core.run_repair_loop(
                 base_prompt="Fix the thing",
                 command="echo ok",
-                model=config.default_model,
+                model=config.ai.default_model,
                 attach_recent=False,
                 include_diff=False,
                 fetch_response=fake_fetch,

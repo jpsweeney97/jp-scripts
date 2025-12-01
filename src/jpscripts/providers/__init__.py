@@ -25,7 +25,7 @@ Usage:
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
@@ -309,6 +309,35 @@ class BaseLLMProvider(ABC):
         ...
 
 
+# Provider registry for self-registration pattern
+ProviderFactory = Callable[..., BaseLLMProvider]
+PROVIDER_REGISTRY: dict[ProviderType, ProviderFactory] = {}
+
+
+def register_provider(
+    provider_type: ProviderType,
+) -> Callable[[type[BaseLLMProvider]], type[BaseLLMProvider]]:
+    """Decorator to register a provider class in the registry.
+
+    Usage:
+        @register_provider(ProviderType.ANTHROPIC)
+        class AnthropicProvider(BaseLLMProvider):
+            ...
+
+    The decorator creates a factory function that instantiates the class
+    with config and any additional kwargs.
+    """
+
+    def decorator(cls: type[BaseLLMProvider]) -> type[BaseLLMProvider]:
+        def factory(config: AppConfig, **kwargs: Any) -> BaseLLMProvider:
+            return cls(config, **kwargs)
+
+        PROVIDER_REGISTRY[provider_type] = factory
+        return cls
+
+    return decorator
+
+
 # Model ID to provider type mapping
 MODEL_PROVIDER_MAP: dict[str, ProviderType] = {
     # Anthropic Claude models
@@ -369,6 +398,7 @@ def infer_provider_type(model_id: str) -> ProviderType:
 
 __all__ = [
     "MODEL_PROVIDER_MAP",
+    "PROVIDER_REGISTRY",
     "AuthenticationError",
     "BaseLLMProvider",
     "CompletionOptions",
@@ -379,6 +409,7 @@ __all__ = [
     "Message",
     "ModelNotFoundError",
     "ProviderError",
+    "ProviderFactory",
     "ProviderType",
     "RateLimitError",
     "StreamChunk",
@@ -386,4 +417,5 @@ __all__ = [
     "ToolCall",
     "ToolDefinition",
     "infer_provider_type",
+    "register_provider",
 ]

@@ -397,7 +397,7 @@ async def consolidate_patterns(
     Returns:
         List of extracted patterns
     """
-    trace_dir = Path(config.trace_dir).expanduser()
+    trace_dir = Path(config.infra.trace_dir).expanduser()
     if not trace_dir.exists():
         return Err(
             ConfigurationError("Trace directory not found", context={"path": str(trace_dir)})
@@ -416,7 +416,7 @@ async def consolidate_patterns(
             pass
 
     # Get provider for synthesis
-    model_id = model or config.default_model
+    model_id = model or config.ai.default_model
     try:
         provider = get_provider(config, model_id=model_id)
     except Exception as exc:

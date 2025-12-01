@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jpscripts.core.governance import ViolationType, check_source_compliance
+from jpscripts.governance import ViolationType, check_source_compliance
 
 
 def _violations_for_source(source: str) -> list[ViolationType]:

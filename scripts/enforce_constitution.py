@@ -15,7 +15,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from jpscripts.core.governance import (
+from jpscripts.governance import (
     format_violations_for_agent,
     has_fatal_violations,
     scan_codebase_compliance,

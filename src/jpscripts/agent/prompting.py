@@ -14,24 +14,24 @@ from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
-from jpscripts.core import security
-from jpscripts.core.agent.context import (
+from jpscripts.agent.context import (
     build_dependency_section,
     build_file_context_section,
     collect_git_context,
     collect_git_diff,
     load_constitution,
 )
+from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import gather_context, smart_read_context
-from jpscripts.core.engine import AgentResponse, PreparedPrompt
-from jpscripts.core.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.core.structure import generate_map
 from jpscripts.core.tokens import TokenBudgetManager
+from jpscripts.engine import AgentResponse, PreparedPrompt
+from jpscripts.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory
 
 logger = get_logger(__name__)
 
@@ -44,7 +44,7 @@ GOVERNANCE_ANTI_PATTERNS: list[str] = [
 
 
 def _resolve_template_root() -> Path:
-    package_root = Path(__file__).resolve().parent.parent.parent
+    package_root = Path(__file__).resolve().parent.parent
     return security.validate_path(package_root / "templates", package_root)
 
 
@@ -225,22 +225,22 @@ async def prepare_agent_prompt(
     config = runtime.config
     root = workspace_override or runtime.workspace_root
     effective_ignore_dirs = (
-        list(ignore_dirs) if ignore_dirs is not None else list(config.ignore_dirs)
+        list(ignore_dirs) if ignore_dirs is not None else list(config.user.ignore_dirs)
     )
     file_context_limit = (
         max_file_context_chars
         if max_file_context_chars is not None
-        else config.max_file_context_chars
+        else config.ai.max_file_context_chars
     )
     command_output_limit = (
         max_command_output_chars
         if max_command_output_chars is not None
-        else config.max_command_output_chars
+        else config.ai.max_command_output_chars
     )
-    active_model = model or config.default_model
-    model_limit = config.model_context_limits.get(
+    active_model = model or config.ai.default_model
+    model_limit = config.ai.model_context_limits.get(
         active_model,
-        config.model_context_limits.get("default", file_context_limit),
+        config.ai.model_context_limits.get("default", file_context_limit),
     )
 
     # Reserve ~10% for template overhead (prompt structure, instructions, etc.)

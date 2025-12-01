@@ -7,10 +7,10 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from jpscripts.core.console import get_logger
-from jpscripts.core.governance.ast_checker import ConstitutionChecker
-from jpscripts.core.governance.diff_parser import apply_patch_in_memory, parse_diff_files
-from jpscripts.core.governance.secret_scanner import check_for_secrets
-from jpscripts.core.governance.types import Violation, ViolationType
+from jpscripts.governance.ast_checker import ConstitutionChecker
+from jpscripts.governance.diff_parser import apply_patch_in_memory, parse_diff_files
+from jpscripts.governance.secret_scanner import check_for_secrets
+from jpscripts.governance.types import Violation, ViolationType
 
 logger = get_logger(__name__)
 

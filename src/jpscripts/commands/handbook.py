@@ -28,17 +28,17 @@ from typer.main import get_command
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
-from jpscripts.core.engine import AUDIT_PREFIX, run_safe_shell
 from jpscripts.core.mcp_registry import get_tool_metadata, get_tool_registry
-from jpscripts.core.memory import (
+from jpscripts.core.result import CapabilityMissingError, Err, Ok
+from jpscripts.core.security import validate_path, validate_workspace_root
+from jpscripts.engine import AUDIT_PREFIX, run_safe_shell
+from jpscripts.memory import (
     STOPWORDS,
     EmbeddingClient,
     EmbeddingClientProtocol,
     MemoryEntry,
     get_memory_store,
 )
-from jpscripts.core.result import CapabilityMissingError, Err, Ok
-from jpscripts.core.security import validate_path, validate_workspace_root
 
 CACHE_ROOT = Path.home() / ".cache" / "jpscripts" / "handbook_index"
 HANDBOOK_NAME = "HANDBOOK.md"
@@ -731,7 +731,7 @@ def verify_protocol(
             return 1
 
         try:
-            root = await asyncio.to_thread(validate_workspace_root, config.workspace_root)
+            root = await asyncio.to_thread(validate_workspace_root, config.user.workspace_root)
         except Exception as exc:
             console.print(f"[red]Workspace validation failed: {exc}[/red]")
             return 1

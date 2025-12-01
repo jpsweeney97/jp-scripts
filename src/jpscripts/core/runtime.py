@@ -15,7 +15,7 @@ Usage:
     # In any module
     def some_function():
         ctx = get_runtime()
-        workspace = ctx.workspace_root
+        workspace = ctx.user.workspace_root
         config = ctx.config
 """
 
@@ -133,10 +133,10 @@ class RuntimeContext:
             from jpscripts.core.rate_limit import RateLimiter
 
             self._rate_limiter = RateLimiter(
-                max_calls=self.config.shell_rate_limit_calls
+                max_calls=self.config.infra.shell_rate_limit_calls
                 if hasattr(self.config, "shell_rate_limit_calls")
                 else 100,
-                window_seconds=self.config.shell_rate_limit_window
+                window_seconds=self.config.infra.shell_rate_limit_window
                 if hasattr(self.config, "shell_rate_limit_window")
                 else 60.0,
             )
@@ -148,7 +148,7 @@ class RuntimeContext:
             from jpscripts.core.cost_tracker import CostTracker
 
             self._cost_tracker = CostTracker(
-                model_id=self.config.default_model,
+                model_id=self.config.ai.default_model,
             )
         return self._cost_tracker
 
@@ -240,7 +240,7 @@ def runtime_context(
 
     Args:
         config: The loaded AppConfig
-        workspace: Override workspace root (defaults to config.workspace_root)
+        workspace: Override workspace root (defaults to config.user.workspace_root)
         dry_run: Whether to skip destructive operations
         trace_id: Optional trace ID for correlation (auto-generated if not provided)
 
@@ -253,7 +253,7 @@ def runtime_context(
             # All code here can use get_runtime()
             run_agent(...)
     """
-    resolved_workspace = (workspace or config.workspace_root).expanduser().resolve()
+    resolved_workspace = (workspace or config.user.workspace_root).expanduser().resolve()
 
     ctx = RuntimeContext(
         config=config,

@@ -37,6 +37,7 @@ from jpscripts.providers import (
     TokenUsage,
     ToolCall,
     ToolDefinition,
+    register_provider,
 )
 
 if TYPE_CHECKING:
@@ -247,6 +248,7 @@ def _extract_text_content(content_blocks: list[_ContentBlock]) -> str:
     return "".join(text_parts)
 
 
+@register_provider(ProviderType.ANTHROPIC)
 class AnthropicProvider(BaseLLMProvider):
     """Anthropic Claude provider implementation.
 

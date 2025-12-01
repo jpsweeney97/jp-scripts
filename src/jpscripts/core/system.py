@@ -169,8 +169,8 @@ class DockerSandbox:
 
 
 def get_sandbox(config: AppConfig | None) -> SandboxProtocol:
-    if config and config.use_docker_sandbox:
-        return DockerSandbox(config.docker_image, config.workspace_root)
+    if config and config.infra.use_docker_sandbox:
+        return DockerSandbox(config.infra.docker_image, config.user.workspace_root)
     return LocalSandbox()
 
 
@@ -229,7 +229,7 @@ async def find_processes(
 async def kill_process_async(pid: int, force: bool = False) -> Result[str, SystemResourceError]:
     runtime = get_runtime()
     config = runtime.config
-    dry_run = config.dry_run
+    dry_run = config.user.dry_run
     if dry_run:
         logger.info("Did not kill PID %s (dry-run)", pid)
         return Ok("dry-run")

@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 
 
 class TestReadFile:
@@ -23,8 +23,10 @@ class TestReadFile:
         """Create a mock runtime context."""
         runtime = MagicMock()
         runtime.workspace_root = tmp_path
-        runtime.config = AppConfig(workspace_root=tmp_path)
-        runtime.config.max_file_context_chars = 50000
+        runtime.config = AppConfig(
+            ai=AIConfig(max_file_context_chars=50000),
+            user=UserConfig(workspace_root=tmp_path),
+        )
         runtime.dry_run = False
         return runtime
 

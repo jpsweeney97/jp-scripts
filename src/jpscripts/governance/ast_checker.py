@@ -5,8 +5,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from jpscripts.core.governance.secret_scanner import check_for_secrets
-from jpscripts.core.governance.types import Violation, ViolationType
+from jpscripts.governance.secret_scanner import check_for_secrets
+from jpscripts.governance.types import Violation, ViolationType
 
 
 class ConstitutionChecker(ast.NodeVisitor):

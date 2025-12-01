@@ -26,18 +26,18 @@ from jpscripts.core.console import console
 
 
 def _write_config(path: Path, config: AppConfig) -> None:
-    ignore_dirs_literal = ", ".join(json.dumps(item) for item in config.ignore_dirs)
+    ignore_dirs_literal = ", ".join(json.dumps(item) for item in config.user.ignore_dirs)
     content = dedent(
         f"""
         # jpscripts configuration (TOML)
-        editor = "{config.editor}"
-        notes_dir = "{config.notes_dir}"
-        workspace_root = "{config.workspace_root}"
+        editor = "{config.user.editor}"
+        notes_dir = "{config.user.notes_dir}"
+        workspace_root = "{config.user.workspace_root}"
         ignore_dirs = [{ignore_dirs_literal}]
-        snapshots_dir = "{config.snapshots_dir}"
-        log_level = "{config.log_level}"
-        worktree_root = "{config.worktree_root or ""}"
-        focus_audio_device = "{config.focus_audio_device or ""}"
+        snapshots_dir = "{config.user.snapshots_dir}"
+        log_level = "{config.user.log_level}"
+        worktree_root = "{config.infra.worktree_root or ""}"
+        focus_audio_device = "{config.user.focus_audio_device or ""}"
         """
     ).strip()
     path.write_text(content + "\n", encoding="utf-8")
@@ -55,28 +55,28 @@ def init(
     defaults: AppConfig = state.config
     target_path = (config_path or state.config_meta.path).expanduser()
 
-    notes_dir = Path(Prompt.ask("Notes directory", default=str(defaults.notes_dir)))
-    workspace_root = Path(Prompt.ask("Workspace root", default=str(defaults.workspace_root)))
+    notes_dir = Path(Prompt.ask("Notes directory", default=str(defaults.user.notes_dir)))
+    workspace_root = Path(Prompt.ask("Workspace root", default=str(defaults.user.workspace_root)))
     worktree_root_input = Prompt.ask(
-        "Worktree root (optional)", default=str(defaults.worktree_root or "")
+        "Worktree root (optional)", default=str(defaults.infra.worktree_root or "")
     )
     worktree_root = Path(worktree_root_input).expanduser() if worktree_root_input else None
-    editor = Prompt.ask("Editor command", default=defaults.editor)
-    log_level = Prompt.ask("Log level", default=defaults.log_level)
-    snapshots_dir = Path(Prompt.ask("Snapshots directory", default=str(defaults.snapshots_dir)))
+    editor = Prompt.ask("Editor command", default=defaults.user.editor)
+    log_level = Prompt.ask("Log level", default=defaults.user.log_level)
+    snapshots_dir = Path(Prompt.ask("Snapshots directory", default=str(defaults.user.snapshots_dir)))
     focus_audio_device = (
         Prompt.ask(
-            "Preferred audio device (optional)", default=defaults.focus_audio_device or ""
+            "Preferred audio device (optional)", default=defaults.user.focus_audio_device or ""
         ).strip()
         or None
     )
     ignore_dirs_input = Prompt.ask(
         "Ignore directories (comma separated)",
-        default=",".join(defaults.ignore_dirs),
+        default=",".join(defaults.user.ignore_dirs),
     )
     ignore_dirs = [item.strip() for item in ignore_dirs_input.split(",") if item.strip()]
     if not ignore_dirs:
-        ignore_dirs = defaults.ignore_dirs
+        ignore_dirs = defaults.user.ignore_dirs
 
     config = AppConfig(
         editor=editor,
@@ -90,10 +90,10 @@ def init(
     )
 
     for target in [
-        config.notes_dir,
-        config.workspace_root,
-        config.snapshots_dir,
-        config.worktree_root,
+        config.user.notes_dir,
+        config.user.workspace_root,
+        config.user.snapshots_dir,
+        config.infra.worktree_root,
     ]:
         if target:
             Path(target).expanduser().mkdir(parents=True, exist_ok=True)
@@ -103,7 +103,7 @@ def init(
     console.print("You can rerun `jp init` anytime to update these values.")
 
     if install_hooks:
-        _install_precommit_hook(config.workspace_root)
+        _install_precommit_hook(config.user.workspace_root)
 
 
 def config_fix(ctx: typer.Context) -> None:

@@ -148,7 +148,7 @@ Run without slow tests: `pytest -m "not slow"`
 ```python
 # Unit test example
 import pytest
-from jpscripts.core.memory import MemoryEntry
+from jpscripts.memory import MemoryEntry
 
 def test_memory_entry_validation():
     entry = MemoryEntry(id="123", ts="2024-01-01", content="test", tags=["foo"])

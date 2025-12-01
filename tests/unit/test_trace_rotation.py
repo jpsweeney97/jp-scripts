@@ -7,7 +7,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from jpscripts.core.engine import TraceRecorder
+from jpscripts.engine import TraceRecorder
 
 
 class TestTraceRotation:

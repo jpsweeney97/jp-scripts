@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jpscripts.core.governance import ViolationType, check_compliance
+from jpscripts.governance import ViolationType, check_compliance
 
 
 class TestGovernancePatchBlindSpot:

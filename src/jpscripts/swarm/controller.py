@@ -9,22 +9,14 @@ from pathlib import Path
 
 from pydantic import ValidationError as PydanticValidationError
 
-from jpscripts.core.agent.execution import (
+from jpscripts.agent.execution import (
     apply_patch_text,
     verify_syntax,
 )
-from jpscripts.core.agent.prompting import prepare_agent_prompt
+from jpscripts.agent.prompting import prepare_agent_prompt
 from jpscripts.core.config import AppConfig
 from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus, WorktreeContext
-from jpscripts.core.engine import (
-    Message,
-    PreparedPrompt,
-    ToolCall,
-    parse_agent_response,
-)
 from jpscripts.core.mcp_registry import get_tool_registry
-from jpscripts.core.parallel_swarm.types import MergeResult, TaskResult
-from jpscripts.core.parallel_swarm.worktree import WorktreeManager
 from jpscripts.core.result import (
     Err,
     GitError,
@@ -34,7 +26,15 @@ from jpscripts.core.result import (
     WorkspaceError,
 )
 from jpscripts.core.system import run_safe_shell
+from jpscripts.engine import (
+    Message,
+    PreparedPrompt,
+    ToolCall,
+    parse_agent_response,
+)
 from jpscripts.git import AsyncRepo
+from jpscripts.swarm.types import MergeResult, TaskResult
+from jpscripts.swarm.worktree import WorktreeManager
 
 
 class ParallelSwarmController:
@@ -87,7 +87,7 @@ class ParallelSwarmController:
         self.objective = objective.strip()
         self.config = config
         self.repo_root = repo_root.expanduser()
-        self.model = model or config.default_model
+        self.model = model or config.ai.default_model
         self.max_parallel = max_parallel
         self.preserve_on_failure = preserve_on_failure
         self._fetch_response = fetch_response
@@ -107,7 +107,7 @@ class ParallelSwarmController:
             case Err(err):
                 return Err(err)
 
-        worktree_root = self.config.worktree_root
+        worktree_root = self.config.infra.worktree_root
         worktree_path = worktree_root.expanduser() if worktree_root else None
 
         self._worktree_manager = WorktreeManager(
@@ -375,9 +375,9 @@ class ParallelSwarmController:
             run_command=None,
             attach_recent=False,
             include_diff=True,
-            ignore_dirs=list(self.config.ignore_dirs),
-            max_file_context_chars=self.config.max_file_context_chars,
-            max_command_output_chars=self.config.max_command_output_chars,
+            ignore_dirs=list(self.config.user.ignore_dirs),
+            max_file_context_chars=self.config.ai.max_file_context_chars,
+            max_command_output_chars=self.config.ai.max_command_output_chars,
             extra_paths=extra_paths,
             workspace_override=worktree_path,
         )

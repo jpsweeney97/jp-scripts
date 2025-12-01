@@ -15,12 +15,12 @@ from typing import TypeVar
 from pydantic import BaseModel
 
 from jpscripts.core.console import get_logger
-from jpscripts.core.governance import (
+from jpscripts.core.result import ToolExecutionError
+from jpscripts.governance import (
     check_compliance,
     format_violations_for_agent,
     has_fatal_violations,
 )
-from jpscripts.core.result import ToolExecutionError
 
 from .models import Message, PreparedPrompt
 

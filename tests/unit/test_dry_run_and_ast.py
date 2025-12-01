@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from jpscripts.core import structure, system
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AppConfig, UserConfig
 
 
 def test_get_import_dependencies(tmp_path: Path) -> None:
@@ -20,7 +20,9 @@ def test_get_import_dependencies(tmp_path: Path) -> None:
 
 
 def test_kill_process_dry_run(tmp_path: Path) -> None:
-    config = AppConfig(workspace_root=tmp_path, dry_run=True)
+    config = AppConfig(
+        user=UserConfig(workspace_root=tmp_path, dry_run=True),
+    )
     mock_runtime = MagicMock()
     mock_runtime.config = config
     with (

@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from jpscripts.core import memory as memory_core
+from jpscripts import memory as memory_core
 from jpscripts.core import nav as nav_core
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
@@ -28,7 +28,7 @@ async def list_recent_files(limit: int = 20) -> str:
         root,
         max_depth=3,
         include_dirs=False,
-        ignore_dirs=set(ctx.config.ignore_dirs),
+        ignore_dirs=set(ctx.config.user.ignore_dirs),
     ):
         case Err(err):
             return f"Error scanning recent files: {err.message}"

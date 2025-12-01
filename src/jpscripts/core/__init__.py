@@ -1,11 +1,12 @@
-"""Core functionality for jpscripts.
+"""Core shared infrastructure for jpscripts.
 
-This package contains shared logic and utilities:
+This package contains foundational utilities:
     - config: Application configuration management
     - console: Rich console output and logging
     - security: Path validation and safety checks
-    - memory: Vector-based memory store
-    - agent: AI agent execution framework
+    - runtime: Runtime context management
+    - result: Error handling patterns
+    - tokens: Token budget management
 """
 
 from __future__ import annotations

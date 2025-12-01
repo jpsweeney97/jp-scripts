@@ -23,7 +23,7 @@ from jpscripts.commands.notes import (
     standup,
     standup_note,
 )
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 from jpscripts.core.result import Err, Ok
 from jpscripts.git.client import GitCommit
 
@@ -34,15 +34,19 @@ def test_config(tmp_path: Path) -> AppConfig:
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir()
     return AppConfig(
-        workspace_root=tmp_path,
-        notes_dir=notes_dir,
-        editor="nano",
-        ignore_dirs=[".git"],
-        max_file_context_chars=50_000,
-        max_command_output_chars=20_000,
-        default_model="gpt-4o-mini",
-        model_context_limits={"default": 50_000},
-        use_semantic_search=False,
+        ai=AIConfig(
+            default_model="gpt-4o-mini",
+            model_context_limits={"default": 50_000},
+            max_file_context_chars=50_000,
+            max_command_output_chars=20_000,
+        ),
+        user=UserConfig(
+            workspace_root=tmp_path,
+            notes_dir=notes_dir,
+            editor="nano",
+            ignore_dirs=[".git"],
+            use_semantic_search=False,
+        ),
     )
 
 
@@ -116,7 +120,7 @@ class TestNoteSearch:
         self, mock_ctx: MagicMock, test_config: AppConfig, tmp_path: Path
     ) -> None:
         """Non-existent notes dir raises Exit."""
-        mock_ctx.obj.config.notes_dir = tmp_path / "nonexistent"
+        mock_ctx.obj.config.user.notes_dir = tmp_path / "nonexistent"
 
         with pytest.raises(typer.Exit):
             note_search(mock_ctx, query="test", no_fzf=True)

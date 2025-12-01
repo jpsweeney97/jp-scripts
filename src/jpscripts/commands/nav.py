@@ -58,7 +58,7 @@ def recent(
 ) -> None:
     """Fuzzy-jump to recently modified files or directories."""
     state = ctx.obj
-    base_root = root or state.config.workspace_root or Path.cwd()
+    base_root = root or state.config.user.workspace_root or Path.cwd()
     base_root = base_root.expanduser()
 
     if not base_root.exists():
@@ -67,7 +67,7 @@ def recent(
 
     include_dirs = include_dirs and not files_only
     state = ctx.obj
-    ignore_dirs = set(state.config.ignore_dirs)
+    ignore_dirs = set(state.config.user.ignore_dirs)
 
     async def run_scan() -> Result[list[nav_core.RecentEntry], NavigationError]:
         with console.status(f"Scanning {base_root}...", spinner="dots"):

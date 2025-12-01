@@ -15,9 +15,9 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.agent import PreparedPrompt, run_repair_loop
-from jpscripts.core.agent import execution as agent_execution
-from jpscripts.core.config import AppConfig
+from jpscripts.agent import PreparedPrompt, run_repair_loop
+from jpscripts.agent import execution as agent_execution
+from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 from jpscripts.core.runtime import runtime_context
 
 
@@ -107,9 +107,11 @@ class TestRepairLoopIntegration:
             )
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -121,6 +123,8 @@ class TestRepairLoopIntegration:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=2,
                     keep_failed=False,
                 )
@@ -164,9 +168,11 @@ class TestRepairLoopIntegration:
             )
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -178,6 +184,8 @@ class TestRepairLoopIntegration:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=2,
                     keep_failed=False,
                 )
@@ -211,9 +219,11 @@ class TestRepairLoopIntegration:
             )
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -225,6 +235,8 @@ class TestRepairLoopIntegration:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=3,
                     keep_failed=False,
                 )
@@ -257,9 +269,11 @@ class TestRepairLoopIntegration:
             )
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -271,6 +285,8 @@ class TestRepairLoopIntegration:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=2,
                     keep_failed=False,
                 )
@@ -304,10 +320,14 @@ class TestCircuitBreaker:
             )
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
-            max_command_output_chars=10_000,
+            ai=AIConfig(
+                max_command_output_chars=10_000,
+            ),
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -319,6 +339,8 @@ class TestCircuitBreaker:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=1,
                     keep_failed=False,
                 )
@@ -337,9 +359,11 @@ class TestCircuitBreaker:
             return ""  # Empty response
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -351,6 +375,8 @@ class TestCircuitBreaker:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=1,
                     keep_failed=False,
                 )
@@ -369,9 +395,11 @@ class TestCircuitBreaker:
             return "{not valid json"
 
         config = AppConfig(
-            workspace_root=tmp_path,
-            notes_dir=tmp_path,
-            use_semantic_search=False,
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path,
+                use_semantic_search=False,
+            ),
         )
 
         with runtime_context(config, workspace=tmp_path):
@@ -383,6 +411,8 @@ class TestCircuitBreaker:
                     attach_recent=False,
                     include_diff=False,
                     fetch_response=mock_fetch,
+                    app_config=config,
+                    workspace_root=tmp_path,
                     max_retries=1,
                     keep_failed=False,
                 )

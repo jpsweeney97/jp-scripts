@@ -53,7 +53,7 @@ class ApplicationLifecycle:
         """Establish runtime context for CLI commands."""
         ctx = RuntimeContext(
             config=config,
-            workspace_root=config.workspace_root.expanduser().resolve(),
+            workspace_root=config.user.workspace_root.expanduser().resolve(),
             trace_id=f"cli-{uuid4().hex[:8]}",
             dry_run=dry_run,
         )
@@ -116,7 +116,7 @@ def main(
     if dry_run:
         loaded_config = loaded_config.model_copy(update={"dry_run": True})
 
-    logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
+    logger = setup_logging(level=loaded_config.user.log_level, verbose=verbose)
 
     # Create lifecycle manager and establish runtime
     lifecycle = ApplicationLifecycle()

@@ -22,7 +22,7 @@ from pydantic import ValidationError
 from rich import box
 from rich.panel import Panel
 
-from jpscripts.core.agent import (
+from jpscripts.agent import (
     EventKind,
     PreparedPrompt,
     RepairLoopConfig,
@@ -336,7 +336,7 @@ def codex_exec(
         jp fix "Debug the error" --run "python main.py" --loop
     """
     state = ctx.obj
-    target_model = model or state.config.default_model
+    target_model = model or state.config.ai.default_model
 
     loop_enabled = bool(run_command) if loop is None else loop
     if loop_enabled and run_command is None:

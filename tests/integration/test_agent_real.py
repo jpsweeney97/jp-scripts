@@ -12,10 +12,10 @@ from typing import Any, cast
 import pytest
 import typer
 
+from jpscripts import agent as agent_core
+from jpscripts.agent import prompting as agent_prompting
 from jpscripts.commands import agent as agent_cmd
-from jpscripts.core import agent as agent_core
-from jpscripts.core.agent import prompting as agent_prompting
-from jpscripts.core.config import AppConfig
+from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 from jpscripts.core.runtime import runtime_context
 from tests.mocks.mock_provider import MockProvider
 
@@ -44,13 +44,17 @@ def test_agent_prompt_includes_json_context(
     monkeypatch.setattr(agent_cmd, "get_provider", fake_get_provider)
 
     config = AppConfig(
-        workspace_root=tmp_path,
-        notes_dir=tmp_path,
-        default_model="gpt-test",
-        ignore_dirs=[],
-        max_file_context_chars=5000,
-        max_command_output_chars=5000,
-        use_semantic_search=False,
+        ai=AIConfig(
+            default_model="gpt-test",
+            max_file_context_chars=5000,
+            max_command_output_chars=5000,
+        ),
+        user=UserConfig(
+            workspace_root=tmp_path,
+            notes_dir=tmp_path,
+            ignore_dirs=[],
+            use_semantic_search=False,
+        ),
     )
     state = SimpleNamespace(config=config)
     ctx = cast(typer.Context, SimpleNamespace(obj=state))
@@ -91,13 +95,19 @@ def test_agent_prompt_includes_json_context(
 
 @pytest.mark.local_only
 def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from jpscripts.core.agent import execution as agent_execution
+    from jpscripts.agent import execution as agent_execution
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True)
     script = tmp_path / "script.py"
     script.write_text("import sys\nsys.exit(1)\n", encoding="utf-8")
 
-    config = AppConfig(workspace_root=tmp_path, notes_dir=tmp_path, use_semantic_search=False)
+    config = AppConfig(
+        user=UserConfig(
+            workspace_root=tmp_path,
+            notes_dir=tmp_path,
+            use_semantic_search=False,
+        ),
+    )
 
     async def fake_prepare_agent_prompt(
         base_prompt: str, **_kwargs: Any
@@ -152,10 +162,12 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             agent_core.run_repair_loop(
                 base_prompt="fix loop",
                 command=f"{sys.executable} {script}",
-                model=config.default_model,
+                model=config.ai.default_model,
                 attach_recent=False,
                 include_diff=False,
                 fetch_response=fake_fetch,
+                app_config=config,
+                workspace_root=tmp_path,
                 max_retries=2,
                 keep_failed=False,
             )

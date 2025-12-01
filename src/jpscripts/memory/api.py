@@ -281,7 +281,7 @@ def prune_memory(config: AppConfig) -> int:
         case Err(err):
             raise err
         case Ok(store):
-            result = store.prune(Path(config.workspace_root))
+            result = store.prune(Path(config.user.workspace_root))
             if isinstance(result, Err):
                 raise result.error
             return result.value

@@ -14,9 +14,9 @@ Key classes:
 [invariant:async-io] All I/O operations use async patterns.
 """
 
-from jpscripts.core.parallel_swarm.controller import ParallelSwarmController
-from jpscripts.core.parallel_swarm.types import MergeResult, TaskResult
-from jpscripts.core.parallel_swarm.worktree import WorktreeManager
+from jpscripts.swarm.controller import ParallelSwarmController
+from jpscripts.swarm.types import MergeResult, TaskResult
+from jpscripts.swarm.worktree import WorktreeManager
 
 __all__ = [
     "MergeResult",

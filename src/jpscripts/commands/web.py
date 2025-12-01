@@ -84,7 +84,7 @@ def web_snap(
     state = ctx.obj
     config: AppConfig = state.config
 
-    target_dir = (config.snapshots_dir or Path(".")).expanduser()
+    target_dir = (config.user.snapshots_dir or Path(".")).expanduser()
     target_dir.mkdir(parents=True, exist_ok=True)
 
     console.print(f"[cyan]Fetching[/cyan] {url} ...")

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 
-from jpscripts.core import memory as memory_core
+from jpscripts import memory as memory_core
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import JPScriptsError
 from jpscripts.core.runtime import get_runtime

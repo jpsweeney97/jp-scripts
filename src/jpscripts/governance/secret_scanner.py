@@ -6,7 +6,7 @@ import math
 import re
 from pathlib import Path
 
-from jpscripts.core.governance.types import Violation, ViolationType
+from jpscripts.governance.types import Violation, ViolationType
 
 # Pattern for variable assignments: API_KEY = "value"
 _SECRET_PATTERN = re.compile(

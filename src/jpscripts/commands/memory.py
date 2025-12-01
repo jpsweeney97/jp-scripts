@@ -19,7 +19,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.core.console import console
-from jpscripts.core.memory import (
+from jpscripts.core.result import CapabilityMissingError, Err, JPScriptsError, Ok
+from jpscripts.memory import (
     HybridMemoryStore,
     MemoryEntry,
     _write_entries,  # pyright: ignore[reportPrivateUsage]
@@ -31,7 +32,6 @@ from jpscripts.core.memory import (
     save_memory,
     synthesize_cluster,
 )
-from jpscripts.core.result import CapabilityMissingError, Err, JPScriptsError, Ok
 
 app = typer.Typer(help="Persistent memory store for ADRs and lessons learned.")
 
@@ -91,7 +91,7 @@ def reindex(
     force: bool = typer.Option(False, "--force", "-f", help="Force full re-index"),
 ) -> None:
     state = ctx.obj
-    store_path = Path(state.config.memory_store).expanduser()
+    store_path = Path(state.config.user.memory_store).expanduser()
     if force and store_path.exists():
         if store_path.is_dir():
             shutil.rmtree(store_path, ignore_errors=True)  # safety: checked

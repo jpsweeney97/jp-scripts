@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from jpscripts.core.governance import (
+from jpscripts.governance import (
     ConstitutionChecker,
     Violation,
     ViolationType,

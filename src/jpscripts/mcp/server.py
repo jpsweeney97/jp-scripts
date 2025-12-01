@@ -34,7 +34,7 @@ def _establish_runtime_context(cfg: AppConfig) -> None:
 
     ctx = RuntimeContext(
         config=cfg,
-        workspace_root=cfg.workspace_root.expanduser().resolve(),
+        workspace_root=cfg.user.workspace_root.expanduser().resolve(),
         trace_id=f"mcp-{uuid4().hex[:8]}",
         dry_run=False,
     )
@@ -58,7 +58,7 @@ def _load_configuration() -> AppConfig | None:
         # Establish runtime context (preferred) and legacy config (fallback)
         _establish_runtime_context(cfg)
         set_config(cfg)
-        logger.info("MCP Server loaded config from %s", cfg.notes_dir)
+        logger.info("MCP Server loaded config from %s", cfg.user.notes_dir)
         return cfg
 
 

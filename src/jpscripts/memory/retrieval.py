@@ -238,7 +238,7 @@ async def synthesize_cluster(
     if not entries:
         return Err(ConfigurationError("Cannot synthesize from an empty cluster."))
 
-    model_id = model or config.default_model
+    model_id = model or config.ai.default_model
     try:
         provider = get_provider(config, model_id=model_id)
     except Exception as exc:

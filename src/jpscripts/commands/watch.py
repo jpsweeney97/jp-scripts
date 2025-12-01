@@ -28,9 +28,9 @@ from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.complexity import analyze_file_complexity
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.memory import save_memory
 from jpscripts.core.result import JPScriptsError
 from jpscripts.core.security import validate_path, validate_workspace_root
+from jpscripts.memory import save_memory
 
 app = typer.Typer(help="Watch the workspace and trigger JIT maintenance.")
 
@@ -176,7 +176,7 @@ def _render_dashboard(events: deque[WatchEvent]) -> Panel:
 async def _watch_loop(state: AppState, debounce_seconds: float = 5.0) -> None:
     try:
         root = await asyncio.to_thread(
-            validate_workspace_root, state.config.workspace_root or state.config.notes_dir
+            validate_workspace_root, state.config.user.workspace_root or state.config.user.notes_dir
         )
     except Exception as exc:
         console.print(f"[red]Workspace validation failed:[/red] {exc}")
@@ -186,7 +186,7 @@ async def _watch_loop(state: AppState, debounce_seconds: float = 5.0) -> None:
     events: deque[WatchEvent] = deque(maxlen=50)
     pending_memory: dict[Path, asyncio.Task[WatchEvent]] = {}
 
-    handler = _AsyncDispatchHandler(loop, event_queue, root, set(state.config.ignore_dirs))
+    handler = _AsyncDispatchHandler(loop, event_queue, root, set(state.config.user.ignore_dirs))
     observer = Observer()
     observer.schedule(handler, str(root), recursive=True)
     observer_thread = threading.Thread(target=observer.start, daemon=True)
