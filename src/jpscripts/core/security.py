@@ -43,17 +43,19 @@ from jpscripts.core.result import Err, Ok, Result, SecurityError, WorkspaceError
 MAX_SYMLINK_DEPTH = 10
 """Maximum symlink chain depth before rejecting as potentially malicious."""
 
-FORBIDDEN_ROOTS = frozenset({
-    Path("/etc"),
-    Path("/usr"),
-    Path("/bin"),
-    Path("/sbin"),
-    Path("/root"),
-    Path("/System"),  # macOS
-    Path("/Library"),  # macOS
-    Path("/Windows"),  # Windows
-    Path("/Program Files"),  # Windows
-})
+FORBIDDEN_ROOTS = frozenset(
+    {
+        Path("/etc"),
+        Path("/usr"),
+        Path("/bin"),
+        Path("/sbin"),
+        Path("/root"),
+        Path("/System"),  # macOS
+        Path("/Library"),  # macOS
+        Path("/Windows"),  # Windows
+        Path("/Program Files"),  # Windows
+    }
+)
 """System directories that should never be accessed even via symlink.
 
 Note: /var is intentionally excluded because macOS temp directories
@@ -184,7 +186,9 @@ def _is_forbidden_path(candidate: Path) -> bool:
     return False
 
 
-def _resolve_with_limit(path: Path, max_depth: int = MAX_SYMLINK_DEPTH) -> Result[Path, SecurityError]:
+def _resolve_with_limit(
+    path: Path, max_depth: int = MAX_SYMLINK_DEPTH
+) -> Result[Path, SecurityError]:
     """Resolve path with symlink depth limit to prevent abuse.
 
     Deep symlink chains are often indicative of attack attempts or
@@ -224,10 +228,7 @@ def _resolve_with_limit(path: Path, max_depth: int = MAX_SYMLINK_DEPTH) -> Resul
                 )
             )
 
-        if target.is_absolute():
-            current = target
-        else:
-            current = current.parent / target
+        current = target if target.is_absolute() else current.parent / target
 
     return Err(
         SecurityError(
@@ -643,23 +644,17 @@ def validate_and_open(
 
 
 __all__ = [
-    # Constants
     "FORBIDDEN_ROOTS",
     "MAX_SYMLINK_DEPTH",
-    # Exceptions
     "PathValidationError",
     "WorkspaceValidationError",
-    # Result-based API (sync)
-    "validate_path_safe",
-    "validate_workspace_root_safe",
-    # Result-based API (async)
-    "validate_path_safe_async",
-    "validate_workspace_root_safe_async",
-    # Exception-based API (backward compatible)
-    "validate_path",
-    "validate_workspace_root",
-    # Utility functions
     "is_git_workspace",
     "is_path_safe",
     "validate_and_open",
+    "validate_path",
+    "validate_path_safe",
+    "validate_path_safe_async",
+    "validate_workspace_root",
+    "validate_workspace_root_safe",
+    "validate_workspace_root_safe_async",
 ]

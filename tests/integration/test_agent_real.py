@@ -11,13 +11,13 @@ from typing import Any, cast
 
 import pytest
 import typer
-from tests.mocks.mock_provider import MockProvider
 
 from jpscripts.commands import agent as agent_cmd
 from jpscripts.core import agent as agent_core
 from jpscripts.core.agent import prompting as agent_prompting
 from jpscripts.core.config import AppConfig
 from jpscripts.core.runtime import runtime_context
+from tests.mocks.mock_provider import MockProvider
 
 
 @pytest.mark.slow
