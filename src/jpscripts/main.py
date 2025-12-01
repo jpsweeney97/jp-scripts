@@ -29,43 +29,54 @@ from .core.runtime import RuntimeContext, get_runtime_or_none, set_runtime_conte
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
 logger = logging.getLogger(__name__)
 
-# Token for CLI runtime context (established in callback, persists through command)
-_cli_runtime_token: contextvars.Token[RuntimeContext | None] | None = None
 
-# Signal handling for graceful shutdown
-_shutdown_requested = False
+class ApplicationLifecycle:
+    """Encapsulates CLI lifecycle state and signal handling.
 
-
-def _signal_handler(signum: int, frame: FrameType | None) -> None:
-    """Handle SIGINT/SIGTERM for graceful shutdown.
-
-    First signal prints warning and exits gracefully.
-    Second signal force-exits with manual cleanup hint.
+    This class replaces module-level globals with instance state,
+    making testing easier and avoiding concurrency issues.
     """
-    global _shutdown_requested
 
-    if _shutdown_requested:
-        # Second signal = force exit
-        console.print("\n[red]Force exit - manual cleanup may be needed:[/red]")
-        console.print("  git worktree prune")
+    def __init__(self) -> None:
+        self._runtime_token: contextvars.Token[RuntimeContext | None] | None = None
+        self._shutdown_requested: bool = False
+
+    def establish_runtime(self, config: AppConfig, dry_run: bool) -> RuntimeContext:
+        """Establish runtime context for CLI commands."""
+        ctx = RuntimeContext(
+            config=config,
+            workspace_root=config.workspace_root.expanduser().resolve(),
+            trace_id=f"cli-{uuid4().hex[:8]}",
+            dry_run=dry_run,
+        )
+        self._runtime_token = set_runtime_context(ctx)
+        return ctx
+
+    def handle_shutdown(self, signum: int, frame: FrameType | None) -> None:
+        """Handle SIGINT/SIGTERM for graceful shutdown.
+
+        First signal prints warning and exits gracefully.
+        Second signal force-exits with manual cleanup hint.
+        """
+        if self._shutdown_requested:
+            console.print("\n[red]Force exit - manual cleanup may be needed:[/red]")
+            console.print("  git worktree prune")
+            raise SystemExit(128 + signum)
+
+        self._shutdown_requested = True
+        console.print("\n[yellow]Shutting down gracefully...[/yellow]")
+
+        ctx = get_runtime_or_none()
+        if ctx:
+            console.print("[dim]Note: Active worktrees will be cleaned on next run.[/dim]")
+
+        console.print("[yellow]If worktrees remain, run:[/yellow]\n  git worktree prune")
         raise SystemExit(128 + signum)
 
-    _shutdown_requested = True
-    console.print("\n[yellow]Shutting down gracefully...[/yellow]")
-
-    # Get current runtime context if available
-    ctx = get_runtime_or_none()
-    if ctx:
-        console.print("[dim]Note: Active worktrees will be cleaned on next run.[/dim]")
-
-    console.print("[yellow]If worktrees remain, run:[/yellow]\n  git worktree prune")
-    raise SystemExit(128 + signum)
-
-
-def _register_signal_handlers() -> None:
-    """Register signal handlers for graceful shutdown."""
-    signal.signal(signal.SIGINT, _signal_handler)
-    signal.signal(signal.SIGTERM, _signal_handler)
+    def register_signal_handlers(self) -> None:
+        """Register signal handlers for graceful shutdown."""
+        signal.signal(signal.SIGINT, self.handle_shutdown)
+        signal.signal(signal.SIGTERM, self.handle_shutdown)
 
 
 @dataclass
@@ -74,24 +85,7 @@ class AppState:
     config_meta: ConfigLoadResult
     logger: logging.Logger
     runtime_ctx: RuntimeContext = field(default=None)  # type: ignore[assignment]
-
-
-def _establish_cli_runtime(config: AppConfig, dry_run: bool) -> RuntimeContext:
-    """Establish runtime context for CLI commands.
-
-    Since CLI commands run synchronously after the callback returns,
-    we establish the context and don't reset it during command execution.
-    """
-    global _cli_runtime_token
-
-    ctx = RuntimeContext(
-        config=config,
-        workspace_root=config.workspace_root.expanduser().resolve(),
-        trace_id=f"cli-{uuid4().hex[:8]}",
-        dry_run=dry_run,
-    )
-    _cli_runtime_token = set_runtime_context(ctx)
-    return ctx
+    lifecycle: ApplicationLifecycle = field(default=None)  # type: ignore[assignment]
 
 
 @app.callback()
@@ -110,14 +104,17 @@ def main(
 
     logger = setup_logging(level=loaded_config.log_level, verbose=verbose)
 
-    # Establish runtime context for all subsequent operations
-    runtime = _establish_cli_runtime(loaded_config, dry_run)
+    # Create lifecycle manager and establish runtime
+    lifecycle = ApplicationLifecycle()
+    runtime = lifecycle.establish_runtime(loaded_config, dry_run)
+    lifecycle.register_signal_handlers()
 
     ctx.obj = AppState(
         config=loaded_config,
         config_meta=meta,
         logger=logger,
         runtime_ctx=runtime,
+        lifecycle=lifecycle,
     )
 
     if meta.error:
@@ -248,7 +245,6 @@ def _register_commands_with_timing() -> None:
 
 
 _register_commands_with_timing()
-_register_signal_handlers()
 
 
 def cli() -> None:

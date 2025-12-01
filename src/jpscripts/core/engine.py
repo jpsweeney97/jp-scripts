@@ -15,7 +15,8 @@ import tiktoken
 from jinja2 import Environment, FileSystemLoader
 from pydantic import BaseModel, Field
 
-from jpscripts.core import runtime, security
+from jpscripts.core import runtime
+from jpscripts.core.agent.patching import extract_patch_paths
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
@@ -471,35 +472,6 @@ def _estimate_token_usage(prompt_text: str, completion_text: str) -> TokenUsage:
     )
 
 
-async def _extract_patch_paths(file_patch: str, workspace_root: Path) -> list[Path]:
-    """Derive touched files from a unified diff."""
-    if not file_patch.strip():
-        return []
-
-    candidates: set[Path] = set()
-    for raw_line in file_patch.splitlines():
-        if not raw_line.startswith(("+++ ", "--- ")):
-            continue
-        try:
-            _, path_str = raw_line.split(" ", 1)
-        except ValueError:
-            continue
-        normalized_line = path_str.strip()
-        if normalized_line in {"/dev/null", "dev/null", "a/dev/null", "b/dev/null"}:
-            continue
-        if normalized_line.startswith(("a/", "b/")):
-            normalized_line = normalized_line[2:]
-        result = await security.validate_path_safe_async(
-            workspace_root / normalized_line,
-            workspace_root,
-        )
-        if isinstance(result, Err):
-            logger.debug("Skipping patch path %s: %s", normalized_line, result.error.message)
-            continue
-        candidates.add(result.value)
-    return sorted(candidates)
-
-
 def _build_black_box_report(
     breaker: CircuitBreaker,
     *,
@@ -854,7 +826,7 @@ class AgentEngine(Generic[ResponseT]):
         if not file_patch or self._workspace_root is None:
             return []
 
-        return await _extract_patch_paths(str(file_patch), self._workspace_root)
+        return await extract_patch_paths(str(file_patch), self._workspace_root)
 
     def _enforce_circuit_breaker(
         self,

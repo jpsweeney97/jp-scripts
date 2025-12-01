@@ -872,6 +872,28 @@ def has_fatal_violations(violations: Sequence[Violation]) -> bool:
     return any(v.fatal for v in violations)
 
 
+def scan_codebase_compliance(root: Path) -> tuple[list[Violation], int]:
+    """Scan all Python files in a directory tree for constitutional violations.
+
+    Args:
+        root: Root directory to scan (e.g., src/)
+
+    Returns:
+        Tuple of (violations_list, files_scanned_count)
+    """
+    violations: list[Violation] = []
+    file_count = 0
+    for py_file in root.rglob("*.py"):
+        file_count += 1
+        try:
+            source = py_file.read_text(encoding="utf-8")
+            violations.extend(check_source_compliance(source, py_file))
+        except Exception:
+            # Skip files that can't be read (permissions, encoding issues)
+            pass
+    return violations, file_count
+
+
 __all__ = [
     "ConstitutionChecker",
     "Violation",
@@ -882,4 +904,5 @@ __all__ = [
     "count_violations_by_severity",
     "format_violations_for_agent",
     "has_fatal_violations",
+    "scan_codebase_compliance",
 ]

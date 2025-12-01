@@ -7,7 +7,6 @@ command execution, patch application, and strategy management.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import shlex
 import sys
 from collections.abc import Awaitable, Callable, Sequence
@@ -20,8 +19,8 @@ from rich import box
 from rich.panel import Panel
 
 from jpscripts.core import security
-from jpscripts.core.result import Err
 from jpscripts.core.agent.context import expand_context_paths
+from jpscripts.core.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.core.agent.prompting import prepare_agent_prompt
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.engine import (
@@ -33,6 +32,7 @@ from jpscripts.core.engine import (
     parse_agent_response,
 )
 from jpscripts.core.memory import save_memory
+from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
 
 logger = get_logger(__name__)
@@ -118,11 +118,6 @@ def _append_history(history: list[Message], entry: Message, keep: int = 3) -> No
     history.append(entry)
     if len(history) > keep:
         del history[:-keep]
-
-
-def _compute_patch_hash(patch_text: str) -> str:
-    """Compute SHA256 hash of a patch for de-duplication."""
-    return hashlib.sha256(patch_text.encode("utf-8")).hexdigest()
 
 
 def _build_history_summary(history: Sequence[AttemptContext], root: Path) -> str:
@@ -243,101 +238,6 @@ async def run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
 
     stdout, stderr = await proc.communicate()
     return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
-
-
-async def _extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
-    candidates: set[Path] = set()
-    for raw_line in patch_text.splitlines():
-        if not raw_line.startswith(("+++ ", "--- ")):
-            continue
-        try:
-            _, path_str = raw_line.split(" ", 1)
-        except ValueError:
-            continue
-        path_str = path_str.strip()
-        if path_str in {"/dev/null", "dev/null", "a/dev/null", "b/dev/null"}:
-            continue
-        if path_str.startswith(("a/", "b/")):
-            path_str = path_str[2:]
-        result = await security.validate_path_safe_async(root / path_str, root)
-        if isinstance(result, Err):
-            logger.debug("Skipped unsafe patch path %s: %s", path_str, result.error.message)
-            continue
-        candidates.add(result.value)
-    return sorted(candidates)
-
-
-async def _write_failed_patch(patch_text: str, root: Path) -> None:
-    result = await security.validate_path_safe_async(root / "agent_failed_patch.diff", root)
-    if isinstance(result, Err):
-        logger.debug("Unable to persist failed patch: %s", result.error.message)
-        return
-    try:
-        await asyncio.to_thread(result.value.write_text, patch_text, encoding="utf-8")
-    except Exception as exc:  # pragma: no cover - defensive
-        logger.debug("Unable to persist failed patch for inspection: %s", exc)
-
-
-async def apply_patch_text(patch_text: str, root: Path) -> list[Path]:
-    """Apply a unified diff patch to the repository.
-
-    Attempts to apply the patch using git apply first, falling back to
-    the standard patch command if git apply fails.
-
-    Args:
-        patch_text: The unified diff patch content
-        root: The root directory to apply the patch in
-
-    Returns:
-        List of paths that were successfully patched, or empty list on failure
-    """
-    if not patch_text.strip():
-        return []
-
-    target_paths = await _extract_patch_paths(patch_text, root)
-
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "apply",
-            "--whitespace=nowarn",
-            cwd=root,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        proc = None
-
-    if proc:
-        _stdout, stderr = await proc.communicate(patch_text.encode())
-        if proc.returncode == 0:
-            return target_paths
-        logger.debug("git apply failed: %s", stderr.decode(errors="replace"))
-
-    try:
-        fallback = await asyncio.create_subprocess_exec(
-            "patch",
-            "-p1",
-            cwd=root,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        await _write_failed_patch(patch_text, root)
-        return []
-
-    out, err = await fallback.communicate(patch_text.encode())
-    if fallback.returncode == 0:
-        return target_paths
-
-    logger.error(
-        "Patch application failed: %s",
-        err.decode(errors="replace") or out.decode(errors="replace"),
-    )
-    await _write_failed_patch(patch_text, root)
-    return []
 
 
 async def verify_syntax(files: list[Path]) -> str | None:
@@ -647,7 +547,7 @@ async def run_repair_loop(
 
                 if patch_text:
                     # Check for duplicate patch (loop prevention)
-                    patch_hash = _compute_patch_hash(patch_text)
+                    patch_hash = compute_patch_hash(patch_text)
                     if patch_hash in seen_patch_hashes:
                         console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
                         _append_history(
