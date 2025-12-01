@@ -7,7 +7,7 @@ from git import Repo
 from typer.testing import CliRunner
 
 from jpscripts.commands import git_extra
-from jpscripts.core import git as git_core
+from jpscripts.git import client as git_core
 
 
 def test_gundo_last_local_only(

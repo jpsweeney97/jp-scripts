@@ -7,7 +7,7 @@ from typing import cast
 
 from jpscripts.core.result import Err, GitError, Ok, Result
 
-from . import git as git_core
+from . import client as git_core
 
 GitOperationError = git_core.GitOperationError
 

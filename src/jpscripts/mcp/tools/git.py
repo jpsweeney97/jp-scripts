@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from jpscripts.core import git as git_core
-from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
+from jpscripts.git import client as git_core
+from jpscripts.git import ops as git_ops_core
 from jpscripts.mcp import tool, tool_error_handler
 
 

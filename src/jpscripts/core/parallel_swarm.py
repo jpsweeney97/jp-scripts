@@ -32,7 +32,6 @@ from pydantic import ValidationError as PydanticValidationError
 
 from jpscripts.core.agent.execution import (
     apply_patch_text,
-    run_shell_command,
     verify_syntax,
 )
 from jpscripts.core.agent.prompting import prepare_agent_prompt
@@ -44,7 +43,6 @@ from jpscripts.core.engine import (
     ToolCall,
     parse_agent_response,
 )
-from jpscripts.core.git import AsyncRepo
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.result import (
     Err,
@@ -54,6 +52,8 @@ from jpscripts.core.result import (
     ValidationError,
     WorkspaceError,
 )
+from jpscripts.core.system import run_safe_shell
+from jpscripts.git import AsyncRepo
 
 
 @dataclass
@@ -718,7 +718,10 @@ class ParallelSwarmController:
             command = str(tool_call.arguments.get("command", ""))
             if not command:
                 return "Error: No command provided"
-            exit_code, stdout, stderr = await run_shell_command(command, worktree_path)
+            result = await run_safe_shell(command, worktree_path, "swarm.task_executor")
+            if isinstance(result, Err):
+                return f"Command blocked: {result.error}"
+            exit_code, stdout, stderr = result.value.returncode, result.value.stdout, result.value.stderr
             output = (stdout + stderr).strip()
             if exit_code != 0:
                 return f"Command failed (exit {exit_code}):\n{output}"

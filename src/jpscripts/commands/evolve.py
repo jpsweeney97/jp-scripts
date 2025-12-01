@@ -23,7 +23,6 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
-from jpscripts.core import git as git_core
 from jpscripts.core.agent import PreparedPrompt, run_repair_loop
 from jpscripts.core.complexity import (
     FileComplexity,
@@ -38,6 +37,7 @@ from jpscripts.core.memory import save_memory
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.structure import get_import_dependencies
 from jpscripts.core.system import run_safe_shell
+from jpscripts.git import client as git_core
 from jpscripts.main import AppState
 from jpscripts.providers import CompletionOptions, Message, ProviderType, infer_provider_type
 from jpscripts.providers.factory import get_provider

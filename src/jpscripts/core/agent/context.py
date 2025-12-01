@@ -12,8 +12,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
-from jpscripts.core import git as git_core
-from jpscripts.core import git_ops, security
+from jpscripts.core import security
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import (
     get_file_skeleton,
@@ -25,6 +24,8 @@ from jpscripts.core.nav import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.structure import get_import_dependencies
 from jpscripts.core.tokens import Priority, TokenBudgetManager
+from jpscripts.git import client as git_core
+from jpscripts.git import ops as git_ops
 
 logger = get_logger(__name__)
 

@@ -7,7 +7,6 @@ command execution, patch application, and strategy management.
 from __future__ import annotations
 
 import asyncio
-import shlex
 import sys
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
@@ -32,8 +31,9 @@ from jpscripts.core.engine import (
     parse_agent_response,
 )
 from jpscripts.core.memory import save_memory
-from jpscripts.core.result import Err
+from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
+from jpscripts.core.system import run_safe_shell
 
 logger = get_logger(__name__)
 
@@ -203,41 +203,24 @@ def _build_repair_instruction(
     )
 
 
-async def run_shell_command(command: str, cwd: Path) -> tuple[int, str, str]:
-    """Execute a shell command without shell interpolation.
+async def _run_command(command: str, root: Path) -> tuple[int, str, str]:
+    """Execute a shell command via centralized security validation.
 
-    This function safely executes shell commands by parsing them with shlex
-    and running them without shell interpolation to prevent injection attacks.
+    This is a thin adapter around run_safe_shell that converts the Result
+    type to the (exit_code, stdout, stderr) tuple expected by run_repair_loop.
 
     Args:
         command: The shell command to execute
-        cwd: The working directory to run the command in
+        root: The working directory
 
     Returns:
-        A tuple of (exit_code, stdout, stderr)
+        Tuple of (exit_code, stdout, stderr)
     """
-    try:
-        tokens = shlex.split(command)
-    except ValueError as exc:
-        logger.warning("Failed to parse shell command: %s", exc)
-        return 1, "", f"Unable to parse command; simplify quoting. ({exc})"
-
-    if not tokens:
-        return 1, "", "Invalid command."
-
-    try:
-        logger.debug("Running safe command: %s", tokens)
-        proc = await asyncio.create_subprocess_exec(
-            *tokens,
-            cwd=cwd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except Exception as exc:
-        return 1, "", str(exc)
-
-    stdout, stderr = await proc.communicate()
-    return proc.returncode or 0, stdout.decode(errors="replace"), stderr.decode(errors="replace")
+    result = await run_safe_shell(command, root, "agent.repair_loop")
+    if isinstance(result, Ok):
+        return (result.value.returncode, result.value.stdout, result.value.stderr)
+    # Synthetic failure for blocked/invalid commands
+    return (1, "", str(result.error))
 
 
 async def verify_syntax(files: list[Path]) -> str | None:
@@ -428,7 +411,7 @@ async def run_repair_loop(
             console.print(
                 f"[cyan]Attempt {attempt + 1}/{attempt_cap} ({strategy_cfg.label}): running `{command}`[/cyan]"
             )
-            exit_code, stdout, stderr = await run_shell_command(command, root)
+            exit_code, stdout, stderr = await _run_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded. Exiting repair loop.[/green]")
                 if auto_archive:
@@ -606,7 +589,7 @@ async def run_repair_loop(
                 )
                 break
 
-            exit_code, stdout, stderr = await run_shell_command(command, root)
+            exit_code, stdout, stderr = await _run_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded after applying fixes.[/green]")
                 if auto_archive:
@@ -639,7 +622,7 @@ async def run_repair_loop(
             )
 
         console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
-        exit_code, stdout, stderr = await run_shell_command(command, root)
+        exit_code, stdout, stderr = await _run_command(command, root)
         if exit_code == 0:
             console.print("[green]Command succeeded after final verification.[/green]")
             if auto_archive:
@@ -675,6 +658,5 @@ __all__ = [
     "StrategyConfig",
     "apply_patch_text",
     "run_repair_loop",
-    "run_shell_command",
     "verify_syntax",
 ]

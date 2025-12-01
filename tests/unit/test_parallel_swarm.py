@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 import pytest
 
 from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus
-from jpscripts.core.git import AsyncRepo
+from jpscripts.git import AsyncRepo
 from jpscripts.core.parallel_swarm import (
     TaskResult,
     WorktreeManager,

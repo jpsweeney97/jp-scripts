@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from jpscripts.commands import git_ops as cmd_git_ops
-from jpscripts.core import git_ops as core_git_ops
+from jpscripts.git import ops as core_git_ops
 from jpscripts.core.result import Ok
 
 

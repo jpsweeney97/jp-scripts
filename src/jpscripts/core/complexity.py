@@ -22,9 +22,9 @@ from pathlib import Path
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.core.git import AsyncRepo
 from jpscripts.core.memory import query_memory
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result
+from jpscripts.git import AsyncRepo
 
 logger = get_logger(__name__)
 

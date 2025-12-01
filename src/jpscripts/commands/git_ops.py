@@ -10,10 +10,10 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
 
-from jpscripts.core import git as git_core
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.result import Err, GitError, Ok, Result
+from jpscripts.git import client as git_core
 
 
 @dataclass

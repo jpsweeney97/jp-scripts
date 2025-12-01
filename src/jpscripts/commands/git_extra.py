@@ -13,12 +13,12 @@ from rich import box
 from rich.table import Table
 
 from jpscripts.commands.ui import fzf_select_async
-from jpscripts.core import git as git_core
-from jpscripts.core import git_ops as git_ops_core
 from jpscripts.core import security
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.result import Err, GitError, Ok, Result
+from jpscripts.git import client as git_core
+from jpscripts.git import ops as git_ops_core
 
 app = typer.Typer()
 T = TypeVar("T")

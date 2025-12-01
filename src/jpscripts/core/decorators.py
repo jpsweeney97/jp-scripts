@@ -9,7 +9,7 @@ import typer
 
 from jpscripts.core.config import ConfigError
 from jpscripts.core.console import console
-from jpscripts.core.git import GitOperationError
+from jpscripts.git import GitOperationError
 
 F = TypeVar("F", bound=Callable[..., Any])
 

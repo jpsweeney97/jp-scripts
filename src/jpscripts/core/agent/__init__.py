@@ -33,7 +33,6 @@ from jpscripts.core.agent.execution import (
     StrategyConfig,
     apply_patch_text,
     run_repair_loop,
-    run_shell_command,
     verify_syntax,
 )
 

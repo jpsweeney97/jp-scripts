@@ -11,7 +11,7 @@ import asyncio
 
 import pytest
 
-from jpscripts.core.git import AsyncRepo, WorktreeInfo
+from jpscripts.git import AsyncRepo, WorktreeInfo
 from jpscripts.core.result import Err, Ok
 
 
