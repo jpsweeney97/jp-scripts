@@ -15,7 +15,6 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 from jpscripts.core import security
-from jpscripts.core.config import AppConfig
 from jpscripts.core.agent.context import (
     build_dependency_section,
     build_file_context_section,
@@ -23,6 +22,7 @@ from jpscripts.core.agent.context import (
     collect_git_diff,
     load_constitution,
 )
+from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import gather_context, smart_read_context
 from jpscripts.core.engine import AgentResponse, PreparedPrompt

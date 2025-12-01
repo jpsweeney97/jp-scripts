@@ -555,7 +555,6 @@ async def run_repair_loop(
                 strategy_cfg.name, current_error, root, changed_files, config.ignore_dirs
             )
 
-            applied_paths: list[Path] = []
             for _turn in range(5):
                 iteration_prompt = build_repair_instruction(
                     base_prompt,
@@ -620,8 +619,6 @@ async def run_repair_loop(
                     if result.error_message:
                         current_error = result.error_message
                     if result.should_break:
-                        if result.applied_paths:
-                            applied_paths = result.applied_paths
                         break
                     continue
 

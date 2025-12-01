@@ -15,7 +15,7 @@ from jpscripts.core.agent.execution import (
 )
 from jpscripts.core.agent.prompting import prepare_agent_prompt
 from jpscripts.core.config import AppConfig
-from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus
+from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus, WorktreeContext
 from jpscripts.core.engine import (
     Message,
     PreparedPrompt,
@@ -137,7 +137,7 @@ class ParallelSwarmController:
     async def _execute_task(
         self,
         task: DAGTask,
-        ctx: "WorktreeContext",  # type: ignore[name-defined]
+        ctx: WorktreeContext,
     ) -> TaskResult:
         """Execute a single task in a worktree using an AI agent.
 
@@ -157,7 +157,6 @@ class ParallelSwarmController:
 
         [invariant:async-io] All I/O operations use async patterns.
         """
-        from jpscripts.core.dag import WorktreeContext
 
         logger = logging.getLogger(__name__)
 
