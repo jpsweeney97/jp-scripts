@@ -22,7 +22,7 @@ from jpscripts.core.context_gatherer import (
 )
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.result import Err, Ok
-from jpscripts.core.structure import get_import_dependencies
+from jpscripts.analysis.structure import get_import_dependencies
 from jpscripts.core.tokens import Priority, TokenBudgetManager
 from jpscripts.git import client as git_core
 from jpscripts.git import ops as git_ops

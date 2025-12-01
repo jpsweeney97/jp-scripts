@@ -24,7 +24,6 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result
 from jpscripts.git import AsyncRepo
-from jpscripts.memory import query_memory
 
 logger = get_logger(__name__)
 
@@ -283,6 +282,9 @@ def _query_fix_frequency(path: Path, config: AppConfig) -> int:
 
     Returns the number of memory entries related to fixes for this file.
     """
+    # Lazy import to avoid circular dependency: memory → analysis → complexity → memory
+    from jpscripts.memory import query_memory
+
     try:
         # Query for the file name/path in fix-related context
         query = f"fix error bug {path.name}"

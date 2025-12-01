@@ -3,7 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from jpscripts.core import structure, system
+from jpscripts.analysis import structure
+from jpscripts.core import system
 from jpscripts.core.config import AppConfig, UserConfig
 
 

@@ -17,6 +17,7 @@ import pytest
 
 from jpscripts.agent import PreparedPrompt, run_repair_loop
 from jpscripts.agent import execution as agent_execution
+from jpscripts.agent import ops as agent_ops
 from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 from jpscripts.core.runtime import runtime_context
 
@@ -44,7 +45,7 @@ def bypass_security(monkeypatch: pytest.MonkeyPatch) -> None:
             stderr.decode("utf-8", errors="replace"),
         )
 
-    monkeypatch.setattr(agent_execution, "_run_command", fake_run_command)
+    monkeypatch.setattr(agent_ops, "run_agent_command", fake_run_command)
 
 
 @pytest.mark.local_only

@@ -7,16 +7,15 @@ command execution, patch application, and strategy management.
 from __future__ import annotations
 
 import asyncio
-import sys
-from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
 from pathlib import Path
-from typing import Any
 
 from pydantic import ValidationError
 
+from jpscripts.agent import ops
 from jpscripts.agent.context import expand_context_paths
+from jpscripts.agent.ops import verify_syntax  # Re-export for backward compatibility
 from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.agent.prompting import prepare_agent_prompt
 from jpscripts.agent.strategies import (
@@ -28,11 +27,17 @@ from jpscripts.agent.strategies import (
     build_strategy_plan,
     detect_repeated_failure,
 )
+from jpscripts.agent.types import (
+    AgentEvent,
+    EventKind,
+    PatchFetcher,
+    RepairLoopConfig,
+    ResponseFetcher,
+    SecurityError,
+)
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.core.result import Err, Ok
-from jpscripts.core.system import run_safe_shell
 from jpscripts.engine import (
     AgentEngine,
     AgentResponse,
@@ -48,136 +53,10 @@ logger = get_logger(__name__)
 _ACTIVE_ROOT: Path | None = None
 
 
-class SecurityError(RuntimeError):
-    """Raised when a tool invocation is considered unsafe."""
-
-
-PatchFetcher = Callable[[PreparedPrompt], Awaitable[str]]
-ResponseFetcher = Callable[[PreparedPrompt], Awaitable[str]]
-
-
-class EventKind(Enum):
-    """Types of events from the repair loop."""
-
-    ATTEMPT_START = "attempt_start"
-    COMMAND_SUCCESS = "command_success"
-    COMMAND_FAILED = "command_failed"
-    TOOL_CALL = "tool_call"
-    TOOL_OUTPUT = "tool_output"
-    PATCH_PROPOSED = "patch_proposed"
-    PATCH_APPLIED = "patch_applied"
-    SYNTAX_ERROR = "syntax_error"
-    DUPLICATE_PATCH = "duplicate_patch"
-    LOOP_DETECTED = "loop_detected"
-    VALIDATION_ERROR = "validation_error"
-    NO_PATCH = "no_patch"
-    REVERTING = "reverting"
-    COMPLETE = "complete"
-
-
-@dataclass(frozen=True, slots=True)
-class AgentEvent:
-    """Structured event from repair loop operations."""
-
-    kind: EventKind
-    message: str
-    data: dict[str, Any] = field(default_factory=dict)
-
-
-@dataclass
-class RepairLoopConfig:
-    """Configuration for the autonomous repair loop.
-
-    Groups optional parameters for run_repair_loop to reduce
-    function signature complexity.
-    """
-
-    attach_recent: bool = False
-    """Attach recently modified files to context."""
-
-    include_diff: bool = True
-    """Include git diff in context."""
-
-    auto_archive: bool = True
-    """Archive successful fixes to memory."""
-
-    max_retries: int = 3
-    """Maximum repair attempts before giving up."""
-
-    keep_failed: bool = False
-    """Keep changes even if repair loop fails."""
-
-    web_access: bool = False
-    """Enable web search for context."""
-
-
-def _summarize_output(stdout: str, stderr: str, limit: int) -> str:
-    combined = "\n".join(part for part in (stdout.strip(), stderr.strip()) if part)
-    if not combined:
-        return "Command failed without output."
-    if len(combined) <= limit:
-        return combined
-    return _summarize_stack_trace(combined, limit)
-
-
-def _summarize_stack_trace(text: str, limit: int) -> str:
-    if limit <= 0:
-        return ""
-    lines = text.splitlines()
-    if len(text) <= limit:
-        return text
-    if len(lines) < 4:
-        return text[:limit] + "... [truncated]"
-
-    head_keep = max(3, min(12, len(lines) // 3))
-    tail_keep = max(6, min(20, len(lines) // 2))
-    head_lines = lines[:head_keep]
-    tail_lines = lines[-tail_keep:]
-    middle_lines = lines[head_keep:-tail_keep] if tail_keep < len(lines) - head_keep else []
-
-    middle_summary = ""
-    if middle_lines:
-        mid_idx = len(middle_lines) // 2
-        window = middle_lines[max(0, mid_idx - 3) : min(len(middle_lines), mid_idx + 4)]
-        middle_summary = (
-            "\n[... middle truncated ...]\n" + "\n".join(window) + "\n[... resumes ...]\n"
-        )
-
-    assembled = "\n".join(head_lines) + middle_summary + "\n".join(tail_lines)
-    if len(assembled) > limit:
-        head_budget = max(limit // 3, 1)
-        tail_budget = max(limit - head_budget - 40, 1)
-        trimmed_head = "\n".join(lines)[:head_budget]
-        trimmed_tail = "\n".join(lines)[-tail_budget:]
-        return f"{trimmed_head}\n[... truncated for length ...]\n{trimmed_tail}"
-
-    return assembled
-
-
 def _append_history(history: list[Message], entry: Message, keep: int = 3) -> None:
     history.append(entry)
     if len(history) > keep:
         del history[:-keep]
-
-
-async def _run_command(command: str, root: Path) -> tuple[int, str, str]:
-    """Execute a shell command via centralized security validation.
-
-    This is a thin adapter around run_safe_shell that converts the Result
-    type to the (exit_code, stdout, stderr) tuple expected by run_repair_loop.
-
-    Args:
-        command: The shell command to execute
-        root: The working directory
-
-    Returns:
-        Tuple of (exit_code, stdout, stderr)
-    """
-    result = await run_safe_shell(command, root, "agent.repair_loop")
-    if isinstance(result, Ok):
-        return (result.value.returncode, result.value.stdout, result.value.stderr)
-    # Synthetic failure for blocked/invalid commands
-    return (1, "", str(result.error))
 
 
 @dataclass
@@ -294,7 +173,7 @@ async def _process_patch(
             {"files": [str(p) for p in applied_paths]},
         )
     )
-    syntax_error = await verify_syntax(applied_paths)
+    syntax_error = await ops.verify_syntax(applied_paths)
 
     if syntax_error:
         events.append(
@@ -406,44 +285,6 @@ class _TurnLoopResult:
     current_error: str
 
 
-async def verify_syntax(files: list[Path]) -> str | None:
-    """Verify Python syntax for changed files using py_compile.
-
-    Args:
-        files: List of file paths to verify
-
-    Returns:
-        Error message if syntax check fails, None if all files pass
-    """
-    py_files = [path for path in files if path.suffix == ".py"]
-    if not py_files:
-        return None
-
-    for path in py_files:
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-m",
-                "py_compile",
-                str(path),
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except FileNotFoundError:
-            return "Python interpreter not found for syntax check."
-        except Exception as exc:  # pragma: no cover - defensive
-            return f"Syntax check failed for {path}: {exc}"
-
-        stdout, stderr = await proc.communicate()
-        if proc.returncode != 0:
-            message = (
-                stderr.decode(errors="replace").strip() or stdout.decode(errors="replace").strip()
-            )
-            return f"Syntax error in {path}: {message or 'py_compile failed'}"
-
-    return None
-
-
 async def _archive_session_summary(
     fetch_response: ResponseFetcher,
     config: AppConfig,
@@ -488,45 +329,6 @@ async def _archive_session_summary(
         )
     except Exception as exc:
         logger.debug("Failed to archive repair summary: %s", exc)
-
-
-async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
-    if not paths:
-        return
-
-    safe_paths: list[Path] = []
-    for path in paths:
-        result = await security.validate_path_safe_async(path, root)
-        if isinstance(result, Err):
-            logger.debug("Skipping revert for unsafe path %s: %s", path, result.error.message)
-            continue
-        safe_paths.append(result.value)
-
-    if not safe_paths:
-        return
-
-    try:
-        # Disable git hooks to prevent malicious hook execution during revert.
-        # The -c flag must come before the subcommand.
-        proc = await asyncio.create_subprocess_exec(
-            "git",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "checkout",
-            "--",
-            *[str(path) for path in safe_paths],
-            cwd=root,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-    except FileNotFoundError:
-        return
-
-    _, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        logger.debug(
-            "Failed to revert files after unsuccessful loop: %s", stderr.decode(errors="replace")
-        )
 
 
 class RepairLoopOrchestrator:
@@ -779,7 +581,7 @@ class RepairLoopOrchestrator:
         )
 
         # Initial command run
-        exit_code, stdout, stderr = await _run_command(self.command, self._root)
+        exit_code, stdout, stderr = await ops.run_agent_command(self.command, self._root)
         if exit_code == 0:
             yield AgentEvent(
                 EventKind.COMMAND_SUCCESS,
@@ -788,7 +590,7 @@ class RepairLoopOrchestrator:
             )
             return
 
-        current_error = _summarize_output(
+        current_error = ops.summarize_output(
             stdout,
             stderr,
             config.ai.max_command_output_chars,  # type: ignore[union-attr]
@@ -812,7 +614,7 @@ class RepairLoopOrchestrator:
             yield event
 
         # Verify after turns
-        exit_code, stdout, stderr = await _run_command(self.command, self._root)
+        exit_code, stdout, stderr = await ops.run_agent_command(self.command, self._root)
         if exit_code == 0:
             yield AgentEvent(
                 EventKind.COMMAND_SUCCESS,
@@ -821,7 +623,7 @@ class RepairLoopOrchestrator:
             )
             return
 
-        failure_msg = _summarize_output(
+        failure_msg = ops.summarize_output(
             stdout,
             stderr,
             config.ai.max_command_output_chars,  # type: ignore[union-attr]
@@ -863,7 +665,7 @@ class RepairLoopOrchestrator:
             "Max retries reached. Verifying one last time...",
             {"phase": "final_verification_start"},
         )
-        exit_code, stdout, stderr = await _run_command(self.command, self._root)
+        exit_code, stdout, stderr = await ops.run_agent_command(self.command, self._root)
 
         if exit_code == 0:
             yield AgentEvent(
@@ -873,7 +675,7 @@ class RepairLoopOrchestrator:
             )
             return
 
-        error_msg = _summarize_output(
+        error_msg = ops.summarize_output(
             stdout, stderr, config.ai.max_command_output_chars  # type: ignore[union-attr]
         )
         yield AgentEvent(
@@ -888,7 +690,7 @@ class RepairLoopOrchestrator:
                 "Reverting changes from failed attempts.",
                 {"files": [str(p) for p in self.changed_files]},
             )
-            await _revert_changed_files(list(self.changed_files), self._root)
+            await ops.revert_files(list(self.changed_files), self._root)
 
     async def run(self) -> AsyncIterator[AgentEvent]:
         """Execute the autonomous repair loop.

@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from jpscripts.core import structure
+from jpscripts.analysis import structure
 from jpscripts.core.config import AppConfig, ConfigError
 from jpscripts.core.result import Err, Ok
 

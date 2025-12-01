@@ -24,17 +24,17 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.agent import PreparedPrompt, run_repair_loop
-from jpscripts.core.complexity import (
+from jpscripts.analysis.complexity import (
     FileComplexity,
     FunctionComplexity,
     TechnicalDebtScore,
     analyze_directory_complexity,
     calculate_debt_scores,
 )
+from jpscripts.analysis.structure import get_import_dependencies
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.result import Err, Ok
-from jpscripts.core.structure import get_import_dependencies
 from jpscripts.core.system import run_safe_shell
 from jpscripts.git import client as git_core
 from jpscripts.main import AppState

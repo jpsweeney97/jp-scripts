@@ -21,7 +21,7 @@ from jpscripts.commands.evolve import (
     evolve_report,
     evolve_run,
 )
-from jpscripts.core.complexity import TechnicalDebtScore
+from jpscripts.analysis.complexity import TechnicalDebtScore
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Err, Ok
 from jpscripts.main import AppState
@@ -575,7 +575,7 @@ class TestEvolveReportInternals:
 
     def test_report_shows_complexity_table(self, test_config: AppConfig) -> None:
         """Report displays complexity information in a table."""
-        from jpscripts.core.complexity import FileComplexity, FunctionComplexity
+        from jpscripts.analysis.complexity import FileComplexity, FunctionComplexity
 
         mock_ctx = MagicMock()
         mock_state = MagicMock()

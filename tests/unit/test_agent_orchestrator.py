@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.agent import execution
+from jpscripts.agent import execution, ops
 from jpscripts.agent.execution import (
     AgentEvent,
     EventKind,
@@ -69,7 +69,7 @@ async def test_success_path_immediate(
     async def mock_run_command(command: str, root: Path) -> tuple[int, str, str]:
         return (0, "ok", "")
 
-    monkeypatch.setattr(execution, "_run_command", mock_run_command)
+    monkeypatch.setattr(ops, "run_agent_command", mock_run_command)
 
     # Disable archiving to avoid save_memory calls
     async def mock_fetch(prepared: PreparedPrompt) -> str:
@@ -145,9 +145,9 @@ async def test_repair_loop_success(
     async def mock_verify_syntax(files: list[Path]) -> str | None:
         return None  # No syntax errors
 
-    monkeypatch.setattr(execution, "_run_command", mock_run_command)
+    monkeypatch.setattr(ops, "run_agent_command", mock_run_command)
     monkeypatch.setattr(execution, "apply_patch_text", mock_apply_patch)
-    monkeypatch.setattr(execution, "verify_syntax", mock_verify_syntax)
+    monkeypatch.setattr(ops, "verify_syntax", mock_verify_syntax)
 
     orchestrator = RepairLoopOrchestrator(
         base_prompt="Fix the bug",
@@ -205,7 +205,7 @@ async def test_max_retries_exhausted(
             "final_message": "Unable to resolve the error",
         })
 
-    monkeypatch.setattr(execution, "_run_command", mock_run_command)
+    monkeypatch.setattr(ops, "run_agent_command", mock_run_command)
 
     orchestrator = RepairLoopOrchestrator(
         base_prompt="Fix the bug",
@@ -271,9 +271,9 @@ async def test_duplicate_patch_detection(
     async def mock_verify_syntax(files: list[Path]) -> str | None:
         return None
 
-    monkeypatch.setattr(execution, "_run_command", mock_run_command)
+    monkeypatch.setattr(ops, "run_agent_command", mock_run_command)
     monkeypatch.setattr(execution, "apply_patch_text", mock_apply_patch)
-    monkeypatch.setattr(execution, "verify_syntax", mock_verify_syntax)
+    monkeypatch.setattr(ops, "verify_syntax", mock_verify_syntax)
 
     orchestrator = RepairLoopOrchestrator(
         base_prompt="Fix the bug",
@@ -348,9 +348,9 @@ async def test_syntax_error_handling(
             return "SyntaxError: unexpected EOF"
         return None
 
-    monkeypatch.setattr(execution, "_run_command", mock_run_command)
+    monkeypatch.setattr(ops, "run_agent_command", mock_run_command)
     monkeypatch.setattr(execution, "apply_patch_text", mock_apply_patch)
-    monkeypatch.setattr(execution, "verify_syntax", mock_verify_syntax)
+    monkeypatch.setattr(ops, "verify_syntax", mock_verify_syntax)
 
     orchestrator = RepairLoopOrchestrator(
         base_prompt="Fix the bug",

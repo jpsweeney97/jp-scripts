@@ -23,18 +23,24 @@ from jpscripts.agent.context import (
     scan_recent,
 )
 
-# Export from execution module
-from jpscripts.agent.execution import (
+# Export from types module
+from jpscripts.agent.types import (
     AgentEvent,
     EventKind,
     PatchFetcher,
     RepairLoopConfig,
-    RepairLoopOrchestrator,
     ResponseFetcher,
     SecurityError,
+)
+
+# Export from ops module
+from jpscripts.agent.ops import verify_syntax
+
+# Export from execution module
+from jpscripts.agent.execution import (
+    RepairLoopOrchestrator,
     apply_patch_text,
     run_repair_loop,
-    verify_syntax,
 )
 
 # Export from prompting module

@@ -95,7 +95,7 @@ def test_agent_prompt_includes_json_context(
 
 @pytest.mark.local_only
 def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    from jpscripts.agent import execution as agent_execution
+    from jpscripts.agent import ops as agent_ops
 
     subprocess.run(["git", "init"], cwd=tmp_path, check=True)
     script = tmp_path / "script.py"
@@ -131,7 +131,7 @@ def test_repair_loop_recovers(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
             stderr.decode("utf-8", errors="replace"),
         )
 
-    monkeypatch.setattr(agent_execution, "_run_command", fake_run_command)
+    monkeypatch.setattr(agent_ops, "run_agent_command", fake_run_command)
 
     patch_text = textwrap.dedent(
         """\
