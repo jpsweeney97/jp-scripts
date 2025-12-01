@@ -322,6 +322,11 @@ A comprehensive technical debt audit was completed on 2025-11-30. This file cont
 - Create PR only for Phase 8-10 branches; other phases commit directly
 - If user prefers different strategy, follow their preference
 
+**Push strategy:**
+- Push to origin after completing each phase
+- Push before ending any session (when user says "stopping", "gtg", "pause")
+- Do NOT push mid-phase unless user requests
+
 **Before** working on any roadmap item:
 1. Read `TECH_DEBT_AUDIT.md` - specifically the "Complete Implementation Roadmap" section
 2. Find the first item that is `[ ]` or `[~]` (in-progress takes priority)
