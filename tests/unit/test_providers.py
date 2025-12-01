@@ -374,3 +374,141 @@ class TestProviderErrors:
 
         err = ContextLengthError("Input too long")
         assert isinstance(err, ProviderError)
+
+
+class TestAnthropicErrorHandling:
+    """Test Anthropic provider error handling and API key redaction."""
+
+    def test_redact_api_key_from_message(self) -> None:
+        from jpscripts.providers.anthropic import _redact_api_key
+
+        # Test Anthropic-style key pattern
+        msg = "Error with key sk-ant-api03-abcdefghijklmnopqrstuvwxyz"
+        redacted = _redact_api_key(msg)
+        assert "sk-ant-" not in redacted
+        assert "[REDACTED]" in redacted
+
+    def test_redact_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from jpscripts.providers.anthropic import _redact_api_key
+
+        fake_key = "sk-ant-test-key-12345678901234567890"
+        monkeypatch.setenv("ANTHROPIC_API_KEY", fake_key)
+        msg = f"Request failed with key {fake_key}"
+        redacted = _redact_api_key(msg)
+        assert fake_key not in redacted
+        assert "[REDACTED]" in redacted
+
+    def test_redact_generic_secret_patterns(self) -> None:
+        from jpscripts.providers.anthropic import _redact_api_key
+
+        msg = "api_key=super_secret_value_12345678"
+        redacted = _redact_api_key(msg)
+        assert "super_secret" not in redacted
+
+    def test_missing_api_key_raises_auth_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from jpscripts.core.config import AppConfig
+        from jpscripts.providers import AuthenticationError, ProviderError
+        from jpscripts.providers.anthropic import AnthropicProvider
+
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        provider = AnthropicProvider(AppConfig())
+        # If anthropic package is not installed, it raises ProviderError first
+        # If installed but no key, it raises AuthenticationError
+        try:
+            import anthropic  # noqa: F401
+            with pytest.raises(AuthenticationError, match="ANTHROPIC_API_KEY"):
+                provider._get_client()
+        except ImportError:
+            with pytest.raises(ProviderError, match="anthropic package not installed"):
+                provider._get_client()
+
+    def test_missing_package_raises_provider_error(self) -> None:
+        # Skip if anthropic is installed - can't easily test missing import
+        try:
+            import anthropic  # noqa: F401
+            pytest.skip("anthropic package is installed")
+        except ImportError:
+            from jpscripts.core.config import AppConfig
+            from jpscripts.providers import ProviderError
+            from jpscripts.providers.anthropic import AnthropicProvider
+
+            provider = AnthropicProvider(AppConfig())
+            with pytest.raises(ProviderError, match="anthropic package not installed"):
+                provider._get_client()
+
+
+class TestOpenAIErrorHandling:
+    """Test OpenAI provider error handling and API key redaction."""
+
+    def test_redact_api_key_from_message(self) -> None:
+        from jpscripts.providers.openai import _redact_api_key
+
+        # Test OpenAI-style key pattern (sk- followed by 20+ chars)
+        msg = "Error with key sk-abcdefghijklmnopqrstuvwxyz1234"
+        redacted = _redact_api_key(msg)
+        assert "[REDACTED]" in redacted
+
+    def test_redact_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from jpscripts.providers.openai import _redact_api_key
+
+        fake_key = "sk-test-key-1234567890123456789012345"
+        monkeypatch.setenv("OPENAI_API_KEY", fake_key)
+        msg = f"Request failed with key {fake_key}"
+        redacted = _redact_api_key(msg)
+        assert fake_key not in redacted
+        assert "[REDACTED]" in redacted
+
+    def test_missing_api_key_raises_auth_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from jpscripts.core.config import AppConfig
+        from jpscripts.providers import AuthenticationError, ProviderError
+        from jpscripts.providers.openai import OpenAIProvider
+
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        provider = OpenAIProvider(AppConfig())
+        # If openai package is not installed, it raises ProviderError first
+        # If installed but no key, it raises AuthenticationError
+        try:
+            import openai  # noqa: F401
+            with pytest.raises(AuthenticationError, match="OPENAI_API_KEY"):
+                provider._get_client()
+        except ImportError:
+            with pytest.raises(ProviderError, match="openai package not installed"):
+                provider._get_client()
+
+
+class TestCodexErrorHandling:
+    """Test Codex provider error handling."""
+
+    def test_codex_not_available_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from jpscripts.providers.codex import is_codex_available
+
+        # Mock shutil.which to return None (codex not found)
+        monkeypatch.setattr("shutil.which", lambda x: None)
+        assert is_codex_available() is False
+
+    def test_codex_available_when_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from jpscripts.providers.codex import is_codex_available
+
+        # Mock shutil.which to return a path
+        monkeypatch.setattr("shutil.which", lambda x: "/usr/local/bin/codex" if x == "codex" else None)
+        assert is_codex_available() is True
+
+    def test_format_messages_empty(self) -> None:
+        from jpscripts.providers.codex import _format_messages_for_codex
+
+        formatted = _format_messages_for_codex([])
+        assert formatted == ""
+
+    def test_format_messages_handles_assistant_role(self) -> None:
+        from jpscripts.providers.codex import _format_messages_for_codex
+
+        messages = [
+            Message(role="user", content="Hello"),
+            Message(role="assistant", content="Hi there"),
+            Message(role="user", content="How are you?"),
+        ]
+        formatted = _format_messages_for_codex(messages)
+        assert "[User]" in formatted
+        assert "[Assistant]" in formatted
+        assert "Hello" in formatted
+        assert "Hi there" in formatted
