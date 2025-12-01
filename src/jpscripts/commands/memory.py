@@ -1,3 +1,12 @@
+"""Memory store management commands.
+
+Provides CLI commands for managing the vector-based memory store:
+    - Adding and querying memories
+    - Clustering similar memories
+    - Pruning old or redundant entries
+    - Exporting and importing memory data
+"""
+
 from __future__ import annotations
 
 import asyncio

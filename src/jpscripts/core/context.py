@@ -1,3 +1,11 @@
+"""Context gathering and token management re-exports.
+
+This module provides a unified interface for context-related utilities:
+    - Context gathering from commands and files
+    - Token counting and budget management
+    - File reading with skeleton extraction
+"""
+
 from __future__ import annotations
 
 from jpscripts.core.context_gatherer import (

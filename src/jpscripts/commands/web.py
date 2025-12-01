@@ -1,3 +1,11 @@
+"""Web fetching and scraping commands.
+
+Provides CLI commands for web content retrieval:
+    - URL content fetching with caching
+    - HTML to markdown conversion
+    - Link extraction and validation
+"""
+
 from __future__ import annotations
 
 import asyncio

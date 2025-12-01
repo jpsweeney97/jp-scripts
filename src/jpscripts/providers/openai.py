@@ -19,9 +19,8 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import AsyncIterator
-from typing import Protocol, cast
+from typing import TYPE_CHECKING, Protocol, cast
 
-from jpscripts.core.config import AppConfig
 from jpscripts.providers import (
     AuthenticationError,
     BaseLLMProvider,
@@ -39,6 +38,9 @@ from jpscripts.providers import (
     ToolCall,
     ToolDefinition,
 )
+
+if TYPE_CHECKING:
+    from jpscripts.core.config import AppConfig
 
 # Pattern to match potential API keys in error messages
 _API_KEY_PATTERN = re.compile(

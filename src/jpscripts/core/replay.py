@@ -1,3 +1,11 @@
+"""Agent trace replay functionality.
+
+Provides replay and diff capabilities for agent traces:
+    - Trace step comparison
+    - Response diffing
+    - Replay simulation
+"""
+
 from __future__ import annotations
 
 import difflib

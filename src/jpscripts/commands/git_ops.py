@@ -1,3 +1,11 @@
+"""Git status and repository utilities.
+
+Provides CLI commands for:
+    - Multi-repository status overview
+    - Branch sync status checking
+    - Workspace discovery and monitoring
+"""
+
 from __future__ import annotations
 
 import asyncio

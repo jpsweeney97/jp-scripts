@@ -1,6 +1,48 @@
 # Claude Code project guide (CLAUDE.md)
 
-You are Claude Code running in a developer’s terminal. Treat this file as authoritative instructions for how to behave in this project unless the user explicitly overrides it.
+You are Claude Code running in a developer's terminal. Treat this file as authoritative instructions for how to behave in this project unless the user explicitly overrides it.
+
+---
+
+## 0. Project overview
+
+**jpscripts** is a Python CLI toolkit and AI agent framework for developer productivity.
+
+### Quick facts
+- **Main entry:** `jp` command (via `src/jpscripts/main.py`)
+- **Stack:** Python 3.12+, Typer CLI, asyncio, Rich console
+- **Package:** `jpscripts` (editable install: `pip install -e ".[dev,ai]"`)
+
+### Key directories
+```
+src/jpscripts/
+├── main.py              # CLI bootstrap, command discovery
+├── commands/            # CLI command modules (nav, agent, search, etc.)
+├── core/                # Shared logic (config, security, memory, agent)
+├── git/                 # Git operations (status, diff, worktree)
+├── mcp/                 # MCP server and tools
+└── providers/           # LLM providers (anthropic, openai, codex)
+
+tests/                   # pytest test suite
+├── unit/                # Fast isolated tests
+├── integration/         # Tests hitting real services
+└── security/            # Security-focused tests
+```
+
+### Common commands
+```bash
+make test                # Run full test suite with linting
+pytest                   # Fast test run (skip linting)
+pytest --cov             # Run with coverage
+mypy src                 # Type checking
+ruff check src           # Linting
+ruff format src          # Formatting
+```
+
+### Related docs
+- `CONTRIBUTING.md` - Development setup, testing, git workflow
+- `docs/ARCHITECTURE.md` - System design and diagrams
+- `docs/EXTENDING.md` - How to add commands, tools, providers
 
 ---
 
@@ -243,7 +285,35 @@ These conventions were established from the technical debt audit. Follow them to
 - **Use exceptions** only for unexpected/programming errors
 - **Never** use bare `except Exception: pass` - always log or handle explicitly
 - **Always** use `exc` as the exception variable name (not `e` or `err`)
-- When catching exceptions, include context: `logger.warning("Operation failed: %s", exc)`
+
+```python
+# Result pattern example
+from jpscripts.core.result import Result, Ok, Err, ConfigurationError
+
+def load_config(path: Path) -> Result[AppConfig, ConfigurationError]:
+    if not path.exists():
+        return Err(ConfigurationError(f"Not found: {path}"))
+    try:
+        return Ok(parse_config(path.read_text()))
+    except ValueError as exc:
+        return Err(ConfigurationError(f"Invalid format: {exc}"))
+
+# Consuming with match
+match load_config(path):
+    case Ok(config):
+        use_config(config)
+    case Err(error):
+        logger.error("Config error: %s", error)
+```
+
+```python
+# Exception handling example
+try:
+    risky_operation()
+except SomeError as exc:  # Always use 'exc', not 'e' or 'err'
+    logger.warning("Operation failed: %s", exc)
+    return fallback_value
+```
 
 ### Layer boundaries
 - **CLI commands** (`commands/`) may import from: `core/`, `git/`, `providers/`
@@ -253,7 +323,12 @@ These conventions were established from the technical debt audit. Follow them to
 
 ### Module size
 - Flag any file exceeding **500 LOC** - it likely needs splitting
-- Current exceptions being refactored: `memory.py` (1791), `engine.py` (952)
+- Recently split modules:
+  - `core/governance/` - package with ast_checker.py, secret_scanner.py, diff_parser.py, etc.
+  - `core/parallel_swarm/` - package with controller.py, worktree.py, types.py
+- Modules slightly over limit (deferred - marginal benefit):
+  - `commands/handbook.py` (776 LOC)
+  - `core/memory/store.py` (753 LOC)
 
 ### Async patterns
 - **One `asyncio.run()`** per command entry point, not multiple
@@ -276,13 +351,45 @@ These conventions were established from the technical debt audit. Follow them to
 - Redact API keys from error messages before logging/raising
 - Never use `shell=True` in subprocess calls
 
+```python
+# Path validation example (for MCP tools and agent operations)
+from jpscripts.core.security import validate_path_safe, validate_path_safe_async
+from jpscripts.core.result import Ok, Err
+
+# Sync version
+result = validate_path_safe(user_provided_path, workspace_root)
+match result:
+    case Ok(safe_path):
+        content = safe_path.read_text()
+    case Err(error):
+        return f"Access denied: {error}"
+
+# Async version (preferred in MCP tools)
+result = await validate_path_safe_async(path, root)
+```
+
+```python
+# Logger setup example
+from jpscripts.core.console import get_logger
+
+logger = get_logger(__name__)
+logger.debug("Diagnostic info: %s", details)
+logger.warning("Potential issue: %s", exc)
+```
+
 ---
 
-## 11. Completed audits
+## 11. Technical debt audits
+
+### Previous Audits
+- `TECH_DEBT_AUDIT_2025-12-01_COMPLETED.md` - 24 items, completed 2025-12-01
+  - Completed: 22, Deferred: 2 (marginal benefit module splits)
+  - Phases: Critical fixes, Security, Test coverage, Complexity, Module splitting, Async patterns, Performance, Documentation
+  - Final: 704 tests passing, all modules documented
 
 - `TECH_DEBT_AUDIT_2025-11-30_COMPLETED.md` - 89 items, completed 2025-12-01
   - Completed: 88, Skipped: 1, Blocked: 0, Failed: 0
   - Baseline: 507 tests, 4 failing, 53% coverage
   - Final: 674 tests, 0 failing, 57% coverage
 
-To start a new audit, ask Claude to "run a technical debt audit".
+To start a fresh audit, ask Claude to "run a technical debt audit".

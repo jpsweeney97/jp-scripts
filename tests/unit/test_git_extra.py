@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 from git import Repo
@@ -31,9 +32,14 @@ def test_gundo_last_local_only(
     assert repo.head.commit.message.strip() == "commit 2"
 
     # Run gundo-last
-    # We must patch _ensure_repo because typer argument parsing of Path objects
+    # We must patch _ensure_repo_async because typer argument parsing of Path objects
     # behaves differently in tests vs CLI invocation sometimes.
-    monkeypatch.setattr(git_extra, "_ensure_repo", lambda p: git_core.AsyncRepo(repo_dir))
+    async_repo = git_core.AsyncRepo(repo_dir)
+    monkeypatch.setattr(
+        git_extra,
+        "_ensure_repo_async",
+        AsyncMock(return_value=async_repo),
+    )
 
     result = runner.invoke(git_extra.app, ["gundo-last", "--repo", str(repo_dir)])
 

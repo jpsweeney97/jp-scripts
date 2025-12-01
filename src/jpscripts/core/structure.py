@@ -1,3 +1,12 @@
+"""Project structure mapping and symbol extraction.
+
+Generates project structure trees with top-level symbol summaries:
+    - Python class/function extraction via AST
+    - JavaScript/TypeScript symbol extraction via regex
+    - Gitignore-aware traversal
+    - Import dependency analysis
+"""
+
 from __future__ import annotations
 
 import ast
@@ -8,6 +17,13 @@ from functools import lru_cache
 from pathlib import Path
 
 from pathspec import PathSpec
+
+# Pre-compiled patterns for JS/TS symbol extraction
+_JS_CLASS_PATTERN = re.compile(r"^(?:export\s+)?class\s+(\w+)", re.MULTILINE)
+_JS_FUNC_PATTERN = re.compile(r"^(?:export\s+)?function\s+(\w+)\s*\(([^)]*)", re.MULTILINE)
+_JS_CONST_FUNC_PATTERN = re.compile(
+    r"^(?:export\s+)?const\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>", re.MULTILINE
+)
 
 
 def generate_map(root: Path, max_depth: int = 5) -> str:
@@ -130,21 +146,15 @@ def _summarize_js_ts(path: Path) -> list[str]:
     except OSError:
         return []
 
-    class_pattern = re.compile(r"^(?:export\s+)?class\s+(\w+)", re.MULTILINE)
-    func_pattern = re.compile(r"^(?:export\s+)?function\s+(\w+)\s*\(([^)]*)", re.MULTILINE)
-    const_func_pattern = re.compile(
-        r"^(?:export\s+)?const\s+(\w+)\s*=\s*\(([^)]*)\)\s*=>", re.MULTILINE
-    )
-
     symbols: list[str] = []
-    for match in class_pattern.finditer(source):
+    for match in _JS_CLASS_PATTERN.finditer(source):
         symbols.append(f"class {match.group(1)}")
 
-    for match in func_pattern.finditer(source):
+    for match in _JS_FUNC_PATTERN.finditer(source):
         params = _normalize_params(match.group(2))
         symbols.append(f"function {match.group(1)}({params})")
 
-    for match in const_func_pattern.finditer(source):
+    for match in _JS_CONST_FUNC_PATTERN.finditer(source):
         params = _normalize_params(match.group(2))
         symbols.append(f"const {match.group(1)}({params})")
 

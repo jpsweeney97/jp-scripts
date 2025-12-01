@@ -1,3 +1,12 @@
+"""Workspace serialization to YAML manifests.
+
+Provides functionality for creating complete workspace snapshots:
+    - File content and metadata collection
+    - Binary file handling with base64 encoding
+    - Gitignore-aware traversal
+    - Async file reading
+"""
+
 from __future__ import annotations
 
 import asyncio

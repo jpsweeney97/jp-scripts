@@ -1,3 +1,12 @@
+"""Interactive handbook for exploring jpscripts functionality.
+
+Provides CLI commands for:
+    - Browsing available commands and tools
+    - Searching documentation
+    - Viewing command help and usage
+    - Generating CLI reference documentation
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -38,6 +47,12 @@ PROTOCOL_PATTERN = re.compile(
     r"\[Protocol:\s*(?P<name>[^\]]+)\]\s*->\s*run\s*\"(?P<command>[^\"]+)\"", re.IGNORECASE
 )
 CLI_REFERENCE_HEADING = "## CLI Reference"
+
+# Pre-compiled patterns for performance
+_HEADING_PATTERN = re.compile(r"^(#{1,2})\s+(.*)")
+_CLI_REFERENCE_PATTERN = re.compile(
+    rf"{re.escape(CLI_REFERENCE_HEADING)}.*?(?=^## |\Z)", re.DOTALL | re.MULTILINE
+)
 
 app = typer.Typer(invoke_without_command=True, no_args_is_help=False)
 
@@ -290,14 +305,13 @@ async def _mtime_ns(path: Path) -> int | None:
 
 
 def _parse_sections(content: str) -> list[HandbookSection]:
-    heading_re = re.compile(r"^(#{1,2})\s+(.*)")
     sections: list[HandbookSection] = []
     current_title: str | None = None
     current_body: list[str] = []
     section_idx = 0
 
     for line in content.splitlines():
-        match = heading_re.match(line.strip())
+        match = _HEADING_PATTERN.match(line.strip())
         if match:
             if current_title is not None:
                 sections.append(
@@ -366,11 +380,8 @@ async def _replace_cli_reference(path: Path, cli_table: str, mcp_table: str) -> 
         except OSError:
             return False, ""
 
-        pattern = re.compile(
-            rf"{re.escape(CLI_REFERENCE_HEADING)}.*?(?=^## |\Z)", re.DOTALL | re.MULTILINE
-        )
-        if pattern.search(content):
-            updated = pattern.sub(new_section.strip() + "\n\n", content)
+        if _CLI_REFERENCE_PATTERN.search(content):
+            updated = _CLI_REFERENCE_PATTERN.sub(new_section.strip() + "\n\n", content)
         else:
             updated = content.rstrip() + "\n\n" + new_section
 

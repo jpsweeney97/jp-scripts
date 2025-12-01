@@ -1,3 +1,11 @@
+"""Model Context Protocol (MCP) integration.
+
+This package provides MCP server and tool infrastructure:
+    - Tool registration and discovery
+    - FastMCP server integration
+    - Runtime context management for MCP requests
+"""
+
 from __future__ import annotations
 
 import asyncio

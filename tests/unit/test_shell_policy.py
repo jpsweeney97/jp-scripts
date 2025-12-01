@@ -38,8 +38,8 @@ def test_no_blocking_subprocess_run_in_commands() -> None:
         REPO_ROOT / "src" / "jpscripts" / "core" / "system.py",
         REPO_ROOT / "src" / "jpscripts" / "core" / "search.py",
         REPO_ROOT / "src" / "jpscripts" / "core" / "security.py",
-        # governance.py has subprocess.run() in a docstring example, not actual code
-        REPO_ROOT / "src" / "jpscripts" / "core" / "governance.py",
+        # governance package has subprocess.run() in AST patterns for detecting violations
+        REPO_ROOT / "src" / "jpscripts" / "core" / "governance" / "ast_checker.py",
     }
 
     run_offenders: list[Path] = []

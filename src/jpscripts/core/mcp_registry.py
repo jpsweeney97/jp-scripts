@@ -1,3 +1,11 @@
+"""MCP tool registry and validation.
+
+Manages registration and metadata for MCP (Model Context Protocol) tools:
+    - Tool function validation with Pydantic
+    - Tool metadata storage and retrieval
+    - Input validation decorators
+"""
+
 from __future__ import annotations
 
 import functools

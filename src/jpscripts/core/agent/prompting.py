@@ -15,6 +15,7 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 from jpscripts.core import security
+from jpscripts.core.config import AppConfig
 from jpscripts.core.agent.context import (
     build_dependency_section,
     build_file_context_section,
@@ -69,6 +70,102 @@ def _render_prompt_from_template(context: dict[str, object], template_root: Path
 def _safe_cdata(content: str) -> str:
     """Escape CDATA terminators inside arbitrary content."""
     return content.replace("]]>", "]]]]><![CDATA[>")
+
+
+async def _build_diagnostic_context(
+    run_command: str,
+    root: Path,
+    command_output_limit: int,
+    budget: TokenBudgetManager,
+    config: AppConfig,
+) -> tuple[str, list[Path], list[str]]:
+    """Build diagnostic section from command output.
+
+    Returns:
+        Tuple of (diagnostic_section, detected_paths, relevant_memories)
+    """
+    gathered_context = await gather_context(run_command, root)
+    output = gathered_context.output
+    detected_files = gathered_context.files
+    ordered_detected = list(gathered_context.ordered_files)
+
+    trimmed = (
+        output
+        if len(output) <= command_output_limit
+        else _summarize_stack_trace(output, command_output_limit)
+    )
+    raw_diagnostic = (
+        f"Command: {run_command}\n"
+        f"Output (summary up to {command_output_limit} chars):\n"
+        f"{trimmed}\n"
+    )
+    diagnostic_section = budget.allocate(1, raw_diagnostic)
+
+    # Query memory based on diagnostic output
+    relevant_memories: list[str] = []
+    diag_lines = diagnostic_section.splitlines()
+    query = "\n".join(diag_lines[-3:]).strip()
+    if query:
+        try:
+            relevant_memories = await asyncio.to_thread(
+                lambda: query_memory(query, 3, config=config)
+            )
+        except Exception as exc:
+            logger.debug("Memory query failed: %s", exc)
+
+    ordered_sources = ordered_detected if ordered_detected else sorted(detected_files)
+    detected_paths = list(dict.fromkeys(ordered_sources))[:5]
+
+    return diagnostic_section, detected_paths, relevant_memories
+
+
+async def _query_memory_from_prompt(
+    base_prompt: str,
+    config: AppConfig,
+) -> list[str]:
+    """Query memory based on the base prompt with tag boosting."""
+    base_query = base_prompt.strip()
+    if not base_query:
+        return []
+
+    boosted_tags: list[str] = []
+    lowered_prompt = base_query.lower()
+    for tag in ("architecture", "security"):
+        if tag in lowered_prompt:
+            boosted_tags.append(tag)
+
+    boosted_query = (
+        f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
+    )
+
+    try:
+        return await asyncio.to_thread(
+            lambda: query_memory(boosted_query, 3, config=config)
+        )
+    except Exception as exc:
+        logger.debug("Memory query from base prompt failed: %s", exc)
+        return []
+
+
+async def _fetch_patterns_section(
+    base_prompt: str,
+    diagnostic_section: str,
+    config: AppConfig,
+) -> str:
+    """Fetch and format relevant patterns for the prompt."""
+    try:
+        patterns = await fetch_relevant_patterns(
+            base_prompt.strip() or diagnostic_section[:500],
+            config,
+            limit=2,
+            min_confidence=0.75,
+        )
+        if patterns:
+            logger.debug("Injecting %d patterns into prompt", len(patterns))
+            return format_patterns_for_prompt(patterns)
+    except Exception as exc:
+        logger.debug("Pattern fetch failed: %s", exc)
+    return ""
 
 
 def _summarize_stack_trace(text: str, limit: int) -> str:
@@ -176,39 +273,12 @@ async def prepare_agent_prompt(
     dependency_section = ""
     git_diff_section = ""
     relevant_memories: list[str] = []
-    boosted_tags: list[str] = []
 
     # === Priority 1: Diagnostic Section (highest priority) ===
     if run_command:
-        gathered_context = await gather_context(run_command, root)
-        output = gathered_context.output
-        detected_files = gathered_context.files
-        ordered_detected = list(gathered_context.ordered_files)
-        trimmed = (
-            output
-            if len(output) <= command_output_limit
-            else _summarize_stack_trace(output, command_output_limit)
+        diagnostic_section, detected_paths, relevant_memories = await _build_diagnostic_context(
+            run_command, root, command_output_limit, budget, config
         )
-        raw_diagnostic = (
-            f"Command: {run_command}\n"
-            f"Output (summary up to {command_output_limit} chars):\n"
-            f"{trimmed}\n"
-        )
-        diagnostic_section = budget.allocate(1, raw_diagnostic)
-
-        diag_lines = diagnostic_section.splitlines()
-        query = "\n".join(diag_lines[-3:]).strip()
-        if query:
-            try:
-                relevant_memories = await asyncio.to_thread(
-                    lambda: query_memory(query, 3, config=config)
-                )
-            except Exception as exc:
-                logger.debug("Memory query failed: %s", exc)
-
-        ordered_sources = ordered_detected if ordered_detected else sorted(detected_files)
-        detected_paths = list(dict.fromkeys(ordered_sources))[:5]
-
     elif attach_recent:
         match await scan_recent(root, 3, False, set(effective_ignore_dirs)):
             case Err(err):
@@ -216,14 +286,10 @@ async def prepare_agent_prompt(
             case Ok(recents):
                 detected_paths = [entry.path for entry in recents[:5]]
 
-    # === Priority 2: Git Diff Section (medium priority) ===
     # === Priority 2 & 3: File Context + Dependencies (Sequential Greedy) ===
-    # Files get what they need first (direct source prioritized), dependencies get leftovers
     combined_paths: list[Path] = detected_paths + extra_detected
     if budget.remaining() > 0 and combined_paths:
         file_context_section, attached = await build_file_context_section(combined_paths, budget)
-
-        # Dependencies only get leftover budget after files
         if budget.remaining() > 0:
             dependency_section = await build_dependency_section(combined_paths[:1], root, budget)
 
@@ -234,36 +300,10 @@ async def prepare_agent_prompt(
 
     # Memory query fallback
     if not relevant_memories:
-        base_query = base_prompt.strip()
-        lowered_prompt = base_query.lower()
-        for tag in ("architecture", "security"):
-            if tag in lowered_prompt:
-                boosted_tags.append(tag)
-        boosted_query = (
-            f"{base_query}\nTags: {' '.join(boosted_tags)}" if boosted_tags else base_query
-        )
-        if boosted_query:
-            try:
-                relevant_memories = await asyncio.to_thread(
-                    lambda: query_memory(boosted_query, 3, config=config)
-                )
-            except Exception as exc:
-                logger.debug("Memory query from base prompt failed: %s", exc)
+        relevant_memories = await _query_memory_from_prompt(base_prompt, config)
 
     # Fetch relevant patterns for prompt injection
-    patterns_section = ""
-    try:
-        patterns = await fetch_relevant_patterns(
-            base_prompt.strip() or diagnostic_section[:500],
-            config,
-            limit=2,
-            min_confidence=0.75,
-        )
-        if patterns:
-            patterns_section = format_patterns_for_prompt(patterns)
-            logger.debug("Injecting %d patterns into prompt", len(patterns))
-    except Exception as exc:
-        logger.debug("Pattern fetch failed: %s", exc)
+    patterns_section = await _fetch_patterns_section(base_prompt, diagnostic_section, config)
 
     logger.debug(
         "Token budget allocation: %s, remaining: %d",

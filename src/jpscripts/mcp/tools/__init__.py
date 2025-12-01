@@ -1,3 +1,13 @@
+"""MCP tools package with auto-discovery.
+
+This package contains all MCP tool implementations:
+    - filesystem: File read/write/search
+    - git: Repository operations
+    - memory: Vector store queries
+    - system: Shell command execution
+    - And more...
+"""
+
 from __future__ import annotations
 
 import pkgutil

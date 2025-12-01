@@ -1,3 +1,12 @@
+"""Directory navigation and bookmark commands.
+
+Provides CLI commands for quick directory navigation:
+    - Fuzzy directory search
+    - Bookmark management (add, list, remove)
+    - Recent directory history
+    - Project root detection
+"""
+
 from __future__ import annotations
 
 import asyncio

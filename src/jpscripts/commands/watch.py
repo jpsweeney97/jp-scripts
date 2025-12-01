@@ -1,3 +1,11 @@
+"""File watching and auto-reload commands.
+
+Provides CLI commands for watching file changes:
+    - Auto-run commands on file changes
+    - Complexity analysis on save
+    - Debounced event handling
+"""
+
 from __future__ import annotations
 
 import asyncio

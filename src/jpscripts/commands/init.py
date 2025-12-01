@@ -1,3 +1,11 @@
+"""Project initialization and configuration setup.
+
+Provides CLI commands for:
+    - Initializing new jpscripts configuration
+    - Setting up workspace defaults
+    - Configuring editor and notes directory
+"""
+
 from __future__ import annotations
 
 import asyncio

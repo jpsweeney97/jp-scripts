@@ -1,3 +1,10 @@
+"""Web content fetching and extraction.
+
+Provides utilities for fetching and processing web content:
+    - HTML to markdown conversion via trafilatura
+    - Content extraction for AI context
+"""
+
 from __future__ import annotations
 
 from jpscripts.core.console import get_logger

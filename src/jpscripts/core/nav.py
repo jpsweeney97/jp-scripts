@@ -1,3 +1,12 @@
+"""Directory navigation core logic.
+
+Provides low-level navigation functionality:
+    - Recent directory scanning
+    - Bookmark management
+    - Directory validation
+    - Async directory traversal
+"""
+
 from __future__ import annotations
 
 import asyncio

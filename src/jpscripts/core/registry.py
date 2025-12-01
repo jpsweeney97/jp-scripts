@@ -1,3 +1,11 @@
+"""CLI command discovery and registration.
+
+Handles dynamic command loading from the commands directory:
+    - Module discovery
+    - Typer app registration
+    - Function command registration
+"""
+
 from __future__ import annotations
 
 import importlib

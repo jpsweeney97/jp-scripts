@@ -1,3 +1,11 @@
+"""MCP system tools for process and shell operations.
+
+Provides tools for system interactions:
+    - list_processes: List running processes
+    - run_command: Execute validated shell commands
+    - Command validation for safety
+"""
+
 from __future__ import annotations
 
 from jpscripts.core import system as system_core

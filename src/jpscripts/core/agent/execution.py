@@ -152,6 +152,195 @@ async def _run_command(command: str, root: Path) -> tuple[int, str, str]:
     return (1, "", str(result.error))
 
 
+@dataclass
+class _TurnResult:
+    """Result of processing a single agent turn."""
+
+    should_break: bool = False
+    """Whether to break out of the turn loop."""
+    error_message: str | None = None
+    """Error message if turn failed."""
+    applied_paths: list[Path] | None = None
+    """Paths modified by patch application."""
+
+
+async def _handle_success_and_archive(
+    auto_archive: bool,
+    fetch_response: ResponseFetcher,
+    base_prompt: str,
+    command: str,
+    last_error: str | None,
+    model: str | None,
+    web_access: bool,
+) -> None:
+    """Handle successful command completion with optional archiving."""
+    if auto_archive:
+        await _archive_session_summary(
+            fetch_response,
+            base_prompt=base_prompt,
+            command=command,
+            last_error=last_error,
+            model=model,
+            web_access=web_access,
+        )
+
+
+async def _process_tool_call(
+    engine: AgentEngine[AgentResponse],
+    tool_call: ToolCall,
+    thought: str,
+    history: list[Message],
+) -> None:
+    """Process a tool call from the agent."""
+    tool_name = tool_call.tool
+    tool_args = tool_call.arguments
+    console.print(
+        Panel(
+            f"Agent invoking {tool_name} with args {tool_args}",
+            title="Tool Call",
+            box=box.SIMPLE,
+        )
+    )
+    try:
+        output = await engine.execute_tool(tool_call)
+    except Exception as exc:
+        output = f"Tool execution failed: {exc}"
+    console.print(Panel(output, title="Tool Output", box=box.SIMPLE, style="cyan"))
+    history_entry = (
+        "<Turn>\n"
+        f"Agent thought: {thought}\n"
+        f"Tool call: {tool_name}({tool_args})\n"
+        f"Tool output: {output}\n"
+        "</Turn>"
+    )
+    _append_history(history, Message(role="system", content=history_entry))
+
+
+async def _process_patch(
+    patch_text: str,
+    thought: str,
+    root: Path,
+    seen_patch_hashes: set[str],
+    changed_files: set[Path],
+    history: list[Message],
+) -> _TurnResult:
+    """Process a patch from the agent."""
+    patch_hash = compute_patch_hash(patch_text)
+    if patch_hash in seen_patch_hashes:
+        console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
+        _append_history(
+            history,
+            Message(
+                role="user",
+                content="<GovernanceViolation> You proposed a patch identical to a previous failed attempt. You are looping. Try a different approach. </GovernanceViolation>",
+            ),
+        )
+        return _TurnResult(should_break=False)
+
+    seen_patch_hashes.add(patch_hash)
+    console.print("[green]Agent proposed a fix.[/green]")
+    applied_paths = await apply_patch_text(patch_text, root)
+    syntax_error = await verify_syntax(applied_paths)
+
+    if syntax_error:
+        console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}")
+        _append_history(
+            history,
+            Message(
+                role="system",
+                content=(
+                    "<Turn>\n"
+                    f"Agent thought: {thought}\n"
+                    "Tool call: none\n"
+                    f"Tool output: Syntax check failed: {syntax_error}\n"
+                    "</Turn>"
+                ),
+            ),
+        )
+        changed_files.update(applied_paths)
+        return _TurnResult(should_break=False, error_message=syntax_error)
+
+    changed_files.update(applied_paths)
+    return _TurnResult(should_break=True, applied_paths=applied_paths)
+
+
+def _handle_no_patch(
+    agent_response: AgentResponse,
+    thought: str,
+    history: list[Message],
+) -> _TurnResult:
+    """Handle when agent returns no patch."""
+    message = agent_response.final_message or "Agent returned no patch content."
+    console.print(f"[yellow]{message}[/yellow]")
+    _append_history(
+        history,
+        Message(
+            role="system",
+            content=(
+                "<Turn>\n"
+                f"Agent thought: {thought}\n"
+                "Tool call: none\n"
+                f"Tool output: {message}\n"
+                "</Turn>"
+            ),
+        ),
+    )
+    return _TurnResult(should_break=True)
+
+
+@dataclass
+class _LoopContext:
+    """Context for loop detection and strategy adjustment."""
+
+    loop_detected: bool
+    strategy_override: str | None
+    reasoning_hint: str | None
+    temperature_override: float | None
+
+
+def _setup_loop_context(
+    attempt_history: list[AttemptContext],
+    current_error: str,
+) -> _LoopContext:
+    """Set up context based on loop detection."""
+    loop_detected = detect_repeated_failure(attempt_history, current_error)
+    if loop_detected:
+        console.print(
+            "[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]"
+        )
+    return _LoopContext(
+        loop_detected=loop_detected,
+        strategy_override=STRATEGY_OVERRIDE_TEXT if loop_detected else None,
+        reasoning_hint=(
+            "Increase temperature or reasoning effort to escape repetition."
+            if loop_detected
+            else None
+        ),
+        temperature_override=0.7 if loop_detected else None,
+    )
+
+
+async def _get_dynamic_paths(
+    strategy_name: str,
+    current_error: str,
+    root: Path,
+    changed_files: set[Path],
+    ignore_dirs: list[str],
+) -> set[Path]:
+    """Get dynamic context paths based on strategy."""
+    if strategy_name == "deep":
+        return await expand_context_paths(current_error, root, changed_files, ignore_dirs)
+    return set(changed_files)
+
+
+@dataclass
+class _TurnLoopResult:
+    """Result of executing the agent turn loop."""
+
+    applied_paths: list[Path]
+    current_error: str
+
+
 async def verify_syntax(files: list[Path]) -> str | None:
     """Verify Python syntax for changed files using py_compile.
 
@@ -347,40 +536,24 @@ async def run_repair_loop(
             exit_code, stdout, stderr = await _run_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded. Exiting repair loop.[/green]")
-                if auto_archive:
-                    await _archive_session_summary(
-                        fetch_response,
-                        base_prompt=base_prompt,
-                        command=command,
-                        last_error=attempt_history[-1].last_error if attempt_history else None,
-                        model=model,
-                        web_access=web_access,
-                    )
+                await _handle_success_and_archive(
+                    auto_archive,
+                    fetch_response,
+                    base_prompt,
+                    command,
+                    attempt_history[-1].last_error if attempt_history else None,
+                    model,
+                    web_access,
+                )
                 return True
 
             current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
             console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
 
-            loop_detected = detect_repeated_failure(attempt_history, current_error)
-            strategy_override = STRATEGY_OVERRIDE_TEXT if loop_detected else None
-            reasoning_hint = (
-                "Increase temperature or reasoning effort to escape repetition."
-                if loop_detected
-                else None
+            loop_ctx = _setup_loop_context(attempt_history, current_error)
+            dynamic_paths = await _get_dynamic_paths(
+                strategy_cfg.name, current_error, root, changed_files, config.ignore_dirs
             )
-            temperature_override = 0.7 if loop_detected else None
-            if loop_detected:
-                console.print(
-                    "[yellow]Repeated failure detected; applying strategy override and higher reasoning effort.[/yellow]"
-                )
-
-            dynamic_paths: set[Path] = set(changed_files)
-            if strategy_cfg.name == "deep":
-                dynamic_paths = await expand_context_paths(
-                    current_error, root, changed_files, config.ignore_dirs
-                )
-            elif strategy_cfg.name == "step_back":
-                dynamic_paths = set(changed_files)
 
             applied_paths: list[Path] = []
             for _turn in range(5):
@@ -389,8 +562,8 @@ async def run_repair_loop(
                     current_error,
                     attempt_history,
                     root,
-                    strategy_override=strategy_override,
-                    reasoning_hint=reasoning_hint,
+                    strategy_override=loop_ctx.strategy_override,
+                    reasoning_hint=loop_ctx.reasoning_hint,
                     strategy=strategy_cfg,
                 )
 
@@ -402,8 +575,8 @@ async def run_repair_loop(
                     model=model or config.default_model,
                     prompt_builder=lambda msgs,  # type: ignore[misc]
                     ip=iteration_prompt,
-                    ld=loop_detected,
-                    temp=temperature_override,
+                    ld=loop_ctx.loop_detected,
+                    temp=loop_ctx.temperature_override,
                     strat=strategy_cfg,
                     paths=list(dynamic_paths): _prompt_builder(msgs, ip, ld, temp, strat, paths),
                     fetch_response=_fetch,
@@ -437,103 +610,36 @@ async def run_repair_loop(
                 thought = agent_response.thought_process
 
                 if tool_call:
-                    tool_name = tool_call.tool
-                    tool_args = tool_call.arguments
-                    console.print(
-                        Panel(
-                            f"Agent invoking {tool_name} with args {tool_args}",
-                            title="Tool Call",
-                            box=box.SIMPLE,
-                        )
-                    )
-                    try:
-                        output = await engine.execute_tool(tool_call)
-                    except Exception as exc:
-                        output = f"Tool execution failed: {exc}"
-                    console.print(Panel(output, title="Tool Output", box=box.SIMPLE, style="cyan"))
-                    history_entry = (
-                        "<Turn>\n"
-                        f"Agent thought: {thought}\n"
-                        f"Tool call: {tool_name}({tool_args})\n"
-                        f"Tool output: {output}\n"
-                        "</Turn>"
-                    )
-                    _append_history(history, Message(role="system", content=history_entry))
+                    await _process_tool_call(engine, tool_call, thought, history)
                     continue
 
                 if patch_text:
-                    # Check for duplicate patch (loop prevention)
-                    patch_hash = compute_patch_hash(patch_text)
-                    if patch_hash in seen_patch_hashes:
-                        console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
-                        _append_history(
-                            history,
-                            Message(
-                                role="user",
-                                content="<GovernanceViolation> You proposed a patch identical to a previous failed attempt. You are looping. Try a different approach. </GovernanceViolation>",
-                            ),
-                        )
-                        continue
+                    result = await _process_patch(
+                        patch_text, thought, root, seen_patch_hashes, changed_files, history
+                    )
+                    if result.error_message:
+                        current_error = result.error_message
+                    if result.should_break:
+                        if result.applied_paths:
+                            applied_paths = result.applied_paths
+                        break
+                    continue
 
-                    # New patch - add to seen set
-                    seen_patch_hashes.add(patch_hash)
-
-                    console.print("[green]Agent proposed a fix.[/green]")
-                    applied_paths = await apply_patch_text(patch_text, root)
-                    syntax_error = await verify_syntax(applied_paths)
-                    if syntax_error:
-                        console.print(
-                            f"[red]Syntax Check Failed (Self-Correction):[/red] {syntax_error}"
-                        )
-                        _append_history(
-                            history,
-                            Message(
-                                role="system",
-                                content=(
-                                    "<Turn>\n"
-                                    f"Agent thought: {thought}\n"
-                                    "Tool call: none\n"
-                                    f"Tool output: Syntax check failed: {syntax_error}\n"
-                                    "</Turn>"
-                                ),
-                            ),
-                        )
-                        changed_files.update(applied_paths)
-                        current_error = syntax_error
-                        continue
-
-                    changed_files.update(applied_paths)
-                    break
-
-                message = agent_response.final_message or "Agent returned no patch content."
-                console.print(f"[yellow]{message}[/yellow]")
-                _append_history(
-                    history,
-                    Message(
-                        role="system",
-                        content=(
-                            "<Turn>\n"
-                            f"Agent thought: {thought}\n"
-                            "Tool call: none\n"
-                            f"Tool output: {message}\n"
-                            "</Turn>"
-                        ),
-                    ),
-                )
+                _handle_no_patch(agent_response, thought, history)
                 break
 
             exit_code, stdout, stderr = await _run_command(command, root)
             if exit_code == 0:
                 console.print("[green]Command succeeded after applying fixes.[/green]")
-                if auto_archive:
-                    await _archive_session_summary(
-                        fetch_response,
-                        base_prompt=base_prompt,
-                        command=command,
-                        last_error=current_error,
-                        model=model,
-                        web_access=web_access,
-                    )
+                await _handle_success_and_archive(
+                    auto_archive,
+                    fetch_response,
+                    base_prompt,
+                    command,
+                    current_error,
+                    model,
+                    web_access,
+                )
                 return True
 
             failure_msg = _summarize_output(stdout, stderr, config.max_command_output_chars)
@@ -558,15 +664,15 @@ async def run_repair_loop(
         exit_code, stdout, stderr = await _run_command(command, root)
         if exit_code == 0:
             console.print("[green]Command succeeded after final verification.[/green]")
-            if auto_archive:
-                await _archive_session_summary(
-                    fetch_response,
-                    base_prompt=base_prompt,
-                    command=command,
-                    last_error=None if not attempt_history else attempt_history[-1].last_error,
-                    model=model,
-                    web_access=web_access,
-                )
+            await _handle_success_and_archive(
+                auto_archive,
+                fetch_response,
+                base_prompt,
+                command,
+                attempt_history[-1].last_error if attempt_history else None,
+                model,
+                web_access,
+            )
             return True
 
         console.print(

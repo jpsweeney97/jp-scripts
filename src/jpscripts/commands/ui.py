@@ -1,3 +1,11 @@
+"""UI utilities for interactive selection.
+
+Provides helper functions for terminal UI interactions:
+    - Fuzzy selection via fzf
+    - Streaming command output with interactive filtering
+    - Async variants for non-blocking operation
+"""
+
 from __future__ import annotations
 
 import asyncio

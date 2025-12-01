@@ -1,3 +1,9 @@
+"""MCP notes tools for daily note management.
+
+Provides tools for note operations:
+    - append_daily_note: Add entries to daily notes
+"""
+
 from __future__ import annotations
 
 from jpscripts.core.notes_impl import append_to_daily_note

@@ -1,3 +1,15 @@
+"""CLI application bootstrap and command registration.
+
+This module initializes the Typer CLI application, handles configuration loading,
+establishes runtime context, and registers all available commands.
+
+Key components:
+    - ApplicationLifecycle: Manages CLI state and signal handling
+    - AppState: Configuration and runtime state passed to commands
+    - main(): Main callback that sets up configuration and runtime
+    - cli(): Entry point that registers commands and runs the app
+"""
+
 from __future__ import annotations
 
 import asyncio

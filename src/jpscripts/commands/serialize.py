@@ -1,3 +1,11 @@
+"""Workspace serialization commands.
+
+Provides CLI commands for creating workspace snapshots:
+    - Full workspace serialization to YAML manifest
+    - Incremental snapshot support
+    - File content and metadata preservation
+"""
+
 from __future__ import annotations
 
 import asyncio

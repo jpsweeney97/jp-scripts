@@ -1,3 +1,12 @@
+"""Note-taking and clipboard history commands.
+
+Provides CLI commands for:
+    - Creating and searching notes
+    - Generating standup summaries from git commits
+    - Clipboard history management
+    - Editor integration for note editing
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -39,20 +48,23 @@ def note(
     notes_impl.ensure_notes_dir(notes_dir)
     note_path = notes_impl.get_today_path(notes_dir)
 
-    if message:
-        # Use core logic to write
-        asyncio.run(notes_impl.append_to_daily_note(notes_dir, message))
-        console.print(f"[green]Appended to[/green] {note_path}")
-        return
+    async def _run() -> None:
+        if message:
+            # Use core logic to write
+            await notes_impl.append_to_daily_note(notes_dir, message)
+            console.print(f"[green]Appended to[/green] {note_path}")
+            return
 
-    editor_cmd = shlex.split(state.config.editor)
-    try:
-        exit_code = asyncio.run(_launch_editor(editor_cmd, note_path))
-        if exit_code != 0:
-            console.print(f"[red]Editor exited with code {exit_code}[/red]")
-    except FileNotFoundError:
-        console.print(f"[red]Editor not found:[/red] {state.config.editor}")
-        raise typer.Exit(code=1)
+        editor_cmd = shlex.split(state.config.editor)
+        try:
+            exit_code = await _launch_editor(editor_cmd, note_path)
+            if exit_code != 0:
+                console.print(f"[red]Editor exited with code {exit_code}[/red]")
+        except FileNotFoundError:
+            console.print(f"[red]Editor not found:[/red] {state.config.editor}")
+            raise typer.Exit(code=1)
+
+    asyncio.run(_run())
 
 
 def note_search(
@@ -67,43 +79,44 @@ def note_search(
         console.print(f"[yellow]Notes directory {notes_dir} does not exist.[/yellow]")
         raise typer.Exit(code=1)
 
-    use_fzf = shutil.which("fzf") and not no_fzf
+    async def _run() -> None:
+        use_fzf = shutil.which("fzf") and not no_fzf
 
-    if use_fzf:
-        cmd = search_core.get_ripgrep_cmd(query, notes_dir, line_number=True)
-        try:
-            selection = asyncio.run(
-                fzf_stream_with_command(
+        if use_fzf:
+            cmd = search_core.get_ripgrep_cmd(query, notes_dir, line_number=True)
+            try:
+                selection = await fzf_stream_with_command(
                     cmd,
                     prompt="note-search> ",
                     ansi=True,
                     extra_args=["--delimiter", ":", "--nth", "3.."],
                 )
+            except RuntimeError as exc:
+                console.print(f"[red]{exc}[/red]")
+                raise typer.Exit(code=1)
+
+            if selection:
+                if isinstance(selection, list):
+                    for line in selection:
+                        console.print(line)
+                else:
+                    console.print(selection)
+            return
+
+        try:
+            result = await asyncio.to_thread(
+                search_core.run_ripgrep, query, notes_dir, line_number=True
             )
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)
 
-        if selection:
-            if isinstance(selection, list):
-                for line in selection:
-                    console.print(line)
-            else:
-                console.print(selection)
-        return
+        if result:
+            console.print(result)
+        else:
+            console.print("[yellow]No matches found.[/yellow]")
 
-    try:
-        result = asyncio.run(
-            asyncio.to_thread(search_core.run_ripgrep, query, notes_dir, line_number=True)
-        )
-    except RuntimeError as exc:
-        console.print(f"[red]{exc}[/red]")
-        raise typer.Exit(code=1)
-
-    if result:
-        console.print(result)
-    else:
-        console.print("[yellow]No matches found.[/yellow]")
+    asyncio.run(_run())
 
 
 @dataclass
@@ -162,17 +175,18 @@ def standup(
     since = dt.datetime.now() - dt.timedelta(days=days)
     commit_limit = min(1000, max(100, days * 100))
 
-    match asyncio.run(git_core.iter_git_repos(root, max_depth=max_depth)):
-        case Err(err):
-            console.print(f"[red]Error scanning git repositories: {err.message}[/red]")
-            raise typer.Exit(code=1)
-        case Ok(repos):
-            pass
-    if not repos:
-        console.print(f"[yellow]No git repositories found under {root}.[/yellow]")
-        return
+    async def _run() -> None:
+        match await git_core.iter_git_repos(root, max_depth=max_depth):
+            case Err(err):
+                console.print(f"[red]Error scanning git repositories: {err.message}[/red]")
+                raise typer.Exit(code=1)
+            case Ok(repos):
+                pass
 
-    async def _render_standup() -> None:
+        if not repos:
+            console.print(f"[yellow]No git repositories found under {root}.[/yellow]")
+            return
+
         user_email = await _detect_user_email(root)
         summaries = await asyncio.gather(
             *(
@@ -206,7 +220,7 @@ def standup(
         else:
             console.print(table)
 
-    asyncio.run(_render_standup())
+    asyncio.run(_run())
 
 
 def standup_note(
@@ -217,9 +231,8 @@ def standup_note(
     state = ctx.obj
     notes_dir = state.config.notes_dir.expanduser()
 
-    # FIX: Use the core module instead of the deleted local helpers
-    notes_impl.ensure_notes_dir(notes_dir)  # Was _ensure_notes_dir(notes_dir)
-    note_path = notes_impl.get_today_path(notes_dir)  # Was _today_path(notes_dir)
+    notes_impl.ensure_notes_dir(notes_dir)
+    note_path = notes_impl.get_today_path(notes_dir)
 
     with console.capture() as capture:
         standup(ctx, days=days)

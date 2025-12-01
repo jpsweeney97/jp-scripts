@@ -1,3 +1,10 @@
+"""MCP navigation tools for workspace exploration.
+
+Provides tools for navigating the workspace:
+    - list_recent_files: Recently modified files
+    - Surface related memories for context
+"""
+
 from __future__ import annotations
 
 import asyncio

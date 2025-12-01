@@ -1,3 +1,9 @@
+"""MCP web tools for URL fetching.
+
+Provides tools for web content retrieval:
+    - fetch_url_content: Fetch and parse webpages to markdown
+"""
+
 from __future__ import annotations
 
 import asyncio

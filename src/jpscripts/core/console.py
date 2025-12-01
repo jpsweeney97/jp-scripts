@@ -1,3 +1,12 @@
+"""Console output and logging configuration.
+
+Provides Rich-based console output and logging setup:
+    - console: Main Rich console for stdout
+    - stderr_console: Rich console for stderr
+    - setup_logging(): Configure logging with Rich handler
+    - get_logger(): Get a named logger instance
+"""
+
 from __future__ import annotations
 
 import logging

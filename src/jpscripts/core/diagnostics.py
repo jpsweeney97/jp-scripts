@@ -1,3 +1,12 @@
+"""System diagnostics and health checks.
+
+Provides diagnostic checks for system dependencies:
+    - External tool availability (git, fzf, rg, etc.)
+    - Memory store health
+    - Configuration validation
+    - Workspace integrity
+"""
+
 from __future__ import annotations
 
 import asyncio

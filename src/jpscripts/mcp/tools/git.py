@@ -1,3 +1,11 @@
+"""MCP git tools for repository operations.
+
+Provides tools for git operations:
+    - get_git_status: Repository status summary
+    - get_git_diff: View uncommitted changes
+    - get_recent_commits: List recent commits
+"""
+
 from __future__ import annotations
 
 import asyncio

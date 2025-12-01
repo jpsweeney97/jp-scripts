@@ -1,3 +1,12 @@
+"""High-level git operations.
+
+Provides convenience functions for common git workflows:
+    - Status formatting
+    - Branch summaries
+    - Commit operations
+    - Undo functionality
+"""
+
 from __future__ import annotations
 
 import re

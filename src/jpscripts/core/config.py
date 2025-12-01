@@ -1,3 +1,16 @@
+"""Application configuration management.
+
+Handles loading and validating configuration from multiple sources:
+    - TOML/JSON config files
+    - Environment variables (JP_* prefix)
+    - Default values
+
+Key components:
+    - AppConfig: Main configuration model
+    - load_config(): Safe config loading with fallback
+    - ConfigLoadResult: Metadata about config source
+"""
+
 from __future__ import annotations
 
 import json

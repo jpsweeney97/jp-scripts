@@ -31,6 +31,7 @@ import json
 import shutil
 import warnings
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from jpscripts.core.console import get_logger
@@ -92,6 +93,78 @@ def _coerce_tool_args(payload: Mapping[str, Any]) -> dict[str, Any]:
         logger.debug("Ignoring non-dict tool arguments: %r", candidate)
 
     return {}
+
+
+@dataclass
+class _CodexEventResult:
+    """Result of parsing a single Codex JSON event."""
+
+    message: str | None = None
+    tool_call: ToolCall | None = None
+    event_type: str | None = None
+
+
+def _parse_codex_event(event: dict[str, Any], tool_call_index: int) -> _CodexEventResult:
+    """Parse a single Codex JSON event and extract relevant data.
+
+    Args:
+        event: The parsed JSON event
+        tool_call_index: Current index for generating tool call IDs
+
+    Returns:
+        _CodexEventResult with extracted message and/or tool_call
+    """
+    data: dict[str, Any] = event.get("data") or {}
+    event_type = event.get("event") or event.get("type")
+
+    result = _CodexEventResult(event_type=event_type)
+
+    # Extract assistant message
+    message = (
+        data.get("assistant_message")
+        or event.get("assistant_message")
+        or data.get("message")
+    )
+    if isinstance(message, str) and message.strip():
+        result.message = message.strip()
+
+    # Extract tool call
+    if event_type == "tool.call":
+        tool_name = data.get("name") or data.get("tool")
+        if tool_name:
+            result.tool_call = ToolCall(
+                id=data.get("id", f"call_{tool_call_index}"),
+                name=tool_name,
+                arguments=_coerce_tool_args(data),
+            )
+
+    return result
+
+
+async def _create_codex_process(
+    cmd: list[str],
+) -> asyncio.subprocess.Process:
+    """Create and return a Codex subprocess.
+
+    Raises:
+        CodexNotFoundError: If the Codex binary is not found
+        ProviderError: If the process fails to start
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise CodexNotFoundError() from exc
+    except Exception as exc:
+        raise ProviderError(f"Failed to start Codex: {exc}") from exc
+
+    if proc.stdout is None:
+        raise ProviderError("Codex process has no stdout")
+
+    return proc
 
 
 def _build_codex_command(
@@ -262,23 +335,12 @@ class CodexProvider(BaseLLMProvider):
         )
 
         # Execute Codex
+        proc = await _create_codex_process(cmd)
+        assert proc.stdout is not None  # Guaranteed by _create_codex_process
+
         assistant_parts: list[str] = []
         tool_calls: list[ToolCall] = []
         raw_fallback_lines: list[str] = []
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except FileNotFoundError as exc:
-            raise CodexNotFoundError() from exc
-        except Exception as exc:
-            raise ProviderError(f"Failed to start Codex: {exc}") from exc
-
-        if proc.stdout is None:
-            raise ProviderError("Codex process has no stdout")
 
         # Process JSON events from stdout
         async for raw_line in proc.stdout:
@@ -293,30 +355,11 @@ class CodexProvider(BaseLLMProvider):
                 logger.debug("Non-JSON line from Codex: %s", line[:100])
                 continue
 
-            data: dict[str, Any] = event.get("data") or {}
-            event_type = event.get("event") or event.get("type")
-
-            # Extract assistant messages
-            message = (
-                data.get("assistant_message")
-                or event.get("assistant_message")
-                or data.get("message")
-            )
-            if isinstance(message, str) and message.strip():
-                assistant_parts.append(message.strip())
-
-            # Extract tool calls
-            if event_type == "tool.call":
-                tool_name = data.get("name") or data.get("tool")
-                tool_args = _coerce_tool_args(data)
-                if tool_name:
-                    tool_calls.append(
-                        ToolCall(
-                            id=data.get("id", f"call_{len(tool_calls)}"),
-                            name=tool_name,
-                            arguments=tool_args,
-                        )
-                    )
+            parsed = _parse_codex_event(event, len(tool_calls))
+            if parsed.message:
+                assistant_parts.append(parsed.message)
+            if parsed.tool_call:
+                tool_calls.append(parsed.tool_call)
 
         await proc.wait()
 
@@ -368,22 +411,12 @@ class CodexProvider(BaseLLMProvider):
             reasoning_effort=opts.reasoning_effort or "high",
         )
 
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except FileNotFoundError as exc:
-            raise CodexNotFoundError() from exc
-        except Exception as exc:
-            raise ProviderError(f"Failed to start Codex: {exc}") from exc
-
-        if proc.stdout is None:
-            raise ProviderError("Codex process has no stdout")
+        proc = await _create_codex_process(cmd)
+        assert proc.stdout is not None  # Guaranteed by _create_codex_process
 
         raw_fallback_lines: list[str] = []
         yielded_content = False
+        tool_call_index = 0
 
         async for raw_line in proc.stdout:
             line = raw_line.decode(errors="replace").strip()
@@ -397,38 +430,19 @@ class CodexProvider(BaseLLMProvider):
                 logger.debug("Non-JSON line from Codex: %s", line[:100])
                 continue
 
-            data: dict[str, Any] = event.get("data") or {}
-            event_type = event.get("event") or event.get("type")
+            parsed = _parse_codex_event(event, tool_call_index)
 
-            # Extract assistant message content
-            message = (
-                data.get("assistant_message")
-                or event.get("assistant_message")
-                or data.get("message")
-            )
-            if isinstance(message, str) and message.strip():
-                yield StreamChunk(content=message.strip() + "\n")
+            if parsed.message:
+                yield StreamChunk(content=parsed.message + "\n")
                 yielded_content = True
 
-            # Yield tool calls as they happen
-            if event_type == "tool.call":
-                tool_name = data.get("name") or data.get("tool")
-                tool_args = _coerce_tool_args(data)
-                if tool_name:
-                    yield StreamChunk(
-                        content="",
-                        tool_calls=[
-                            ToolCall(
-                                id=data.get("id", ""),
-                                name=tool_name,
-                                arguments=tool_args,
-                            )
-                        ],
-                    )
-                    yielded_content = True
+            if parsed.tool_call:
+                yield StreamChunk(content="", tool_calls=[parsed.tool_call])
+                yielded_content = True
+                tool_call_index += 1
 
             # Check for completion
-            if event_type in ("turn.completed", "session.completed"):
+            if parsed.event_type in ("turn.completed", "session.completed"):
                 yield StreamChunk(content="", finish_reason="stop")
 
         await proc.wait()

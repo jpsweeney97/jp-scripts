@@ -1,3 +1,11 @@
+"""Codebase search commands.
+
+Provides CLI commands for searching code:
+    - Regex-based code search using ripgrep
+    - TODO/FIXME scanning
+    - Interactive search with fuzzy filtering
+"""
+
 from __future__ import annotations
 
 import asyncio

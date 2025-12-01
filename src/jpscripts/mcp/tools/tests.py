@@ -1,3 +1,10 @@
+"""MCP test tools for running pytest.
+
+Provides tools for test execution:
+    - run_tests: Execute pytest on targets
+    - Path validation for security
+"""
+
 from __future__ import annotations
 
 import asyncio

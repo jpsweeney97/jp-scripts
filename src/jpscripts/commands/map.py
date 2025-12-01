@@ -1,3 +1,9 @@
+"""Project structure mapping command.
+
+Generates a concise tree view of a project's file structure with
+top-level symbol extraction for Python and JavaScript/TypeScript files.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

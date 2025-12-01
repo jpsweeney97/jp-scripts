@@ -1,3 +1,11 @@
+"""MCP server implementation using FastMCP.
+
+Creates and configures the MCP server with:
+    - Tool auto-discovery
+    - Runtime context establishment
+    - Configuration loading
+"""
+
 from __future__ import annotations
 
 import contextvars

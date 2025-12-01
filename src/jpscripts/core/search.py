@@ -1,3 +1,12 @@
+"""Codebase search using ripgrep.
+
+Provides search functionality for code and text:
+    - Regex-based search via ripgrep
+    - TODO/FIXME scanning
+    - Async search operations
+    - Result formatting and filtering
+"""
+
 from __future__ import annotations
 
 import asyncio

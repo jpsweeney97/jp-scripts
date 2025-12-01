@@ -1,3 +1,12 @@
+"""Async git client implementation.
+
+Provides a non-blocking interface to git operations:
+    - AsyncRepo: Main async git repository wrapper
+    - Branch and commit queries
+    - Worktree operations
+    - Status and diff retrieval
+"""
+
 from __future__ import annotations
 
 import asyncio

@@ -1,3 +1,12 @@
+"""Enhanced git operations for branch management and collaboration.
+
+Provides CLI commands for:
+    - Branch checkout with fuzzy selection
+    - Pull request management (checkout, list)
+    - Merge conflict resolution
+    - GitHub integration via gh CLI
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -22,13 +31,6 @@ from jpscripts.git import ops as git_ops_core
 
 app = typer.Typer()
 T = TypeVar("T")
-
-
-def _pick_with_fzf(
-    lines: list[str], prompt: str, extra_args: list[str] | None = None
-) -> str | list[str] | None:
-    """Wrapper to run fzf selection without blocking the main thread."""
-    return asyncio.run(fzf_select_async(lines, prompt=prompt, extra_args=extra_args))
 
 
 class PullRequest(BaseModel):
@@ -57,9 +59,10 @@ def _unwrap_result(result: Result[T, GitError]) -> T:
             raise typer.Exit(code=1)
 
 
-def _ensure_repo(path: Path) -> git_core.AsyncRepo:
+async def _ensure_repo_async(path: Path) -> git_core.AsyncRepo:
+    """Open a git repository asynchronously."""
     repo_path = path.expanduser()
-    return _unwrap_result(asyncio.run(git_core.AsyncRepo.open(repo_path)))
+    return _unwrap_result(await git_core.AsyncRepo.open(repo_path))
 
 
 async def _run_passthrough_command(*args: str) -> None:
@@ -84,12 +87,13 @@ def gundo_last(
 ) -> None:
     """Safely undo the last commit. Works on local branches too."""
     _ = ctx
-    repo_path = repo_path.expanduser()
 
-    repo = _ensure_repo(repo_path)
-    message = _unwrap_result(asyncio.run(git_ops_core.undo_last_commit(repo, hard=hard)))
+    async def _run() -> None:
+        repo = await _ensure_repo_async(repo_path)
+        message = _unwrap_result(await git_ops_core.undo_last_commit(repo, hard=hard))
+        console.print(f"[green]{message}[/green]")
 
-    console.print(f"[green]{message}[/green]")
+    asyncio.run(_run())
 
 
 app.command("gundo-last")(gundo_last)
@@ -103,38 +107,42 @@ def gstage(
 ) -> None:
     """Interactively stage files."""
     _ = ctx
-    repo = _ensure_repo(repo_path.expanduser())
-    status_entries = _unwrap_result(asyncio.run(repo.status_short()))
 
-    if not status_entries:
-        console.print("[green]Working tree clean.[/green]")
-        return
+    async def _run() -> None:
+        repo = await _ensure_repo_async(repo_path)
+        status_entries = _unwrap_result(await repo.status_short())
 
-    entries = status_entries
-    use_fzf = shutil.which("fzf") and not no_fzf
-    selection: str | None = None
-    if use_fzf:
-        lines = [f"{code}\t{path}" for code, path in entries]
-        fzf_selection = _pick_with_fzf(lines, prompt="stage> ")
-        selection = fzf_selection if isinstance(fzf_selection, str) else None
-    else:
-        table = Table(title="Changes", box=box.SIMPLE_HEAVY, expand=True)
-        table.add_column("Status", style="cyan", no_wrap=True)
-        table.add_column("Path", style="white")
-        for code, path in entries:
-            table.add_row(code, path)
-        console.print(table)
-        selection = entries[0][1]
+        if not status_entries:
+            console.print("[green]Working tree clean.[/green]")
+            return
 
-    if not selection:
-        return
+        entries = status_entries
+        use_fzf = shutil.which("fzf") and not no_fzf
+        selection: str | None = None
+        if use_fzf:
+            lines = [f"{code}\t{path}" for code, path in entries]
+            fzf_selection = await fzf_select_async(lines, prompt="stage> ")
+            selection = fzf_selection if isinstance(fzf_selection, str) else None
+        else:
+            table = Table(title="Changes", box=box.SIMPLE_HEAVY, expand=True)
+            table.add_column("Status", style="cyan", no_wrap=True)
+            table.add_column("Path", style="white")
+            for code, path in entries:
+                table.add_row(code, path)
+            console.print(table)
+            selection = entries[0][1]
 
-    target_str = selection.split("\t", 1)[-1] if "\t" in selection else selection
-    target_path_str = target_str.split(" -> ", 1)[-1]
-    target_path = security.validate_path(repo.path / target_path_str, repo.path)
+        if not selection:
+            return
 
-    _unwrap_result(asyncio.run(repo.add(paths=[target_path])))
-    console.print(f"[green]Staged[/green] {target_path_str}")
+        target_str = selection.split("\t", 1)[-1] if "\t" in selection else selection
+        target_path_str = target_str.split(" -> ", 1)[-1]
+        target_path = security.validate_path(repo.path / target_path_str, repo.path)
+
+        _unwrap_result(await repo.add(paths=[target_path]))
+        console.print(f"[green]Staged[/green] {target_path_str}")
+
+    asyncio.run(_run())
 
 
 app.command("gstage")(gstage)
@@ -164,7 +172,7 @@ async def gpr(
     if use_fzf:
         # We pass the lookup key (number) as the prefix
         lines = [f"{pr.number}\t{pr.title} ({pr.headRefName})" for pr in prs]
-        selection = _pick_with_fzf(lines, prompt="pr> ")
+        selection = await fzf_select_async(lines, prompt="pr> ")
         if not selection or not isinstance(selection, str):
             return
         number = int(selection.split("\t")[0])
@@ -244,28 +252,32 @@ def gbrowse(
     target: str = typer.Option("branch", "--target", help="branch (default), commit, or repo"),
 ) -> None:
     """Open the current repo/branch/commit on GitHub."""
-    repo = _ensure_repo(repo_path.expanduser())
-    remote_url = _unwrap_result(asyncio.run(repo.get_remote_url()))
 
-    base_url = _repo_web_url(remote_url)
-    if not base_url:
-        console.print("[red]Could not determine remote URL for browsing.[/red]")
-        raise typer.Exit(code=1)
+    async def _run() -> None:
+        repo = await _ensure_repo_async(repo_path)
+        remote_url = _unwrap_result(await repo.get_remote_url())
 
-    if target == "repo":
-        url = base_url
-    elif target == "commit":
-        commit_sha = _unwrap_result(asyncio.run(repo.head(short=False)))
-        url = f"{base_url}/commit/{commit_sha}"
-    else:
-        status = _unwrap_result(asyncio.run(repo.status()))
-        branch = status.branch
-        if branch in {"(detached)", "(unknown)"}:
-            branch = _unwrap_result(asyncio.run(repo.head()))
-        url = f"{base_url}/tree/{branch}"
+        base_url = _repo_web_url(remote_url)
+        if not base_url:
+            console.print("[red]Could not determine remote URL for browsing.[/red]")
+            raise typer.Exit(code=1)
 
-    webbrowser.open(url)
-    console.print(f"[green]Opened[/green] {url}")
+        if target == "repo":
+            url = base_url
+        elif target == "commit":
+            commit_sha = _unwrap_result(await repo.head(short=False))
+            url = f"{base_url}/commit/{commit_sha}"
+        else:
+            status = _unwrap_result(await repo.status())
+            branch = status.branch
+            if branch in {"(detached)", "(unknown)"}:
+                branch = _unwrap_result(await repo.head())
+            url = f"{base_url}/tree/{branch}"
+
+        webbrowser.open(url)
+        console.print(f"[green]Opened[/green] {url}")
+
+    asyncio.run(_run())
 
 
 @handle_exceptions
@@ -312,29 +324,35 @@ def stashview(
     no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
 ) -> None:
     """Browse stash entries and apply/pop/drop one."""
-    repo = _ensure_repo(repo_path.expanduser())
-    stash_list = _unwrap_result(asyncio.run(repo.stash_list()))
 
-    if not stash_list:
-        console.print("[yellow]No stash entries.[/yellow]")
-        return
+    async def _run() -> None:
+        repo = await _ensure_repo_async(repo_path)
+        stash_list = _unwrap_result(await repo.stash_list())
 
-    use_fzf = shutil.which("fzf") and not no_fzf
-    selection = _pick_with_fzf(stash_list, prompt="stash> ") if use_fzf else stash_list[0]
-    selection_str = selection if isinstance(selection, str) else None
-    if not selection_str:
-        return
+        if not stash_list:
+            console.print("[yellow]No stash entries.[/yellow]")
+            return
 
-    ref = selection_str.split(":", 1)[0]
-    if action == "apply":
-        op = repo.stash_apply
-    elif action == "pop":
-        op = repo.stash_pop
-    elif action == "drop":
-        op = repo.stash_drop
-    else:
-        console.print("[red]Unknown action. Use apply, pop, or drop.[/red]")
-        return
+        use_fzf = shutil.which("fzf") and not no_fzf
+        selection = (
+            await fzf_select_async(stash_list, prompt="stash> ") if use_fzf else stash_list[0]
+        )
+        selection_str = selection if isinstance(selection, str) else None
+        if not selection_str:
+            return
 
-    _unwrap_result(asyncio.run(op(ref)))
-    console.print(f"[green]{action}[/green] {ref}")
+        ref = selection_str.split(":", 1)[0]
+        if action == "apply":
+            op = repo.stash_apply
+        elif action == "pop":
+            op = repo.stash_pop
+        elif action == "drop":
+            op = repo.stash_drop
+        else:
+            console.print("[red]Unknown action. Use apply, pop, or drop.[/red]")
+            return
+
+        _unwrap_result(await op(ref))
+        console.print(f"[green]{action}[/green] {ref}")
+
+    asyncio.run(_run())

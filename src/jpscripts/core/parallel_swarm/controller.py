@@ -1,33 +1,12 @@
-"""Parallel swarm controller with git worktree isolation.
-
-This module provides the ParallelSwarmController for executing DAG-based
-tasks in parallel using isolated git worktrees. Each parallel task runs
-in its own worktree to prevent filesystem conflicts and git index.lock
-contention.
-
-Key classes:
-- WorktreeManager: Manages lifecycle of git worktrees for task isolation
-- TaskResult: Result of executing a single task
-- ParallelSwarmController: Orchestrates parallel task execution
-
-[invariant:typing] All types are explicit; mypy --strict compliant.
-[invariant:async-io] All I/O operations use async patterns.
-"""
+"""Parallel swarm controller for DAG-based task execution."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
-import re
-import shutil
-import tempfile
-import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict, Field
 from pydantic import ValidationError as PydanticValidationError
 
 from jpscripts.core.agent.execution import (
@@ -36,7 +15,7 @@ from jpscripts.core.agent.execution import (
 )
 from jpscripts.core.agent.prompting import prepare_agent_prompt
 from jpscripts.core.config import AppConfig
-from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus, WorktreeContext
+from jpscripts.core.dag import DAGGraph, DAGTask, TaskStatus
 from jpscripts.core.engine import (
     Message,
     PreparedPrompt,
@@ -44,9 +23,10 @@ from jpscripts.core.engine import (
     parse_agent_response,
 )
 from jpscripts.core.mcp_registry import get_tool_registry
+from jpscripts.core.parallel_swarm.types import MergeResult, TaskResult
+from jpscripts.core.parallel_swarm.worktree import WorktreeManager
 from jpscripts.core.result import (
     Err,
-    GitError,
     Ok,
     Result,
     ValidationError,
@@ -54,297 +34,6 @@ from jpscripts.core.result import (
 )
 from jpscripts.core.system import run_safe_shell
 from jpscripts.git import AsyncRepo
-
-
-@dataclass
-class TaskResult:
-    """Result of executing a single DAG task.
-
-    Attributes:
-        task_id: ID of the completed task
-        status: Final task status
-        branch_name: Git branch created for this task
-        commit_sha: Final commit SHA if successful
-        error_message: Error details if failed
-        artifacts: Any artifacts produced by the task
-    """
-
-    task_id: str
-    status: TaskStatus
-    branch_name: str
-    commit_sha: str | None = None
-    error_message: str | None = None
-    artifacts: list[str] = field(default_factory=list)
-
-
-class WorktreeManager:
-    """Manages git worktrees for parallel task isolation.
-
-    Each parallel task runs in its own worktree to prevent:
-    - Git index.lock contention
-    - Filesystem race conditions
-    - Merge conflicts during parallel execution
-
-    Attributes:
-        repo: The main repository
-        worktree_root: Directory where worktrees are created
-        preserve_on_failure: Keep failed worktrees for debugging
-
-    [invariant:async-io] All operations use async subprocess
-    """
-
-    def __init__(
-        self,
-        repo: AsyncRepo,
-        worktree_root: Path | None = None,
-        preserve_on_failure: bool = False,
-    ) -> None:
-        """Initialize the worktree manager.
-
-        Args:
-            repo: The main git repository
-            worktree_root: Directory for worktrees (default: temp dir)
-            preserve_on_failure: Keep worktrees on failure for debugging
-        """
-        self._repo = repo
-        self._worktree_root = worktree_root or Path(tempfile.gettempdir()) / "jp-worktrees"
-        self._preserve_on_failure = preserve_on_failure
-        self._active_worktrees: dict[str, WorktreeContext] = {}
-        self._initialized = False
-
-    @property
-    def worktree_root(self) -> Path:
-        """Get the worktree root directory."""
-        return self._worktree_root
-
-    async def initialize(self) -> Result[None, GitError]:
-        """Initialize the worktree manager.
-
-        Creates the worktree root directory if it doesn't exist and prunes
-        any orphaned worktrees from previous crashed sessions.
-
-        [invariant:async-io] Uses asyncio.to_thread for mkdir
-        """
-        if self._initialized:
-            return Ok(None)
-
-        def _create_root() -> None:
-            self._worktree_root.mkdir(parents=True, exist_ok=True)
-
-        try:
-            await asyncio.to_thread(_create_root)
-        except OSError as exc:
-            return Err(GitError(f"Failed to create worktree root: {exc}"))
-
-        # Auto-detect and clean orphans from previous sessions
-        removed = await self.prune_orphaned_worktrees()
-        if removed > 0:
-            logger = logging.getLogger(__name__)
-            logger.info("Pruned %d orphaned worktrees", removed)
-
-        self._initialized = True
-        return Ok(None)
-
-    async def _create_worktree_context(self, task_id: str) -> WorktreeContext:
-        """Create a new worktree for a task.
-
-        Args:
-            task_id: Unique task identifier
-
-        Returns:
-            WorktreeContext with paths and branch info
-        """
-        # Generate unique branch name
-        unique_suffix = uuid.uuid4().hex[:8]
-        branch_name = f"swarm/{task_id}-{unique_suffix}"
-        worktree_path = self._worktree_root / f"worktree-{task_id}-{unique_suffix}"
-
-        # Create the worktree
-        result = await self._repo.worktree_add(
-            worktree_path,
-            branch_name,
-            new_branch=True,
-        )
-
-        if isinstance(result, Err):
-            raise RuntimeError(f"Failed to create worktree: {result.error}")
-
-        ctx = WorktreeContext(
-            task_id=task_id,
-            worktree_path=worktree_path,
-            branch_name=branch_name,
-            status=TaskStatus.RUNNING,
-        )
-
-        self._active_worktrees[task_id] = ctx
-        return ctx
-
-    async def cleanup_worktree(
-        self,
-        ctx: WorktreeContext,
-        *,
-        failed: bool = False,
-    ) -> Result[None, GitError]:
-        """Clean up a worktree after task completion.
-
-        Args:
-            ctx: The worktree context to clean up
-            failed: Whether the task failed
-
-        Returns:
-            Ok(None) on success, Err on failure
-        """
-        # Preserve on failure if configured
-        if failed and self._preserve_on_failure:
-            return Ok(None)
-
-        # Remove the worktree
-        result = await self._repo.worktree_remove(ctx.worktree_path, force=True)
-
-        # Remove from active tracking
-        if ctx.task_id in self._active_worktrees:
-            del self._active_worktrees[ctx.task_id]
-
-        if isinstance(result, Err):
-            # Try pruning as fallback
-            await self._repo.worktree_prune()
-
-        return result
-
-    @asynccontextmanager
-    async def create_worktree(self, task_id: str) -> AsyncIterator[WorktreeContext]:
-        """Create a worktree with automatic cleanup.
-
-        This is the primary interface for creating worktrees.
-        Uses context manager pattern to ensure cleanup.
-
-        Args:
-            task_id: Unique task identifier
-
-        Yields:
-            WorktreeContext for the created worktree
-
-        Example:
-            async with manager.create_worktree("task-001") as ctx:
-                # Execute task in ctx.worktree_path
-                pass
-            # Worktree is automatically cleaned up
-        """
-        ctx = await self._create_worktree_context(task_id)
-        failed = False
-
-        try:
-            yield ctx
-        except Exception:
-            failed = True
-            raise
-        finally:
-            await self.cleanup_worktree(ctx, failed=failed)
-
-    async def cleanup_all(self, force: bool = False) -> None:
-        """Clean up all active worktrees.
-
-        Args:
-            force: Force cleanup even if dirty
-
-        [invariant:async-io] Uses async worktree removal
-        """
-        for task_id, ctx in list(self._active_worktrees.items()):
-            await self._repo.worktree_remove(ctx.worktree_path, force=force)
-            del self._active_worktrees[task_id]
-
-        # Final prune to clean up any orphaned references
-        await self._repo.worktree_prune()
-
-    async def detect_orphaned_worktrees(self) -> list[Path]:
-        """Detect worktree directories from previous sessions not in memory.
-
-        Scans worktree_root for directories matching the `worktree-*-*` pattern
-        that are not currently tracked in _active_worktrees.
-
-        Returns:
-            List of orphaned worktree paths
-
-        [invariant:async-io] Uses asyncio.to_thread for directory scan
-        """
-        if not self._worktree_root.exists():
-            return []
-
-        # Pattern: worktree-{task_id}-{8-char-hex}
-        pattern = re.compile(r"^worktree-[\w-]+-[a-f0-9]{8}$")
-
-        def _scan() -> list[Path]:
-            return [
-                d for d in self._worktree_root.iterdir() if d.is_dir() and pattern.match(d.name)
-            ]
-
-        candidates = await asyncio.to_thread(_scan)
-        active_paths = {ctx.worktree_path for ctx in self._active_worktrees.values()}
-
-        orphans: list[Path] = []
-        for path in candidates:
-            if path not in active_paths:
-                orphans.append(path)
-
-        return orphans
-
-    async def prune_orphaned_worktrees(self, force: bool = True) -> int:
-        """Remove orphaned worktrees from previous crashed sessions.
-
-        Args:
-            force: If True, use --force to remove even if dirty
-
-        Returns:
-            Number of worktrees successfully removed
-
-        [invariant:async-io] Uses async worktree removal with fallback
-        """
-        orphans = await self.detect_orphaned_worktrees()
-        if not orphans:
-            return 0
-
-        logger = logging.getLogger(__name__)
-        logger.warning(
-            "Found %d orphaned worktrees from previous session: %s",
-            len(orphans),
-            [p.name for p in orphans],
-        )
-
-        removed = 0
-        for path in orphans:
-            result = await self._repo.worktree_remove(path, force=force)
-            if isinstance(result, Ok):
-                removed += 1
-            else:
-                # Try manual cleanup if git command fails (orphan may not be registered)
-                try:
-                    await asyncio.to_thread(shutil.rmtree, path)
-                    removed += 1
-                except OSError as exc:
-                    logger.error("Failed to remove orphan %s: %s", path, exc)
-
-        # Final prune to clean git refs
-        await self._repo.worktree_prune()
-
-        return removed
-
-
-class MergeResult(BaseModel):
-    """Result of merging parallel branches.
-
-    Attributes:
-        success: Whether all merges succeeded
-        merged_branches: List of successfully merged branches
-        conflict_branches: Branches with conflicts requiring resolution
-        final_commit: Final merge commit SHA if successful
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    success: bool
-    merged_branches: list[str] = Field(default_factory=list)
-    conflict_branches: list[str] = Field(default_factory=list)
-    final_commit: str | None = None
 
 
 class ParallelSwarmController:
@@ -409,7 +98,7 @@ class ParallelSwarmController:
         self._completed_tasks: set[str] = set()
         self._task_results: dict[str, TaskResult] = {}
 
-    async def _initialize(self) -> Result[None, GitError]:
+    async def _initialize(self) -> Result[None, Exception]:
         """Initialize the controller and worktree manager."""
         match await AsyncRepo.open(self.repo_root):
             case Ok(repo):
@@ -448,7 +137,7 @@ class ParallelSwarmController:
     async def _execute_task(
         self,
         task: DAGTask,
-        ctx: WorktreeContext,
+        ctx: "WorktreeContext",  # type: ignore[name-defined]
     ) -> TaskResult:
         """Execute a single task in a worktree using an AI agent.
 
@@ -468,6 +157,8 @@ class ParallelSwarmController:
 
         [invariant:async-io] All I/O operations use async patterns.
         """
+        from jpscripts.core.dag import WorktreeContext
+
         logger = logging.getLogger(__name__)
 
         # Validate we have a fetch_response callback
@@ -907,8 +598,5 @@ class ParallelSwarmController:
 
 
 __all__ = [
-    "MergeResult",
     "ParallelSwarmController",
-    "TaskResult",
-    "WorktreeManager",
 ]

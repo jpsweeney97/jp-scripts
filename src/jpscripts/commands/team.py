@@ -1,3 +1,11 @@
+"""Multi-agent team collaboration commands.
+
+Provides CLI commands for orchestrating agent swarms:
+    - Parallel code analysis with specialized personas
+    - Real-time collaborative feedback
+    - Conflict resolution between agents
+"""
+
 from __future__ import annotations
 
 import asyncio

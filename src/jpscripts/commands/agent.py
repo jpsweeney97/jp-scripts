@@ -168,6 +168,49 @@ async def _fetch_agent_response(
 
 
 # ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+
+def _determine_effective_provider(
+    provider: str | None,
+    target_model: str,
+) -> str | None:
+    """Determine the effective provider to use.
+
+    Auto-detects Codex provider for OpenAI models when Codex CLI is available.
+    """
+    if provider is not None:
+        return provider
+
+    try:
+        inferred = infer_provider_type(target_model)
+        if inferred == ProviderType.OPENAI and is_codex_available():
+            return "codex"
+    except Exception as exc:
+        console.print(f"[dim]Auto-detection skipped: {exc}[/dim]")
+
+    return None
+
+
+def _display_agent_response(agent_response: Any) -> None:
+    """Display the parsed agent response."""
+    console.print(Panel(agent_response.thought_process, title="Thought process", box=box.SIMPLE))
+    if agent_response.tool_call:
+        console.print(
+            Panel(
+                json.dumps(agent_response.tool_call, indent=2),
+                title="Tool call",
+                box=box.SIMPLE,
+            )
+        )
+    if agent_response.file_patch:
+        console.print(Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE))
+    if agent_response.final_message:
+        console.print(Panel(agent_response.final_message, title="Final message", box=box.SIMPLE))
+
+
+# ---------------------------------------------------------------------------
 # Main command
 # ---------------------------------------------------------------------------
 
@@ -240,16 +283,7 @@ def codex_exec(
         raise typer.Exit(code=1)
 
     effective_retries = max(1, max_retries)
-
-    # Auto-detect Codex provider for OpenAI models when Codex CLI is available
-    effective_provider = provider
-    if effective_provider is None:
-        try:
-            inferred = infer_provider_type(target_model)
-            if inferred == ProviderType.OPENAI and is_codex_available():
-                effective_provider = "codex"
-        except Exception as exc:
-            console.print(f"[dim]Auto-detection skipped: {exc}[/dim]")
+    effective_provider = _determine_effective_provider(provider, target_model)
 
     # Repair loop mode
     if loop_enabled and run_command:
@@ -344,16 +378,4 @@ def codex_exec(
         console.print(Panel(raw_response, title="Raw agent response", box=box.SIMPLE))
         return
 
-    console.print(Panel(agent_response.thought_process, title="Thought process", box=box.SIMPLE))
-    if agent_response.tool_call:
-        console.print(
-            Panel(
-                json.dumps(agent_response.tool_call, indent=2),
-                title="Tool call",
-                box=box.SIMPLE,
-            )
-        )
-    if agent_response.file_patch:
-        console.print(Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE))
-    if agent_response.final_message:
-        console.print(Panel(agent_response.final_message, title="Final message", box=box.SIMPLE))
+    _display_agent_response(agent_response)

@@ -1,3 +1,11 @@
+"""Note management core implementation.
+
+Provides low-level note operations:
+    - Daily note file management
+    - Note searching and filtering
+    - Timestamped message appending
+"""
+
 from __future__ import annotations
 
 import asyncio

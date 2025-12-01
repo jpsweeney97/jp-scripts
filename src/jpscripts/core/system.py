@@ -1,3 +1,12 @@
+"""System utilities and process management.
+
+Provides low-level system operations:
+    - Process discovery and management
+    - Port-to-process mapping
+    - Safe shell command execution
+    - HTTP server utilities
+"""
+
 from __future__ import annotations
 
 import asyncio

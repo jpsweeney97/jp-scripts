@@ -1,3 +1,11 @@
+"""MCP memory tools for vector store operations.
+
+Provides tools for memory store access:
+    - remember: Store facts and lessons
+    - recall: Query memories by semantic similarity
+    - recall_by_tag: Query memories by tag
+"""
+
 from __future__ import annotations
 
 import asyncio

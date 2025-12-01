@@ -1,3 +1,10 @@
+"""CLI decorators for exception handling and async support.
+
+Provides decorators for CLI command functions:
+    - handle_exceptions: Convert exceptions to user-friendly messages
+    - Async command support
+"""
+
 from __future__ import annotations
 
 import asyncio

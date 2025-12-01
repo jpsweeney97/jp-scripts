@@ -1,3 +1,12 @@
+"""MCP filesystem tools for file operations.
+
+Provides tools for file system access:
+    - read_file: Read file contents with token limits
+    - write_file: Write content to files
+    - list_directory: List directory contents
+    - All operations validate paths for security
+"""
+
 from __future__ import annotations
 
 import asyncio

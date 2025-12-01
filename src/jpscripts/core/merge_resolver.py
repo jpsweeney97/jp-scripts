@@ -25,6 +25,19 @@ from typing import Final
 
 from jpscripts.core.result import Err, Ok, Result, ValidationError
 
+# Pre-compiled patterns for performance
+_IMPORT_PATTERN = re.compile(r"^(?:from\s+\S+\s+)?import\s+.+$", re.MULTILINE)
+_WORD_TOKEN_PATTERN = re.compile(r"\w+")
+_CONFLICT_MARKER_PATTERN = re.compile(
+    r"<<<<<<<[^\n]*\n"
+    r"(?:.*?\n)*?"  # ours content
+    r"(?:\|\|\|\|\|\|\|[^\n]*\n(?:.*?\n)*?)?"  # optional base
+    r"=======\n"
+    r"(?:.*?\n)*?"  # theirs content
+    r">>>>>>>[^\n]*",
+    re.DOTALL,
+)
+
 
 class ConflictCategory(Enum):
     """Classification of merge conflicts by resolution strategy.
@@ -156,10 +169,8 @@ class MergeConflictResolver:
     def _is_import_reorder(self, ours: str, theirs: str) -> bool:
         """Check if difference is only import statement reordering."""
         # Extract import lines
-        import_pattern = re.compile(r"^(?:from\s+\S+\s+)?import\s+.+$", re.MULTILINE)
-
-        ours_imports = set(import_pattern.findall(ours))
-        theirs_imports = set(import_pattern.findall(theirs))
+        ours_imports = set(_IMPORT_PATTERN.findall(ours))
+        theirs_imports = set(_IMPORT_PATTERN.findall(theirs))
 
         # Check if all lines are imports and sets are equal
         ours_lines = {line.strip() for line in ours.strip().split("\n") if line.strip()}
@@ -177,8 +188,8 @@ class MergeConflictResolver:
             return 1.0
 
         # Token-based similarity
-        tokens1 = set(re.findall(r"\w+", s1))
-        tokens2 = set(re.findall(r"\w+", s2))
+        tokens1 = set(_WORD_TOKEN_PATTERN.findall(s1))
+        tokens2 = set(_WORD_TOKEN_PATTERN.findall(s2))
 
         if not tokens1 and not tokens2:
             return 1.0
@@ -289,8 +300,7 @@ class MergeConflictResolver:
         # Import reorder - use sorted imports
         if self._is_import_reorder(ours, theirs):
             # Extract and sort imports
-            import_pattern = re.compile(r"^(?:from\s+\S+\s+)?import\s+.+$", re.MULTILINE)
-            imports = sorted(import_pattern.findall(ours))
+            imports = sorted(_IMPORT_PATTERN.findall(ours))
             return Ok("\n".join(imports))
 
         return Err(
@@ -384,20 +394,8 @@ class MergeConflictResolver:
         Returns:
             Content with conflict markers replaced by resolution
         """
-        # Build regex to match this specific conflict block
-        # Match from <<<<<<< to >>>>>>>
-        pattern = re.compile(
-            r"<<<<<<<[^\n]*\n"
-            r"(?:.*?\n)*?"  # ours content
-            r"(?:\|\|\|\|\|\|\|[^\n]*\n(?:.*?\n)*?)?"  # optional base
-            r"=======\n"
-            r"(?:.*?\n)*?"  # theirs content
-            r">>>>>>>[^\n]*",
-            re.DOTALL,
-        )
-
         # Replace first match (conflicts are processed in order)
-        return pattern.sub(resolution, content, count=1)
+        return _CONFLICT_MARKER_PATTERN.sub(resolution, content, count=1)
 
     def get_resolution_report(self) -> ResolutionReport:
         """Get the resolution report.

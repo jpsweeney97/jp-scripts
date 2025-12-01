@@ -1,3 +1,10 @@
+"""MCP search tools for code search.
+
+Provides tools for searching the codebase:
+    - search_codebase: Regex search via ripgrep
+    - Path validation for security
+"""
+
 from __future__ import annotations
 
 import asyncio

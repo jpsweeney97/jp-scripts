@@ -1,3 +1,12 @@
+"""Git operations and repository management.
+
+This package provides async git operations:
+    - AsyncRepo: Non-blocking git commands
+    - Branch status and tracking
+    - Worktree management
+    - Commit and diff operations
+"""
+
 from __future__ import annotations
 
 from .client import (

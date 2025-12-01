@@ -1,3 +1,12 @@
+"""Context gathering for AI agent prompts.
+
+Collects and processes context from various sources:
+    - Command output capture
+    - File content reading with token limits
+    - Code skeleton extraction
+    - Sensitive data redaction
+"""
+
 from __future__ import annotations
 
 import ast

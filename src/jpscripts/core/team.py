@@ -1,3 +1,12 @@
+"""Multi-agent team orchestration.
+
+Provides infrastructure for coordinating multiple AI agents:
+    - Persona-based agent specialization
+    - Parallel task execution
+    - Agent communication and coordination
+    - Swarm configuration via YAML
+"""
+
 from __future__ import annotations
 
 import asyncio

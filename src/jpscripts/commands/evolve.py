@@ -47,6 +47,56 @@ logger = get_logger(__name__)
 app = typer.Typer(help="Autonomous code evolution and optimization.")
 
 
+async def _cleanup_branch(repo: git_core.AsyncRepo, branch_name: str) -> None:
+    """Clean up a failed evolution branch by returning to main."""
+    await repo.run_git("checkout", "main")
+    await repo.run_git("branch", "-D", branch_name)
+
+
+async def _abort_evolution(
+    repo: git_core.AsyncRepo,
+    branch_name: str,
+    message: str,
+    memory_tags: list[str],
+    config: AppConfig,
+    reset_hard: bool = False,
+) -> None:
+    """Abort evolution with cleanup and optional memory logging."""
+    console.print(f"[red]{message}[/red]")
+    if reset_hard:
+        await repo.run_git("reset", "--hard", "main")
+    await _cleanup_branch(repo, branch_name)
+    if memory_tags:
+        await asyncio.to_thread(save_memory, message, memory_tags, config=config)
+
+
+async def _collect_dependent_tests(
+    python_changes: list[Path],
+    tests_root: Path,
+    root: Path,
+) -> list[Path]:
+    """Collect test files that depend on the changed Python files."""
+    if not tests_root.exists():
+        return []
+    try:
+        test_files = await asyncio.to_thread(lambda: list(tests_root.rglob("test_*.py")))
+    except OSError:
+        return []
+
+    dependents: list[Path] = []
+    for test_file in test_files:
+        try:
+            deps: set[Path] = await asyncio.to_thread(get_import_dependencies, test_file, root)
+        except Exception as exc:
+            logger.debug("Failed to get dependencies for %s: %s", test_file, exc)
+            deps = set()
+        for changed in python_changes:
+            if changed in deps:
+                dependents.append(test_file)
+                break
+    return dependents
+
+
 def _build_optimizer_prompt(target: TechnicalDebtScore) -> str:
     """Build the prompt for the Optimizer persona."""
     reasons_text = (
@@ -301,8 +351,7 @@ async def _run_evolve(
 
     if not success:
         console.print("[red]Optimization failed. Returning to main branch.[/red]")
-        await repo.run_git("checkout", "main")
-        await repo.run_git("branch", "-D", branch_name)
+        await _cleanup_branch(repo, branch_name)
         return
 
     console.print("[green]Optimization successful![/green]")
@@ -311,8 +360,7 @@ async def _run_evolve(
     match await repo.run_git("diff", "--name-only", "main..HEAD"):
         case Err(err):
             console.print(f"[red]Failed to detect changed files: {err}[/red]")
-            await repo.run_git("checkout", "main")
-            await repo.run_git("branch", "-D", branch_name)
+            await _cleanup_branch(repo, branch_name)
             return
         case Ok(diff_output):
             changed_paths = [line.strip() for line in diff_output.splitlines() if line.strip()]
@@ -320,30 +368,9 @@ async def _run_evolve(
     python_changes = [Path(root / p).resolve() for p in changed_paths if p.endswith(".py")]
     tests_root = root / "tests"
 
-    async def _collect_dependent_tests() -> list[Path]:
-        if not tests_root.exists():
-            return []
-        try:
-            test_files = await asyncio.to_thread(lambda: list(tests_root.rglob("test_*.py")))
-        except OSError:
-            return []
-
-        dependents: list[Path] = []
-        for test_file in test_files:
-            try:
-                deps: set[Path] = await asyncio.to_thread(get_import_dependencies, test_file, root)
-            except Exception as exc:
-                logger.debug("Failed to get dependencies for %s: %s", test_file, exc)
-                deps = set()
-            for changed in python_changes:
-                if changed in deps:
-                    dependents.append(test_file)
-                    break
-        return dependents
-
     test_targets: list[Path] = []
     test_targets.extend([p for p in python_changes if tests_root in p.parents])
-    dependent_tests = await _collect_dependent_tests()
+    dependent_tests = await _collect_dependent_tests(python_changes, tests_root, root)
     test_targets.extend(dependent_tests)
     if not test_targets and tests_root.exists():
         test_targets.append(tests_root)
@@ -353,10 +380,10 @@ async def _run_evolve(
     # Fail fast if pytest is unavailable
     pytest_cmd = "pytest"
     if await asyncio.to_thread(shutil.which, "pytest") is None:
-        console.print("[red]pytest is not available; aborting evolution.[/red]")
-        await repo.run_git("reset", "--hard", "main")
-        await repo.run_git("checkout", "main")
-        await repo.run_git("branch", "-D", branch_name)
+        await _abort_evolution(
+            repo, branch_name, "pytest is not available; aborting evolution.",
+            [], config, reset_hard=True
+        )
         return
 
     test_args = (
@@ -366,30 +393,22 @@ async def _run_evolve(
     console.print(f"[cyan]Running verification tests: {test_command}[/cyan]")
     test_result = await run_safe_shell(test_command, root, "evolve.verify", config=config)
     if isinstance(test_result, Err):
-        console.print(f"[red]Test execution failed: {test_result.error}[/red]")
-        await repo.run_git("reset", "--hard", "main")
-        await repo.run_git("checkout", "main")
-        await repo.run_git("branch", "-D", branch_name)
-        await asyncio.to_thread(
-            save_memory,
-            f"Evolution aborted: tests could not run. Command: `{test_command}`. Error: {test_result.error}",
+        await _abort_evolution(
+            repo, branch_name,
+            f"Test execution failed: {test_result.error}",
             ["evolve", "failure", "tests"],
-            config=config,
+            config, reset_hard=True
         )
         return
 
     result_payload = test_result.value
     if result_payload.returncode != 0:
-        console.print(f"[red]Verification failed (exit {result_payload.returncode}).[/red]")
         console.print(result_payload.stdout or result_payload.stderr)
-        await repo.run_git("reset", "--hard", "main")
-        await repo.run_git("checkout", "main")
-        await repo.run_git("branch", "-D", branch_name)
-        await asyncio.to_thread(
-            save_memory,
-            f"Evolution aborted: tests failed. Command: `{test_command}` exit={result_payload.returncode}. Output: {result_payload.stdout or result_payload.stderr}",
+        await _abort_evolution(
+            repo, branch_name,
+            f"Verification failed (exit {result_payload.returncode}).",
             ["evolve", "failure", "tests"],
-            config=config,
+            config, reset_hard=True
         )
         return
 
