@@ -5,8 +5,10 @@
 This is a **Typer** application organized by domain:
 
 - `src/jpscripts/main.py`: CLI bootstrap and dynamic command discovery/registration.
-- `src/jpscripts/commands/`: Command modules (e.g., `git_ops.py`, `nav.py`).
-- `src/jpscripts/core/`: Shared logic (config, git wrappers, console).
+- `src/jpscripts/commands/`: Command modules (e.g., `nav.py`, `agent.py`).
+- `src/jpscripts/core/`: Shared logic (config, console, runtime, engine).
+  - `core/agent/`: Agent orchestration, prompting, execution, and repair strategies.
+- `src/jpscripts/git/`: Git operations (status, diff, worktree management).
 - `src/jpscripts/mcp/tools/`: MCP tool implementations, auto-registered by the MCP server.
 
 ## How to add a new command
@@ -14,7 +16,7 @@ This is a **Typer** application organized by domain:
 1. **Create the module:** Add a new file in `src/jpscripts/commands/` (or extend an existing one) and define either:
    - `app = typer.Typer()` with subcommands, **or**
    - functions that match the dynamic registry patterns.
-2. **Async I/O only:** Prefer `async` functions; wrap blocking calls in threads. Do **not** use `shell=True`.
+2. **Async I/O only:** Prefer `async` functions; wrap blocking calls in threads. Use `run_safe_shell` from `jpscripts.core.shell` for subprocess calls (it validates commands via `validate_command` and prevents shell injection).
 3. **Document it:** Add the command to `README.md`.
 4. **Test it:** Add focused unit tests in `tests/unit/` and a smoke entry in `tests/test_smoke.py` covering `--help` and a basic invocation.
 
