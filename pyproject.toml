@@ -53,7 +53,7 @@ providers = [
 otel = ["opentelemetry-api>=1.27.0", "opentelemetry-sdk>=1.27.0"]
 
 [project.scripts]
-jp = "jpscripts.main:app"
+jp = "jpscripts.main:cli"
 
 [project.entry-points."mcp.servers"]
 jpscripts = "jpscripts.mcp.server:main"
