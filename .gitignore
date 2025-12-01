@@ -31,7 +31,8 @@ venv/
 # Local tooling state
 .jpscripts/
 .codex/
-.claude/
+.claude/*
+!.claude/CLAUDE.md
 
 # Temporary/test artifacts
 tmp-repo-test/
