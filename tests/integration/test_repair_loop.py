@@ -13,15 +13,44 @@ import sys
 import textwrap
 from pathlib import Path
 
+import pytest
+
 from jpscripts.core.agent import PreparedPrompt, run_repair_loop
+from jpscripts.core.agent import execution as agent_execution
 from jpscripts.core.config import AppConfig
 from jpscripts.core.runtime import runtime_context
+
+
+@pytest.fixture
+def bypass_security(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bypass command security policy for integration tests.
+
+    The security policy blocks Python interpreters by default (FORBIDDEN_BINARIES),
+    but these tests need to run Python commands to verify the repair loop.
+    """
+
+    async def fake_run_command(command: str, root: Path) -> tuple[int, str, str]:
+        """Execute command directly without security validation."""
+        proc = await asyncio.create_subprocess_shell(
+            command,
+            cwd=root,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return (
+            proc.returncode or 0,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
+
+    monkeypatch.setattr(agent_execution, "_run_command", fake_run_command)
 
 
 class TestRepairLoopIntegration:
     """Integration tests for the autonomous repair loop."""
 
-    def test_repairs_syntax_error(self, tmp_path: Path) -> None:
+    def test_repairs_syntax_error(self, tmp_path: Path, bypass_security: None) -> None:
         """Full loop: syntax error -> mock returns patch -> code fixed."""
         # Setup: git repo with broken script (needs initial commit for git apply)
         subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
@@ -100,7 +129,7 @@ class TestRepairLoopIntegration:
         )
         assert result.returncode == 0, f"Fixed file should compile: {result.stderr.decode()}"
 
-    def test_repairs_runtime_error(self, tmp_path: Path) -> None:
+    def test_repairs_runtime_error(self, tmp_path: Path, bypass_security: None) -> None:
         """Full loop: runtime error -> mock returns patch -> script runs."""
         subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         script = tmp_path / "script.py"
@@ -159,7 +188,7 @@ class TestRepairLoopIntegration:
         assert result.returncode == 0
         assert "ok" in result.stdout
 
-    def test_loop_succeeds_when_command_passes(self, tmp_path: Path) -> None:
+    def test_loop_succeeds_when_command_passes(self, tmp_path: Path, bypass_security: None) -> None:
         """Loop should succeed immediately if command passes on first try."""
         subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         script = tmp_path / "working.py"
@@ -249,7 +278,7 @@ class TestRepairLoopIntegration:
 class TestCircuitBreaker:
     """Tests for circuit breaker behavior with oversized responses."""
 
-    def test_handles_huge_response(self, tmp_path: Path) -> None:
+    def test_handles_huge_response(self, tmp_path: Path, bypass_security: None) -> None:
         """Loop should handle oversized responses gracefully."""
         subprocess.run(["git", "init"], cwd=tmp_path, check=True, capture_output=True)
         script = tmp_path / "test.py"
