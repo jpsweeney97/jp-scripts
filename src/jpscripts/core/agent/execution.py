@@ -465,6 +465,361 @@ async def _revert_changed_files(paths: Sequence[Path], root: Path) -> None:
         )
 
 
+class RepairLoopOrchestrator:
+    """Orchestrates the autonomous repair loop with testable state management.
+
+    This class encapsulates the repair loop logic, making it easier to test
+    by exposing state as instance attributes and separating decision logic
+    from execution.
+
+    Attributes:
+        changed_files: Set of paths modified during the repair loop.
+        attempt_history: History of repair attempts for strategy selection.
+        history: Conversation history for agent context.
+        seen_patch_hashes: Set of patch hashes to detect duplicates.
+    """
+
+    def __init__(
+        self,
+        *,
+        base_prompt: str,
+        command: str,
+        model: str | None,
+        fetch_response: ResponseFetcher,
+        config: RepairLoopConfig,
+    ) -> None:
+        """Initialize the repair loop orchestrator.
+
+        Args:
+            base_prompt: The user's repair instruction.
+            command: Shell command to verify fixes.
+            model: LLM model ID to use.
+            fetch_response: Async function to fetch LLM responses.
+            config: Configuration for the repair loop.
+        """
+        # Configuration (immutable)
+        self.base_prompt = base_prompt
+        self.command = command
+        self.model = model
+        self.fetch_response = fetch_response
+        self.loop_config = config
+
+        # State (mutable, exposed for testing)
+        self.changed_files: set[Path] = set()
+        self.attempt_history: list[AttemptContext] = []
+        self.history: list[Message] = []
+        self.seen_patch_hashes: set[str] = set()
+
+        # Internal state (set during _setup)
+        self._root: Path | None = None
+        self._runtime_config: object | None = None
+        self._strategies: list[StrategyConfig] = []
+        self._attempt_cap: int = 0
+
+    def _setup(self) -> None:
+        """Initialize runtime state from context."""
+        runtime = get_runtime()
+        self._runtime_config = runtime.config
+        self._root = security.validate_workspace_root(
+            runtime.workspace_root or runtime.config.notes_dir
+        )
+        self._attempt_cap = max(1, self.loop_config.max_retries)
+        self._strategies = build_strategy_plan(self._attempt_cap)
+
+    async def _build_prompt(
+        self,
+        history_messages: Sequence[Message],
+        iteration_prompt: str,
+        loop_detected_flag: bool,
+        temp_override: float | None,
+        strategy: StrategyConfig,
+        extra_paths: Sequence[Path],
+    ) -> PreparedPrompt:
+        """Build a prepared prompt for the agent."""
+        config = self._runtime_config
+        history_text = "\n".join(msg.content for msg in history_messages)
+        instruction = iteration_prompt
+        if history_text:
+            instruction = f"{instruction}\n\nPrevious tool interactions:\n{history_text}"
+        reasoning = "high" if loop_detected_flag or strategy.name == "step_back" else None
+        run_cmd = self.command if strategy.name in {"fast", "deep"} else None
+        return await prepare_agent_prompt(
+            instruction,
+            model=self.model,
+            run_command=run_cmd,
+            attach_recent=self.loop_config.attach_recent,
+            include_diff=self.loop_config.include_diff,
+            ignore_dirs=config.ignore_dirs,  # type: ignore[union-attr]
+            max_file_context_chars=config.max_file_context_chars,  # type: ignore[union-attr]
+            max_command_output_chars=config.max_command_output_chars,  # type: ignore[union-attr]
+            reasoning_effort=reasoning,
+            temperature=temp_override,
+            tool_history=history_text,
+            extra_paths=extra_paths,
+            web_access=self.loop_config.web_access,
+        )
+
+    async def _fetch(self, prepared: PreparedPrompt) -> str:
+        """Fetch a response from the LLM."""
+        return await self.fetch_response(prepared)
+
+    def _get_loop_context(self, current_error: str) -> _LoopContext:
+        """Set up context based on loop detection."""
+        return _setup_loop_context(self.attempt_history, current_error)
+
+    async def _get_dynamic_paths(
+        self,
+        strategy_name: str,
+        current_error: str,
+    ) -> set[Path]:
+        """Get dynamic context paths based on strategy."""
+        assert self._root is not None
+        config = self._runtime_config
+        if strategy_name == "deep":
+            return await expand_context_paths(
+                current_error,
+                self._root,
+                self.changed_files,
+                config.ignore_dirs,  # type: ignore[union-attr]
+            )
+        return set(self.changed_files)
+
+    async def _run_turn_loop(
+        self,
+        strategy_cfg: StrategyConfig,
+        current_error: str,
+        loop_ctx: _LoopContext,
+        dynamic_paths: set[Path],
+    ) -> str:
+        """Execute the inner turn loop for agent interactions.
+
+        Returns:
+            The current error message (may be updated by turns).
+        """
+        assert self._root is not None
+        config = self._runtime_config
+
+        for _turn in range(5):
+            iteration_prompt = build_repair_instruction(
+                self.base_prompt,
+                current_error,
+                self.attempt_history,
+                self._root,
+                strategy_override=loop_ctx.strategy_override,
+                reasoning_hint=loop_ctx.reasoning_hint,
+                strategy=strategy_cfg,
+            )
+
+            # Lambda with default args from captured scope; mypy cannot infer types
+            # tools=None uses unified registry from get_tool_registry()
+            # workspace_root enables governance checks for constitutional compliance
+            engine = AgentEngine[AgentResponse](
+                persona="Engineer",
+                model=self.model or config.default_model,  # type: ignore[union-attr]
+                prompt_builder=lambda msgs,  # type: ignore[misc]
+                ip=iteration_prompt,
+                ld=loop_ctx.loop_detected,
+                temp=loop_ctx.temperature_override,
+                strat=strategy_cfg,
+                paths=list(dynamic_paths): self._build_prompt(msgs, ip, ld, temp, strat, paths),
+                fetch_response=self._fetch,
+                parser=parse_agent_response,
+                tools={} if strategy_cfg.name == "step_back" else None,
+                template_root=self._root,
+                workspace_root=self._root,
+                governance_enabled=True,
+            )
+
+            try:
+                agent_response = await engine.step(self.history)
+            except ValidationError as exc:
+                validation_error = f"Agent response validation failed: {exc}"
+                console.print(f"[red]{validation_error}[/red]")
+                _append_history(
+                    self.history,
+                    Message(
+                        role="system",
+                        content=(
+                            "<Turn>\nAgent thought: (invalid)\nTool output: "
+                            f"{validation_error}\n</Turn>"
+                        ),
+                    ),
+                )
+                current_error = validation_error
+                continue
+
+            tool_call: ToolCall | None = agent_response.tool_call
+            patch_text = (agent_response.file_patch or "").strip()
+            thought = agent_response.thought_process
+
+            if tool_call:
+                await _process_tool_call(engine, tool_call, thought, self.history)
+                continue
+
+            if patch_text:
+                result = await _process_patch(
+                    patch_text,
+                    thought,
+                    self._root,
+                    self.seen_patch_hashes,
+                    self.changed_files,
+                    self.history,
+                )
+                if result.error_message:
+                    current_error = result.error_message
+                if result.should_break:
+                    break
+                continue
+
+            _handle_no_patch(agent_response, thought, self.history)
+            break
+
+        return current_error
+
+    async def _run_attempt(self, attempt: int) -> tuple[bool, str]:
+        """Execute a single repair attempt.
+
+        Args:
+            attempt: The attempt number (0-indexed).
+
+        Returns:
+            Tuple of (success, current_error).
+        """
+        assert self._root is not None
+        config = self._runtime_config
+
+        strategy_cfg = self._strategies[min(attempt, len(self._strategies) - 1)]
+        console.print(
+            f"[cyan]Attempt {attempt + 1}/{self._attempt_cap} "
+            f"({strategy_cfg.label}): running `{self.command}`[/cyan]"
+        )
+
+        # Initial command run
+        exit_code, stdout, stderr = await _run_command(self.command, self._root)
+        if exit_code == 0:
+            console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+            return True, ""
+
+        current_error = _summarize_output(
+            stdout, stderr, config.max_command_output_chars  # type: ignore[union-attr]
+        )
+        console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
+
+        # Set up loop context and dynamic paths
+        loop_ctx = self._get_loop_context(current_error)
+        dynamic_paths = await self._get_dynamic_paths(strategy_cfg.name, current_error)
+
+        # Run the turn loop
+        current_error = await self._run_turn_loop(
+            strategy_cfg, current_error, loop_ctx, dynamic_paths
+        )
+
+        # Verify after turns
+        exit_code, stdout, stderr = await _run_command(self.command, self._root)
+        if exit_code == 0:
+            console.print("[green]Command succeeded after applying fixes.[/green]")
+            return True, current_error
+
+        failure_msg = _summarize_output(
+            stdout, stderr, config.max_command_output_chars  # type: ignore[union-attr]
+        )
+        console.print(f"[yellow]Verification failed:[/yellow] {failure_msg}")
+
+        # Record attempt history
+        self.attempt_history.append(
+            AttemptContext(
+                iteration=attempt + 1,
+                last_error=failure_msg,
+                files_changed=list(self.changed_files),
+                strategy=strategy_cfg.name,
+            )
+        )
+        _append_history(
+            self.history,
+            Message(
+                role="system",
+                content=f"Verification failure (attempt {attempt + 1}): {failure_msg}",
+            ),
+        )
+
+        return False, failure_msg
+
+    async def _verify_final(self) -> bool:
+        """Perform final verification after all attempts.
+
+        Returns:
+            True if the final verification succeeded.
+        """
+        assert self._root is not None
+        config = self._runtime_config
+
+        console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
+        exit_code, stdout, stderr = await _run_command(self.command, self._root)
+
+        if exit_code == 0:
+            console.print("[green]Command succeeded after final verification.[/green]")
+            return True
+
+        console.print(
+            f"[red]Command still failing:[/red] "
+            f"{_summarize_output(stdout, stderr, config.max_command_output_chars)}"  # type: ignore[union-attr]
+        )
+
+        if self.changed_files and not self.loop_config.keep_failed:
+            console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
+            await _revert_changed_files(list(self.changed_files), self._root)
+
+        return False
+
+    async def run(self) -> bool:
+        """Execute the autonomous repair loop.
+
+        Returns:
+            True if the repair succeeded, False otherwise.
+        """
+        global _ACTIVE_ROOT
+        self._setup()
+        assert self._root is not None
+
+        previous_active_root = _ACTIVE_ROOT
+        _ACTIVE_ROOT = self._root  # pyright: ignore[reportConstantRedefinition]
+
+        try:
+            last_error: str | None = None
+
+            for attempt in range(self._attempt_cap):
+                success, current_error = await self._run_attempt(attempt)
+                if success:
+                    await _handle_success_and_archive(
+                        self.loop_config.auto_archive,
+                        self.fetch_response,
+                        self.base_prompt,
+                        self.command,
+                        last_error or (self.attempt_history[-1].last_error if self.attempt_history else None),
+                        self.model,
+                        self.loop_config.web_access,
+                    )
+                    return True
+                last_error = current_error
+
+            # Final verification
+            if await self._verify_final():
+                await _handle_success_and_archive(
+                    self.loop_config.auto_archive,
+                    self.fetch_response,
+                    self.base_prompt,
+                    self.command,
+                    self.attempt_history[-1].last_error if self.attempt_history else None,
+                    self.model,
+                    self.loop_config.web_access,
+                )
+                return True
+
+            return False
+        finally:
+            _ACTIVE_ROOT = previous_active_root  # pyright: ignore[reportConstantRedefinition]
+
+
 async def run_repair_loop(
     *,
     base_prompt: str,
@@ -478,210 +833,42 @@ async def run_repair_loop(
     keep_failed: bool = False,
     web_access: bool = False,
 ) -> bool:
+    """Execute an autonomous repair loop (backward-compatible wrapper).
+
+    This function wraps RepairLoopOrchestrator for backward compatibility
+    with existing callers.
+
+    Args:
+        base_prompt: The user's repair instruction.
+        command: Shell command to verify fixes.
+        model: LLM model ID to use.
+        attach_recent: Attach recently modified files to context.
+        include_diff: Include git diff in context.
+        fetch_response: Async function to fetch LLM responses.
+        auto_archive: Archive successful fixes to memory.
+        max_retries: Maximum repair attempts before giving up.
+        keep_failed: Keep changes even if repair loop fails.
+        web_access: Enable web search for context.
+
+    Returns:
+        True if the repair succeeded, False otherwise.
     """
-    Execute an autonomous repair loop using AgentEngine for orchestration.
-    """
-    global _ACTIVE_ROOT
-    runtime = get_runtime()
-    config = runtime.config
-    root = security.validate_workspace_root(runtime.workspace_root or config.notes_dir)
-    attempt_cap = max(1, max_retries)
-    strategies = build_strategy_plan(attempt_cap)
-    changed_files: set[Path] = set()
-    attempt_history: list[AttemptContext] = []
-    history: list[Message] = []
-    seen_patch_hashes: set[str] = set()
-    previous_active_root = _ACTIVE_ROOT
-    _ACTIVE_ROOT = root  # pyright: ignore[reportConstantRedefinition]
-
-    async def _prompt_builder(
-        history_messages: Sequence[Message],
-        iteration_prompt: str,
-        loop_detected_flag: bool,
-        temp_override: float | None,
-        strategy: StrategyConfig,
-        extra_paths: Sequence[Path],
-    ) -> PreparedPrompt:
-        history_text = "\n".join(msg.content for msg in history_messages)
-        instruction = iteration_prompt
-        if history_text:
-            instruction = f"{instruction}\n\nPrevious tool interactions:\n{history_text}"
-        reasoning = "high" if loop_detected_flag or strategy.name == "step_back" else None
-        run_cmd = command if strategy.name in {"fast", "deep"} else None
-        return await prepare_agent_prompt(
-            instruction,
-            model=model,
-            run_command=run_cmd,
-            attach_recent=attach_recent,
-            include_diff=include_diff,
-            ignore_dirs=config.ignore_dirs,
-            max_file_context_chars=config.max_file_context_chars,
-            max_command_output_chars=config.max_command_output_chars,
-            reasoning_effort=reasoning,
-            temperature=temp_override,
-            tool_history=history_text,
-            extra_paths=extra_paths,
-            web_access=web_access,
-        )
-
-    async def _fetch(prepared: PreparedPrompt) -> str:
-        return await fetch_response(prepared)
-
-    try:
-        for attempt in range(attempt_cap):
-            strategy_cfg = strategies[min(attempt, len(strategies) - 1)]
-            console.print(
-                f"[cyan]Attempt {attempt + 1}/{attempt_cap} ({strategy_cfg.label}): running `{command}`[/cyan]"
-            )
-            exit_code, stdout, stderr = await _run_command(command, root)
-            if exit_code == 0:
-                console.print("[green]Command succeeded. Exiting repair loop.[/green]")
-                await _handle_success_and_archive(
-                    auto_archive,
-                    fetch_response,
-                    base_prompt,
-                    command,
-                    attempt_history[-1].last_error if attempt_history else None,
-                    model,
-                    web_access,
-                )
-                return True
-
-            current_error = _summarize_output(stdout, stderr, config.max_command_output_chars)
-            console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
-
-            loop_ctx = _setup_loop_context(attempt_history, current_error)
-            dynamic_paths = await _get_dynamic_paths(
-                strategy_cfg.name, current_error, root, changed_files, config.ignore_dirs
-            )
-
-            for _turn in range(5):
-                iteration_prompt = build_repair_instruction(
-                    base_prompt,
-                    current_error,
-                    attempt_history,
-                    root,
-                    strategy_override=loop_ctx.strategy_override,
-                    reasoning_hint=loop_ctx.reasoning_hint,
-                    strategy=strategy_cfg,
-                )
-
-                # Lambda with default args from captured scope; mypy cannot infer types
-                # tools=None uses unified registry from get_tool_registry()
-                # workspace_root enables governance checks for constitutional compliance
-                engine = AgentEngine[AgentResponse](
-                    persona="Engineer",
-                    model=model or config.default_model,
-                    prompt_builder=lambda msgs,  # type: ignore[misc]
-                    ip=iteration_prompt,
-                    ld=loop_ctx.loop_detected,
-                    temp=loop_ctx.temperature_override,
-                    strat=strategy_cfg,
-                    paths=list(dynamic_paths): _prompt_builder(msgs, ip, ld, temp, strat, paths),
-                    fetch_response=_fetch,
-                    parser=parse_agent_response,
-                    tools={} if strategy_cfg.name == "step_back" else None,
-                    template_root=root,
-                    workspace_root=root,
-                    governance_enabled=True,
-                )
-
-                try:
-                    agent_response = await engine.step(history)
-                except ValidationError as exc:
-                    validation_error = f"Agent response validation failed: {exc}"
-                    console.print(f"[red]{validation_error}[/red]")
-                    _append_history(
-                        history,
-                        Message(
-                            role="system",
-                            content=(
-                                "<Turn>\nAgent thought: (invalid)\nTool output: "
-                                f"{validation_error}\n</Turn>"
-                            ),
-                        ),
-                    )
-                    current_error = validation_error
-                    continue
-
-                tool_call: ToolCall | None = agent_response.tool_call
-                patch_text = (agent_response.file_patch or "").strip()
-                thought = agent_response.thought_process
-
-                if tool_call:
-                    await _process_tool_call(engine, tool_call, thought, history)
-                    continue
-
-                if patch_text:
-                    result = await _process_patch(
-                        patch_text, thought, root, seen_patch_hashes, changed_files, history
-                    )
-                    if result.error_message:
-                        current_error = result.error_message
-                    if result.should_break:
-                        break
-                    continue
-
-                _handle_no_patch(agent_response, thought, history)
-                break
-
-            exit_code, stdout, stderr = await _run_command(command, root)
-            if exit_code == 0:
-                console.print("[green]Command succeeded after applying fixes.[/green]")
-                await _handle_success_and_archive(
-                    auto_archive,
-                    fetch_response,
-                    base_prompt,
-                    command,
-                    current_error,
-                    model,
-                    web_access,
-                )
-                return True
-
-            failure_msg = _summarize_output(stdout, stderr, config.max_command_output_chars)
-            console.print(f"[yellow]Verification failed:[/yellow] {failure_msg}")
-            attempt_history.append(
-                AttemptContext(
-                    iteration=attempt + 1,
-                    last_error=failure_msg,
-                    files_changed=list(changed_files),
-                    strategy=strategy_cfg.name,
-                )
-            )
-            _append_history(
-                history,
-                Message(
-                    role="system",
-                    content=f"Verification failure (attempt {attempt + 1}): {failure_msg}",
-                ),
-            )
-
-        console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
-        exit_code, stdout, stderr = await _run_command(command, root)
-        if exit_code == 0:
-            console.print("[green]Command succeeded after final verification.[/green]")
-            await _handle_success_and_archive(
-                auto_archive,
-                fetch_response,
-                base_prompt,
-                command,
-                attempt_history[-1].last_error if attempt_history else None,
-                model,
-                web_access,
-            )
-            return True
-
-        console.print(
-            f"[red]Command still failing:[/red] {_summarize_output(stdout, stderr, config.max_command_output_chars)}"
-        )
-        if changed_files and not keep_failed:
-            console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
-            await _revert_changed_files(list(changed_files), root)
-
-        return False
-    finally:
-        _ACTIVE_ROOT = previous_active_root  # pyright: ignore[reportConstantRedefinition]
+    config = RepairLoopConfig(
+        attach_recent=attach_recent,
+        include_diff=include_diff,
+        auto_archive=auto_archive,
+        max_retries=max_retries,
+        keep_failed=keep_failed,
+        web_access=web_access,
+    )
+    orchestrator = RepairLoopOrchestrator(
+        base_prompt=base_prompt,
+        command=command,
+        model=model,
+        fetch_response=fetch_response,
+        config=config,
+    )
+    return await orchestrator.run()
 
 
 __all__ = [
@@ -689,6 +876,7 @@ __all__ = [
     "AttemptContext",
     "PatchFetcher",
     "RepairLoopConfig",
+    "RepairLoopOrchestrator",
     "RepairStrategy",
     "ResponseFetcher",
     "SecurityError",

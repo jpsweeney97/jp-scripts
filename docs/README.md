@@ -7,6 +7,7 @@ This directory contains documentation for jpscripts.
 | Document | Description |
 |----------|-------------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | System architecture, module diagrams, data flow |
+| [CLI_REFERENCE.md](CLI_REFERENCE.md) | Complete CLI commands and MCP tools reference |
 | [EXTENDING.md](EXTENDING.md) | Guide to adding commands, tools, providers |
 | [api/](api/) | Generated API reference (run `make docs`) |
 

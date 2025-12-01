@@ -40,6 +40,29 @@ if TYPE_CHECKING:
     from jpscripts.core.config import AppConfig
 
 
+def parse_provider_type(provider_str: str) -> ProviderType:
+    """Parse a provider string to ProviderType enum.
+
+    Args:
+        provider_str: Provider name ("anthropic", "openai", "codex")
+
+    Returns:
+        The corresponding ProviderType
+
+    Raises:
+        ValueError: If provider string is not recognized
+    """
+    ptype_map = {
+        "anthropic": ProviderType.ANTHROPIC,
+        "openai": ProviderType.OPENAI,
+        "codex": ProviderType.CODEX,
+    }
+    ptype = ptype_map.get(provider_str.lower())
+    if ptype is None:
+        raise ValueError(f"Unknown provider: {provider_str}")
+    return ptype
+
+
 @dataclass
 class ProviderConfig:
     """Configuration for provider instantiation.
@@ -262,4 +285,5 @@ __all__ = [
     "get_provider",
     "get_provider_for_model",
     "list_available_models",
+    "parse_provider_type",
 ]

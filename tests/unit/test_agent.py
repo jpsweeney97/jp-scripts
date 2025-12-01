@@ -89,10 +89,7 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
             }
         )
 
-    with (
-        patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response),
-        patch("jpscripts.commands.agent.is_codex_available", return_value=False),
-    ):
+    with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response):
         result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
 
         assert result.exit_code == 0
@@ -140,7 +137,6 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
             patch(
                 "jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response
             ),
-            patch("jpscripts.commands.agent.is_codex_available", return_value=False),
             patch("jpscripts.core.agent.prompting.scan_recent", side_effect=fake_scan_recent),
         ):
             result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])

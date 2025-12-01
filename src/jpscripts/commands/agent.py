@@ -24,9 +24,10 @@ from rich.panel import Panel
 
 from jpscripts.core.agent import (
     PreparedPrompt,
+    RepairLoopConfig,
+    RepairLoopOrchestrator,
     parse_agent_response,
     prepare_agent_prompt,
-    run_repair_loop,
 )
 from jpscripts.core.console import console
 from jpscripts.providers import (
@@ -35,10 +36,8 @@ from jpscripts.providers import (
     Message,
     ProviderError,
     ProviderType,
-    infer_provider_type,
 )
-from jpscripts.providers.codex import is_codex_available
-from jpscripts.providers.factory import ProviderConfig, get_provider
+from jpscripts.providers.factory import ProviderConfig, get_provider, parse_provider_type
 
 # ---------------------------------------------------------------------------
 # Provider-based response fetching
@@ -120,22 +119,18 @@ async def _fetch_agent_response(
     Returns:
         The response text from the LLM
     """
-    # Determine provider type
+    # Convert string to ProviderType if provided
     ptype: ProviderType | None = None
     if provider_type:
-        ptype_map = {
-            "anthropic": ProviderType.ANTHROPIC,
-            "openai": ProviderType.OPENAI,
-            "codex": ProviderType.CODEX,
-        }
-        ptype = ptype_map.get(provider_type.lower())
-        if ptype is None:
+        try:
+            ptype = parse_provider_type(provider_type)
+        except ValueError:
             console.print(f"[red]Unknown provider: {provider_type}[/red]")
             raise typer.Exit(code=1)
 
-    # Create provider config
+    # Create provider config - prefer_codex when no explicit provider given
     pconfig = ProviderConfig(
-        prefer_codex=(provider_type == "codex" or provider_type is None),
+        prefer_codex=(provider_type is None),
         codex_full_auto=full_auto,
         codex_web_enabled=web,
     )
@@ -170,27 +165,6 @@ async def _fetch_agent_response(
 # ---------------------------------------------------------------------------
 # Helper functions
 # ---------------------------------------------------------------------------
-
-
-def _determine_effective_provider(
-    provider: str | None,
-    target_model: str,
-) -> str | None:
-    """Determine the effective provider to use.
-
-    Auto-detects Codex provider for OpenAI models when Codex CLI is available.
-    """
-    if provider is not None:
-        return provider
-
-    try:
-        inferred = infer_provider_type(target_model)
-        if inferred == ProviderType.OPENAI and is_codex_available():
-            return "codex"
-    except Exception as exc:
-        console.print(f"[dim]Auto-detection skipped: {exc}[/dim]")
-
-    return None
 
 
 def _display_agent_response(agent_response: Any) -> None:
@@ -283,7 +257,6 @@ def codex_exec(
         raise typer.Exit(code=1)
 
     effective_retries = max(1, max_retries)
-    effective_provider = _determine_effective_provider(provider, target_model)
 
     # Repair loop mode
     if loop_enabled and run_command:
@@ -293,25 +266,26 @@ def codex_exec(
                 prepared,
                 state.config,
                 target_model,
-                effective_provider,
+                provider,
                 full_auto=full_auto,
                 web=web,
             )
 
-        success = asyncio.run(
-            run_repair_loop(
-                base_prompt=prompt,
-                command=run_command,
-                model=target_model,
+        orchestrator = RepairLoopOrchestrator(
+            base_prompt=prompt,
+            command=run_command,
+            model=target_model,
+            fetch_response=fetcher,
+            config=RepairLoopConfig(
                 attach_recent=attach_recent,
                 include_diff=diff,
-                fetch_response=fetcher,
                 auto_archive=archive,
                 max_retries=effective_retries,
                 keep_failed=keep_failed,
                 web_access=web,
-            )
+            ),
         )
+        success = asyncio.run(orchestrator.run())
         if not success:
             console.print("[red]Repair loop exhausted without a clean run.[/red]")
         return
@@ -354,7 +328,7 @@ def codex_exec(
             prepared,
             state.config,
             target_model,
-            effective_provider,
+            provider,
             full_auto=full_auto,
             web=web,
         )
