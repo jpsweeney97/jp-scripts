@@ -153,6 +153,7 @@ STOPWORDS = {
 MAX_ENTRIES = 5000
 DEFAULT_STORE = Path.home() / ".jp_memory.lance"
 FALLBACK_SUFFIX = ".jsonl"
+_TOKENIZE_PATTERN = re.compile(r"[a-z0-9]+")
 _semantic_warned = False
 
 
@@ -317,7 +318,7 @@ def _fallback_path(base_path: Path) -> Path:
 
 
 def _tokenize(text: str) -> list[str]:
-    return [t for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in STOPWORDS and len(t) > 1]
+    return [t for t in _TOKENIZE_PATTERN.findall(text.lower()) if t not in STOPWORDS and len(t) > 1]
 
 
 def _format_entry(entry: MemoryEntry) -> str:
@@ -568,18 +569,14 @@ def _parse_entry(raw: dict[str, object]) -> MemoryEntry:
     else:
         tokens = _tokenize(token_source)
     embedding = raw.get("embedding")
-    embedding_list = (
-        [float(val) for val in embedding] if isinstance(embedding, list) else None
-    )
+    embedding_list = [float(val) for val in embedding] if isinstance(embedding, list) else None
     raw_source_path = raw.get("source_path")
     source_path = str(raw_source_path) if raw_source_path else None
     raw_content_hash = raw.get("content_hash")
     content_hash = str(raw_content_hash) if raw_content_hash else None
     raw_related = raw.get("related_files")
     related_files = (
-        [str(p) for p in raw_related if str(p).strip()]
-        if isinstance(raw_related, list)
-        else []
+        [str(p) for p in raw_related if str(p).strip()] if isinstance(raw_related, list) else []
     )
     return MemoryEntry(
         id=str(raw.get("id", uuid4().hex)),

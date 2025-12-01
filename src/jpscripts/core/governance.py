@@ -21,6 +21,8 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
+from jpscripts.core.security import validate_path_safe
+
 _SECRET_PATTERN = re.compile(
     r"""(?ix)
     (?P<name>[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)
@@ -739,7 +741,14 @@ def apply_patch_in_memory(diff: str, root: Path) -> dict[Path, str]:
                 if path_str.startswith("b/"):
                     path_str = path_str[2:]
 
-            current_file = root / path_str
+            # Validate path stays within workspace to prevent path traversal attacks
+            candidate = root / path_str
+            validation = validate_path_safe(candidate, root)
+            if validation.is_err():
+                # Skip files with invalid paths (path traversal attempt)
+                current_file = None
+                continue
+            current_file = validation.unwrap()
 
         elif line.startswith("@@ "):
             # Save previous hunk before starting new one
@@ -782,14 +791,24 @@ def _parse_diff_files(diff: str, root: Path) -> dict[Path, set[int]]:
         # Match new file header: +++ b/path/to/file.py
         if line.startswith("+++ b/"):
             path_str = line[6:]
-            current_file = root / path_str
+            candidate = root / path_str
+            validation = validate_path_safe(candidate, root)
+            if validation.is_err():
+                current_file = None
+                continue
+            current_file = validation.unwrap()
             files[current_file] = set()
         elif line.startswith("+++ "):
             # Handle other diff formats: +++ path/to/file.py
             path_str = line[4:].strip()
             if path_str.startswith("b/"):
                 path_str = path_str[2:]
-            current_file = root / path_str
+            candidate = root / path_str
+            validation = validate_path_safe(candidate, root)
+            if validation.is_err():
+                current_file = None
+                continue
+            current_file = validation.unwrap()
             files[current_file] = set()
         elif line.startswith("@@ "):
             # Parse hunk header: @@ -start,count +start,count @@
