@@ -398,6 +398,121 @@ pytest --pdb tests/unit/test_memory.py::test_specific
 
 ---
 
+## Error Handling Patterns
+
+This codebase uses two complementary error handling patterns. Use the right one for the situation.
+
+### Result[T, E] Pattern
+
+Use `Result[T, E]` (from `jpscripts.core.result`) for **expected, recoverable errors**:
+
+```python
+from jpscripts.core.result import Result, Ok, Err, ConfigurationError
+
+def load_config(path: Path) -> Result[AppConfig, ConfigurationError]:
+    """Load configuration from file.
+
+    Returns Ok(config) on success, Err(error) on failure.
+    """
+    if not path.exists():
+        return Err(ConfigurationError(f"Config file not found: {path}"))
+
+    try:
+        data = path.read_text()
+        config = parse_config(data)
+        return Ok(config)
+    except ValueError as exc:
+        return Err(ConfigurationError(f"Invalid config format: {exc}"))
+```
+
+**When to use Result:**
+- File I/O that might fail (missing files, permissions)
+- Network requests (timeouts, connection errors)
+- Parsing user input (invalid format)
+- Configuration loading
+- Any operation where failure is expected and recoverable
+
+**Consuming Results with match:**
+```python
+match load_config(path):
+    case Ok(config):
+        use_config(config)
+    case Err(error):
+        logger.error("Config error: %s", error)
+        sys.exit(1)
+```
+
+### Exceptions
+
+Use exceptions for **unexpected errors and programming bugs**:
+
+```python
+def process_item(item: Item) -> None:
+    """Process a single item.
+
+    Raises:
+        ValueError: If item is in invalid state (programming error)
+    """
+    if item.status not in VALID_STATUSES:
+        raise ValueError(f"Invalid item status: {item.status}")
+
+    # Processing logic...
+```
+
+**When to use exceptions:**
+- Programming errors (invalid arguments, logic bugs)
+- Invariant violations that "should never happen"
+- Deep in call stacks where propagation is cleaner
+- Third-party library errors (let them bubble up)
+
+### Guidelines
+
+| Scenario | Pattern | Example |
+|----------|---------|---------|
+| File not found | `Result` | User provided invalid path |
+| Network timeout | `Result` | API call failed |
+| Invalid user input | `Result` | Malformed JSON in request |
+| Null/None where forbidden | Exception | Programming bug |
+| Invalid state transition | Exception | Logic error |
+| Third-party lib error | Exception | Let it propagate |
+
+### Exception Variable Naming
+
+Always use `exc` as the exception variable name (not `e` or `err`):
+
+```python
+# Good
+try:
+    something()
+except ValueError as exc:
+    logger.warning("Operation failed: %s", exc)
+
+# Bad
+try:
+    something()
+except ValueError as e:  # Don't use 'e'
+    ...
+```
+
+### Never Swallow Errors Silently
+
+```python
+# Bad - silent failure
+try:
+    risky_operation()
+except Exception:
+    pass  # Never do this!
+
+# Good - log and handle
+try:
+    risky_operation()
+except Exception as exc:
+    logger.warning("Operation failed: %s", exc)
+    return fallback_value
+```
+
+---
+
 ## Release Process
 
 ### Versioning

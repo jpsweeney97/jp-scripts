@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import shutil
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich import box
@@ -14,26 +15,35 @@ from jpscripts.core import search as search_core
 from jpscripts.core.console import console
 
 
-def ripper(
-    pattern: str = typer.Argument(..., help="Search pattern for ripgrep."),
-    path: Path = typer.Option(Path("."), "--path", "-p", help="Root path to search."),
-    no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
-    context: int = typer.Option(2, "--context", "-C", help="Lines of context to include."),
+def _run_search_with_fallback(
+    pattern: str,
+    path: Path,
+    prompt: str,
+    no_fzf: bool,
+    **rg_kwargs: Any,
 ) -> None:
-    """Interactive code search using ripgrep + fzf."""
+    """Run ripgrep search with fzf fallback to panel display.
+
+    Args:
+        pattern: Search pattern for ripgrep
+        path: Root path to search
+        prompt: Prompt string for fzf
+        no_fzf: Whether to disable fzf
+        **rg_kwargs: Additional kwargs for ripgrep (context, follow, pcre2, etc.)
+    """
     use_fzf = shutil.which("fzf") and not no_fzf
 
     if use_fzf:
-        cmd = search_core.get_ripgrep_cmd(pattern, path, context=context)
+        cmd = search_core.get_ripgrep_cmd(pattern, path, **rg_kwargs)
         try:
-            asyncio.run(fzf_stream_with_command(cmd, prompt="ripper> ", ansi=True))
+            asyncio.run(fzf_stream_with_command(cmd, prompt=prompt, ansi=True))
         except RuntimeError as exc:
             console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)
     else:
         try:
             result = asyncio.run(
-                asyncio.to_thread(search_core.run_ripgrep, pattern, path, context=context)
+                asyncio.to_thread(search_core.run_ripgrep, pattern, path, **rg_kwargs)
             )
             panel_content = result or "[yellow]No matches.[/yellow]"
             console.print(Panel(panel_content, title="Matches", expand=False))
@@ -43,6 +53,16 @@ def ripper(
             raise typer.Exit(code=1)
 
 
+def ripper(
+    pattern: str = typer.Argument(..., help="Search pattern for ripgrep."),
+    path: Path = typer.Option(Path("."), "--path", "-p", help="Root path to search."),
+    no_fzf: bool = typer.Option(False, "--no-fzf", help="Disable fzf even if available."),
+    context: int = typer.Option(2, "--context", "-C", help="Lines of context to include."),
+) -> None:
+    """Interactive code search using ripgrep + fzf."""
+    _run_search_with_fallback(pattern, path, "ripper> ", no_fzf, context=context)
+
+
 def todo_scan(
     path: Path = typer.Option(Path("."), "--path", "-p", help="Path to scan."),
     types: str = typer.Option("TODO|FIXME|HACK|BUG", "--types", help="Patterns to search for."),
@@ -50,10 +70,9 @@ def todo_scan(
     """Scan for TODO items and display a structured table."""
 
     try:
-        # UPDATED: Run the async core function
         todos = asyncio.run(search_core.scan_todos(path, types=types))
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
 
     if not todos:
@@ -86,32 +105,6 @@ def loggrep(
     ),
 ) -> None:
     """Friendly log search with optional follow mode."""
-    use_fzf = shutil.which("fzf") and not no_fzf
-
-    if use_fzf:
-        cmd = search_core.get_ripgrep_cmd(
-            pattern, path, line_number=True, follow=follow, pcre2=True
-        )
-        try:
-            asyncio.run(fzf_stream_with_command(cmd, prompt="loggrep> ", ansi=True))
-        except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(code=1)
-    else:
-        try:
-            result = asyncio.run(
-                asyncio.to_thread(
-                    search_core.run_ripgrep,
-                    pattern,
-                    path,
-                    line_number=True,
-                    follow=follow,
-                    pcre2=True,
-                )
-            )
-            panel_content = result or "[yellow]No matches.[/yellow]"
-            console.print(Panel(panel_content, title="Matches", expand=False))
-            console.print("[yellow]Install fzf for interactive filtering.[/yellow]")
-        except RuntimeError as exc:
-            console.print(f"[red]{exc}[/red]")
-            raise typer.Exit(code=1)
+    _run_search_with_fallback(
+        pattern, path, "loggrep> ", no_fzf, line_number=True, follow=follow, pcre2=True
+    )
