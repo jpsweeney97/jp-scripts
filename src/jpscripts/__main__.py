@@ -5,11 +5,11 @@ Allows the package to be executed via `python -m jpscripts`.
 
 from __future__ import annotations
 
-from .main import app
+from .main import cli
 
 
 def main() -> None:
-    app()
+    cli()
 
 
 if __name__ == "__main__":
