@@ -20,6 +20,18 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture(autouse=True)
+def ensure_commands_registered() -> None:
+    """Ensure CLI commands are registered before tests run.
+
+    Commands are lazily registered in production to improve CLI startup time.
+    Tests using CliRunner need commands pre-registered since they bypass cli().
+    """
+    from jpscripts.main import _register_commands
+
+    _register_commands()
+
+
+@pytest.fixture(autouse=True)
 def isolate_config(tmp_path: Path, monkeypatch: Any) -> Path:
     """Point config to a temp path so tests don't touch user state."""
     cfg_path = tmp_path / "config.toml"

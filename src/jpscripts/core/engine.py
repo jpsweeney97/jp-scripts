@@ -99,15 +99,14 @@ logger = get_logger(__name__)
 ResponseT = TypeVar("ResponseT", bound=BaseModel)
 AUDIT_PREFIX = "audit.shell"
 
-# Lazy-loaded tiktoken encoder for accurate token counting
-_TOKENIZER: tiktoken.Encoding | None = None
+# Pre-warm tiktoken encoder at module import time.
+# This adds ~100ms to engine.py import but avoids a blocking call during agent execution.
+# Since engine.py is only imported when agent features are used, this is acceptable.
+_TOKENIZER: tiktoken.Encoding = tiktoken.get_encoding("cl100k_base")
 
 
 def _get_tokenizer() -> tiktoken.Encoding:
-    """Get or initialize the tiktoken encoder (cl100k_base for GPT-4/Claude)."""
-    global _TOKENIZER
-    if _TOKENIZER is None:
-        _TOKENIZER = tiktoken.get_encoding("cl100k_base")
+    """Get the tiktoken encoder (cl100k_base for GPT-4/Claude)."""
     return _TOKENIZER
 
 

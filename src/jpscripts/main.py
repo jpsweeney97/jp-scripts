@@ -13,10 +13,6 @@ from uuid import uuid4
 
 import click
 import typer
-from rich import box
-from rich.panel import Panel
-from rich.table import Table
-from rich.tree import Tree
 from typer.main import get_command
 
 from . import __version__
@@ -118,7 +114,9 @@ def main(
     )
 
     if meta.error:
-        # Display "Safe Mode" Warning
+        # Display "Safe Mode" Warning - lazy import only on error path
+        from rich.panel import Panel
+
         console.print(
             Panel(
                 f"[bold red]Configuration Error - Safe Mode Active[/bold red]\n\n"
@@ -139,6 +137,9 @@ def main(
 @app.command("com")
 def command_catalog() -> None:
     """Display the available jp commands and their descriptions."""
+    from rich import box
+    from rich.table import Table
+
     click_app = get_command(app)
     table = Table(title="jp commands", box=box.SIMPLE_HEAVY, expand=True)
     table.add_column("Command", style="cyan", no_wrap=True)
@@ -164,6 +165,8 @@ def doctor(
     ),
 ) -> None:
     """Inspect external dependencies in parallel."""
+    from rich.tree import Tree
+
     state: AppState = ctx.obj
     state.logger.debug("Running doctor for tools: %s", tool or "all")
 
@@ -196,6 +199,10 @@ def doctor(
 @app.command("config")
 def show_config(ctx: typer.Context) -> None:
     """Show the active configuration and where it came from."""
+    from rich import box
+    from rich.panel import Panel
+    from rich.table import Table
+
     state: AppState = ctx.obj
     config = state.config
     meta = state.config_meta
@@ -226,7 +233,20 @@ def show_version() -> None:
     console.print(__version__)
 
 
+_commands_registered = False
+
+
 def _register_commands() -> None:
+    """Register all commands from the commands/ directory.
+
+    Uses a module-level flag to ensure registration happens only once,
+    even if called multiple times.
+    """
+    global _commands_registered
+    if _commands_registered:
+        return
+
+    start = perf_counter()
     commands_path = Path(__file__).resolve().parent / "commands"
     typer_modules, function_commands = discover_commands(commands_path)
 
@@ -236,18 +256,14 @@ def _register_commands() -> None:
     for spec in function_commands:
         app.command(spec.name)(spec.handler)
 
-
-def _register_commands_with_timing() -> None:
-    start = perf_counter()
-    _register_commands()
     elapsed = perf_counter() - start
     logger.debug("Command registry initialized in %.3f seconds", elapsed)
-
-
-_register_commands_with_timing()
+    _commands_registered = True
 
 
 def cli() -> None:
+    """CLI entry point - registers commands before invoking the app."""
+    _register_commands()
     app()
 
 
