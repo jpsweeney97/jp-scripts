@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import typer
 from typer.testing import CliRunner
+
+# Pattern to strip ANSI escape codes from CLI output
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 from jpscripts.commands.evolve import (
     _build_optimizer_prompt,
@@ -394,8 +398,10 @@ class TestEvolveCLIIntegration:
         """Run command shows help text."""
         result = runner.invoke(cli_app, ["evolve", "run", "--help"])
         assert result.exit_code == 0
-        assert "dry-run" in result.stdout.lower()
-        assert "threshold" in result.stdout.lower()
+        # Strip ANSI codes before checking (CI output may have escape sequences)
+        stdout = _ANSI_PATTERN.sub("", result.stdout).lower()
+        assert "dry-run" in stdout
+        assert "threshold" in stdout
 
     def test_report_command_help(self, runner: CliRunner, cli_app: typer.Typer) -> None:
         """Report command shows help text."""
