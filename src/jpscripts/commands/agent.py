@@ -37,6 +37,7 @@ from jpscripts.providers import (
     ProviderError,
     ProviderType,
 )
+from jpscripts.providers.codex import is_codex_available  # noqa: F401 (re-exported for tests)
 from jpscripts.providers.factory import ProviderConfig, get_provider, parse_provider_type
 
 # ---------------------------------------------------------------------------

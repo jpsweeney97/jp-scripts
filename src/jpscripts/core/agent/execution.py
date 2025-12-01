@@ -701,7 +701,9 @@ class RepairLoopOrchestrator:
             return True, ""
 
         current_error = _summarize_output(
-            stdout, stderr, config.max_command_output_chars  # type: ignore[union-attr]
+            stdout,
+            stderr,
+            config.max_command_output_chars,  # type: ignore[union-attr]
         )
         console.print(f"[yellow]Attempt {attempt + 1} failed:[/yellow] {current_error}")
 
@@ -721,7 +723,9 @@ class RepairLoopOrchestrator:
             return True, current_error
 
         failure_msg = _summarize_output(
-            stdout, stderr, config.max_command_output_chars  # type: ignore[union-attr]
+            stdout,
+            stderr,
+            config.max_command_output_chars,  # type: ignore[union-attr]
         )
         console.print(f"[yellow]Verification failed:[/yellow] {failure_msg}")
 
@@ -795,7 +799,8 @@ class RepairLoopOrchestrator:
                         self.fetch_response,
                         self.base_prompt,
                         self.command,
-                        last_error or (self.attempt_history[-1].last_error if self.attempt_history else None),
+                        last_error
+                        or (self.attempt_history[-1].last_error if self.attempt_history else None),
                         self.model,
                         self.loop_config.web_access,
                     )
