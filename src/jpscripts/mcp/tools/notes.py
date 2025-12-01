@@ -14,5 +14,5 @@ async def append_daily_note(message: str) -> str:
         target_dir = ctx.config.notes_dir.expanduser()
         path = await append_to_daily_note(target_dir, message)
         return f"Successfully logged to daily note: {path}"
-    except Exception as e:
-        return f"Error appending note: {e!s}"
+    except Exception as exc:
+        return f"Error appending note: {exc!s}"

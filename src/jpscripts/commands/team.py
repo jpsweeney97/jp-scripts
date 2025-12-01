@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from jpscripts.core.console import console
-from jpscripts.core.team import Persona, get_default_swarm, swarm_chat
+from jpscripts.core.team import Persona, UpdateKind, get_default_swarm, swarm_chat
 
 if TYPE_CHECKING:
     from jpscripts.main import AppState
@@ -74,14 +74,14 @@ async def _run_swarm(
             model=state.config.default_model,
             safe_mode=safe_mode,
         ):
-            if update.kind in {"stdout", "stderr"}:
+            if update.kind in {UpdateKind.STDOUT, UpdateKind.STDERR}:
                 logs[update.role].append(update.content)
                 if len(logs[update.role]) > 200:
                     logs[update.role] = logs[update.role][-200:]
-            elif update.kind == "status":
+            elif update.kind == UpdateKind.STATUS:
                 statuses[update.role] = update.content
                 logs[update.role].append(f"[status] {update.content}")
-            elif update.kind == "exit":
+            elif update.kind == UpdateKind.EXIT:
                 statuses[update.role] = update.content
                 logs[update.role].append(f"[exit] {update.content}")
 
@@ -111,8 +111,8 @@ def swarm(
                 console.print(
                     "[yellow]Warning: `jpscripts` MCP server may not be configured in Codex. Agents might lack tools. Run `codex mcp add jpscripts ...` to fix.[/yellow]"
                 )
-        except OSError:
-            pass
+        except OSError as exc:
+            console.print(f"[dim]Could not read codex config: {exc}[/dim]")
     else:
         console.print(
             "[yellow]Warning: `jpscripts` MCP server may not be configured in Codex. Agents might lack tools. Run `codex mcp add jpscripts ...` to fix.[/yellow]"

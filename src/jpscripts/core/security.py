@@ -220,10 +220,10 @@ def _resolve_with_limit(
 
         try:
             target = current.readlink()
-        except OSError as e:
+        except OSError as exc:
             return Err(
                 SecurityError(
-                    f"Failed to read symlink: {path}: {e}",
+                    f"Failed to read symlink: {path}: {exc}",
                     context={"path": str(path), "current": str(current)},
                 )
             )
@@ -630,14 +630,14 @@ def validate_and_open(
         # Convert binary mode to text mode for fdopen
         fdopen_mode = mode.replace("t", "")  # Remove explicit text marker if present
         return Ok(os.fdopen(fd, fdopen_mode, **kwargs))
-    except OSError as e:
+    except OSError as exc:
         return Err(
             SecurityError(
-                f"Failed to open {path}: {e}",
+                f"Failed to open {path}: {exc}",
                 context={
                     "path": str(safe_path),
                     "mode": mode,
-                    "error": str(e),
+                    "error": str(exc),
                 },
             )
         )

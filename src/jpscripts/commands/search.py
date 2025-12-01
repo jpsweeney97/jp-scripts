@@ -38,8 +38,8 @@ def ripper(
             panel_content = result or "[yellow]No matches.[/yellow]"
             console.print(Panel(panel_content, title="Matches", expand=False))
             console.print("[yellow]Install fzf for interactive filtering.[/yellow]")
-        except RuntimeError as e:
-            console.print(f"[red]{e}[/red]")
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)
 
 
@@ -112,6 +112,6 @@ def loggrep(
             panel_content = result or "[yellow]No matches.[/yellow]"
             console.print(Panel(panel_content, title="Matches", expand=False))
             console.print("[yellow]Install fzf for interactive filtering.[/yellow]")
-        except RuntimeError as e:
-            console.print(f"[red]{e}[/red]")
+        except RuntimeError as exc:
+            console.print(f"[red]{exc}[/red]")
             raise typer.Exit(code=1)

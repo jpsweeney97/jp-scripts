@@ -46,5 +46,5 @@ async def run_tests(target: str = ".", verbose: bool = False) -> str:
         if proc.returncode == 0:
             return f"Tests Passed:\n{output}"
         return f"Tests Failed (Exit Code {proc.returncode}):\n{output[-5000:]}"
-    except Exception as e:
-        return f"Error executing tests: {e}"
+    except Exception as exc:
+        return f"Error executing tests: {exc}"

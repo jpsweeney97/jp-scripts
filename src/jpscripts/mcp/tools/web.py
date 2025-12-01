@@ -13,8 +13,8 @@ async def fetch_url_content(url: str) -> str:
         return await asyncio.to_thread(_fetch_content, url)
     except ImportError:
         return "Error: trafilatura not installed. Run `pip install jpscripts[full]`"
-    except Exception as e:
-        return f"Error fetching URL: {e!s}"
+    except Exception as exc:
+        return f"Error fetching URL: {exc!s}"
 
 
 def _fetch_content(url: str) -> str:

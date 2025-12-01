@@ -396,8 +396,8 @@ def validate_command(
     # Tokenize using shell parsing rules
     try:
         tokens = shlex.split(command)
-    except ValueError as e:
-        return CommandVerdict.BLOCKED_UNPARSEABLE, f"Unparseable command: {e}"
+    except ValueError as exc:
+        return CommandVerdict.BLOCKED_UNPARSEABLE, f"Unparseable command: {exc}"
 
     if not tokens:
         return CommandVerdict.BLOCKED_FORBIDDEN, "Empty command after parsing"

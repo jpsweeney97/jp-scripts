@@ -127,8 +127,8 @@ class AppConfig(BaseSettings):
         expanded = v.expanduser().resolve()
         try:
             expanded.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            raise ValueError(f"Cannot create directory {expanded}: {e}") from e
+        except OSError as exc:
+            raise ValueError(f"Cannot create directory {expanded}: {exc}") from exc
         return expanded
 
     @field_validator("worktree_root", mode="after")
@@ -140,8 +140,8 @@ class AppConfig(BaseSettings):
         expanded = v.expanduser().resolve()
         try:
             expanded.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            raise ValueError(f"Cannot create worktree directory {expanded}: {e}") from e
+        except OSError as exc:
+            raise ValueError(f"Cannot create worktree directory {expanded}: {exc}") from exc
         return expanded
 
     @field_validator("memory_store", mode="after")
@@ -151,8 +151,8 @@ class AppConfig(BaseSettings):
         expanded = v.expanduser().resolve()
         try:
             expanded.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            raise ValueError(f"Cannot create parent directory for {expanded}: {e}") from e
+        except OSError as exc:
+            raise ValueError(f"Cannot create parent directory for {expanded}: {exc}") from exc
         return expanded
 
     @classmethod

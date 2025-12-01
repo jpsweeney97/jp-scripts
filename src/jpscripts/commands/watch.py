@@ -67,7 +67,8 @@ class _AsyncDispatchHandler(FileSystemEventHandler):
         path = Path(str(event.src_path))
         try:
             safe_path = validate_path(path, self._root)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Path validation failed for %s: %s", path, exc)
             return
         if self._should_ignore(safe_path):
             return

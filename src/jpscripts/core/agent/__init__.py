@@ -26,6 +26,7 @@ from jpscripts.core.agent.context import (
 # Export from execution module
 from jpscripts.core.agent.execution import (
     PatchFetcher,
+    RepairLoopConfig,
     ResponseFetcher,
     SecurityError,
     apply_patch_text,
@@ -59,6 +60,7 @@ __all__ = [
     "AttemptContext",
     "PatchFetcher",
     "PreparedPrompt",
+    "RepairLoopConfig",
     "RepairStrategy",
     "ResponseFetcher",
     "SecurityError",

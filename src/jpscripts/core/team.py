@@ -4,6 +4,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -205,10 +206,19 @@ class AgentTurnResponse(BaseModel):
     )
 
 
+class UpdateKind(Enum):
+    """Types of updates from swarm agents."""
+
+    STDOUT = "stdout"
+    STDERR = "stderr"
+    STATUS = "status"
+    EXIT = "exit"
+
+
 @dataclass
 class AgentUpdate:
     role: Persona
-    kind: str  # stdout | stderr | status | exit
+    kind: UpdateKind
     content: str
 
 
@@ -500,7 +510,7 @@ class SwarmController:
             async for chunk in self.provider.stream(messages, model=self.model, options=options):
                 if chunk.content:
                     chunks.append(chunk.content)
-                    await self.queue.put(AgentUpdate(role, "stdout", chunk.content))
+                    await self.queue.put(AgentUpdate(role, UpdateKind.STDOUT, chunk.content))
             return "".join(chunks)
 
         engine = AgentEngine[AgentTurnResponse](
@@ -513,19 +523,19 @@ class SwarmController:
         )
         self._engines[role.name] = engine
 
-        await self.queue.put(AgentUpdate(role, "status", "starting"))
+        await self.queue.put(AgentUpdate(role, UpdateKind.STATUS, "starting"))
         response = await engine.step([])
-        await self.queue.put(AgentUpdate(role, "exit", "0"))
+        await self.queue.put(AgentUpdate(role, UpdateKind.EXIT, "0"))
 
         self.swarm_state = response.swarm_state
         if response.spawn_tasks:
             self.pending_tasks.extend(response.spawn_tasks)
 
         next_step = response.next_step
-        yield AgentUpdate(role, "status", f"completed turn -> next: {next_step or 'auto'}")
+        yield AgentUpdate(role, UpdateKind.STATUS, f"completed turn -> next: {next_step or 'auto'}")
         next_role = self._resolve_next_role(role, next_step)
         if next_role is not None:
-            yield AgentUpdate(next_role, "status", "queued")
+            yield AgentUpdate(next_role, UpdateKind.STATUS, "queued")
         self._next_role = next_role
 
     async def run(self) -> AsyncIterator[AgentUpdate]:
@@ -534,12 +544,12 @@ class SwarmController:
         if current_role is None:
             yield AgentUpdate(
                 Persona(name="Unknown", style="", color="red"),
-                "stderr",
+                UpdateKind.STDERR,
                 "No roles available for swarm.",
             )
             return
 
-        yield AgentUpdate(current_role, "status", "context loaded")
+        yield AgentUpdate(current_role, UpdateKind.STATUS, "context loaded")
         turn = 0
         while current_role is not None and turn < self.max_turns:
             turn += 1
@@ -562,7 +572,7 @@ class SwarmController:
                     if isinstance(result, Exception):  # pragma: no cover - defensive
                         yield AgentUpdate(
                             Persona(name="Architect", style="", color="red"),
-                            "stderr",
+                            UpdateKind.STDERR,
                             f"Sub-swarm error: {result}",
                         )
                         continue
@@ -574,7 +584,7 @@ class SwarmController:
         if turn >= self.max_turns:
             yield AgentUpdate(
                 current_role or Persona(name="QA", style="", color="yellow"),
-                "stderr",
+                UpdateKind.STDERR,
                 f"Max turns ({self.max_turns}) reached.",
             )
 

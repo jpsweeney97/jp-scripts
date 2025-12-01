@@ -102,8 +102,8 @@ async def read_file_paged(path: str, offset: int = 0, limit: int = 20000) -> str
 
     try:
         return await asyncio.to_thread(_open_and_read)
-    except RuntimeError as e:
-        return f"Error: {e}"
+    except RuntimeError as exc:
+        return f"Error: {exc}"
 
 
 @tool()
@@ -143,8 +143,8 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
 
     try:
         size = await asyncio.to_thread(_open_and_write)
-    except RuntimeError as e:
-        return f"Error: {e}"
+    except RuntimeError as exc:
+        return f"Error: {exc}"
 
     logger.info("Wrote %d bytes to %s", size, candidate)
     return f"Successfully wrote {candidate.name} ({size} bytes)."

@@ -248,8 +248,8 @@ def codex_exec(
             inferred = infer_provider_type(target_model)
             if inferred == ProviderType.OPENAI and is_codex_available():
                 effective_provider = "codex"
-        except Exception:
-            pass
+        except Exception as exc:
+            console.print(f"[dim]Auto-detection skipped: {exc}[/dim]")
 
     # Repair loop mode
     if loop_enabled and run_command:

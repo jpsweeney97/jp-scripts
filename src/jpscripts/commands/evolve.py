@@ -332,7 +332,8 @@ async def _run_evolve(
         for test_file in test_files:
             try:
                 deps: set[Path] = await asyncio.to_thread(get_import_dependencies, test_file, root)
-            except Exception:
+            except Exception as exc:
+                logger.debug("Failed to get dependencies for %s: %s", test_file, exc)
                 deps = set()
             for changed in python_changes:
                 if changed in deps:

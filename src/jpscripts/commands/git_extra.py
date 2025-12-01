@@ -151,8 +151,8 @@ async def gpr(
     _ = ctx
     try:
         prs = await _get_prs(limit)
-    except RuntimeError as e:
-        console.print(f"[red]{e}[/red]")
+    except RuntimeError as exc:
+        console.print(f"[red]{exc}[/red]")
         raise typer.Exit(code=1)
 
     if not prs:
