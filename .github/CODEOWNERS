@@ -1,0 +1,11 @@
+# Default owners for everything in the repo
+* @jp
+
+# Core modules require additional review
+/src/jpscripts/core/ @jp
+/src/jpscripts/providers/ @jp
+
+# Security-sensitive areas
+/src/jpscripts/core/security.py @jp
+/src/jpscripts/core/governance.py @jp
+/src/jpscripts/core/command_validation.py @jp
