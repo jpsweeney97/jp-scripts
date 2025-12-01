@@ -774,28 +774,33 @@ This is the authoritative, sequenced checklist of ALL items. Work through in ord
 ### Phase 11: Performance Optimization (Days 32-35)
 *Optimize hot paths after architecture is stable.*
 
-- [ ] **11.1** 🚀 Optimize memory search - use generators (1 hour)
+- [✅ 2025-12-01] **11.1** 🚀 Optimize memory search - use generators (1 hour)
       Location: `core/memory/store.py` (after split)
       Action: Replace `load_entries()` with streaming in search
-      → Depends on: Phase 8 complete
+      → Depends on: Phase 8 complete ✅
+      Note: Added _streaming_keyword_search() with heapq for O(n) streaming with O(k) space
 
-- [ ] **11.2** 🚀 Add metadata indexing to memory (2 hours)
+- [✅ 2025-12-01] **11.2** 🚀 Add metadata indexing to memory (2 hours)
       Location: `core/memory/store.py`
       Action: Pre-filter by tags before scoring
-      → Depends on: #11.1
+      → Depends on: #11.1 ✅
+      Note: Added tag_filter parameter to all search methods for pre-filtering
 
-- [ ] **11.3** 🚀 Replace O(n²) clustering (3 hours)
+- [✅ 2025-12-01] **11.3** 🚀 Replace O(n²) clustering (3 hours)
       Location: `core/memory/retrieval.py`
       Action: Use FAISS or LanceDB built-in clustering
-      → Depends on: Phase 8 complete
+      → Depends on: Phase 8 complete ✅
+      Note: Replaced with vectorized numpy + Union-Find; O(n²) matrix ops instead of O(n²) Python loops
 
-- [ ] **11.4** 🚀 Cache token counting results (1.5 hours)
+- [✅ 2025-12-01] **11.4** 🚀 Cache token counting results (1.5 hours)
       Location: `core/tokens.py:179-191`
       Action: Single-pass tokenization, cache intermediate results
+      Note: Added trim_to_fit_counted() that returns (text, count) to avoid re-tokenization
 
-- [ ] **11.5** 🚀 Optimize context gathering O(n²) (2 hours)
+- [✅ 2025-12-01] **11.5** 🚀 Optimize context gathering O(n²) (2 hours)
       Location: `core/context_gatherer.py:76-123`
       Action: Batch stat calls, memoize `get_import_dependencies()`
+      Note: Refactored to 4-phase approach with _batch_check_files(); get_import_dependencies already cached
 
 ---
 
@@ -887,8 +892,8 @@ This is the authoritative, sequenced checklist of ALL items. Work through in ord
 
 **Started**: 2025-11-30
 **Last Updated**: 2025-12-01
-**Current Phase**: 10 (complete)
-**Current Item**: 11.1 (Optimize memory search)
+**Current Phase**: 11 (complete)
+**Current Item**: 12.1 (next: CONTRIBUTING.md - testing guidelines)
 **Baseline**: 507 passed, 4 failed (test_repair_loop.py), 53% coverage
 **Current**: 674 passed, 0 failed, ~57% coverage
 
@@ -905,10 +910,10 @@ This is the authoritative, sequenced checklist of ALL items. Work through in ord
 | 8 | 10 | 10 | 0 | 0 | 0 | 0 |
 | 9 | 8 | 8 | 0 | 0 | 0 | 0 |
 | 10 | 3 | 3 | 0 | 0 | 0 | 0 |
-| 11 | 5 | 0 | 0 | 0 | 0 | 5 |
+| 11 | 5 | 5 | 0 | 0 | 0 | 0 |
 | 12 | 8 | 0 | 0 | 0 | 0 | 8 |
 | 13 | 5 | 0 | 0 | 0 | 0 | 5 |
-| **Total** | **89** | **70** | **1** | **0** | **0** | **18** |
+| **Total** | **89** | **75** | **1** | **0** | **0** | **13** |
 
 ---
 

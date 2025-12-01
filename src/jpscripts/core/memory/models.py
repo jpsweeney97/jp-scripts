@@ -157,6 +157,7 @@ class MemoryStore(Protocol):
         limit: int,
         *,
         query_tokens: list[str] | None = None,
+        tag_filter: set[str] | None = None,
     ) -> Result[list[MemoryEntry], JPScriptsError]: ...
 
     def prune(self, root: Path) -> Result[int, JPScriptsError]: ...

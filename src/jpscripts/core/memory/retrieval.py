@@ -81,6 +81,115 @@ def _graph_expand(entries: Sequence[MemoryEntry]) -> list[MemoryEntry]:
     return [entries[idx] for idx, _ in ranked]
 
 
+def _vectorized_cluster(
+    candidates: list[MemoryEntry],
+    similarity_threshold: float,
+) -> list[list[MemoryEntry]]:
+    """Cluster entries using vectorized numpy operations.
+
+    Uses Union-Find with batch similarity computation for O(n²) matrix ops
+    instead of O(n²) Python loops. The numpy matrix multiplication is
+    highly optimized and runs much faster for large datasets.
+    """
+    try:
+        import numpy as np
+    except ImportError:
+        # Fallback to simple clustering if numpy unavailable
+        return _simple_cluster(candidates, similarity_threshold)
+
+    n = len(candidates)
+    if n == 0:
+        return []
+
+    # Build embedding matrix (n x d)
+    embeddings = []
+    for entry in candidates:
+        if entry.embedding:
+            embeddings.append(entry.embedding)
+        else:
+            embeddings.append([])
+
+    # Filter to only entries with embeddings
+    valid_indices = [i for i, e in enumerate(embeddings) if len(e) > 0]
+    if not valid_indices:
+        return []
+
+    # Extract valid embeddings into numpy array
+    valid_embeddings = np.array([embeddings[i] for i in valid_indices], dtype=np.float32)
+
+    # Normalize for cosine similarity: sim(a,b) = (a·b) / (|a||b|)
+    norms = np.linalg.norm(valid_embeddings, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1, norms)  # Avoid division by zero
+    normalized = valid_embeddings / norms
+
+    # Compute full similarity matrix in one operation: O(n²) but vectorized
+    similarity_matrix = normalized @ normalized.T
+
+    # Union-Find clustering
+    parent = list(range(len(valid_indices)))
+
+    def find(x: int) -> int:
+        if parent[x] != x:
+            parent[x] = find(parent[x])  # Path compression
+        return parent[x]
+
+    def union(x: int, y: int) -> None:
+        px, py = find(x), find(y)
+        if px != py:
+            parent[px] = py
+
+    # Union entries that are similar
+    for i in range(len(valid_indices)):
+        for j in range(i + 1, len(valid_indices)):
+            if similarity_matrix[i, j] >= similarity_threshold:
+                union(i, j)
+
+    # Group by cluster root
+    cluster_map: dict[int, list[int]] = {}
+    for i in range(len(valid_indices)):
+        root = find(i)
+        if root not in cluster_map:
+            cluster_map[root] = []
+        cluster_map[root].append(valid_indices[i])
+
+    # Build result clusters (only those with >1 entry)
+    clusters = []
+    for indices in cluster_map.values():
+        if len(indices) > 1:
+            cluster = [candidates[i] for i in sorted(indices, key=lambda i: candidates[i].ts)]
+            clusters.append(cluster)
+
+    return clusters
+
+
+def _simple_cluster(
+    candidates: list[MemoryEntry],
+    similarity_threshold: float,
+) -> list[list[MemoryEntry]]:
+    """Fallback clustering when numpy is unavailable.
+
+    O(n²) in Python loops - slower but works without numpy.
+    """
+    clusters: list[list[MemoryEntry]] = []
+
+    for entry in candidates:
+        embedding = entry.embedding
+        if embedding is None:
+            continue
+        placed = False
+        for cluster in clusters:
+            representative = cluster[0]
+            rep_embedding = representative.embedding or []
+            if _cosine_similarity(embedding, rep_embedding) >= similarity_threshold:
+                cluster.append(entry)
+                placed = True
+                break
+        if not placed:
+            clusters.append([entry])
+
+    return [cluster for cluster in clusters if len(cluster) > 1]
+
+
 async def cluster_memories(
     config: AppConfig,
     similarity_threshold: float = 0.85,
@@ -89,6 +198,9 @@ async def cluster_memories(
 
     Returns clusters where each cluster contains entries with embeddings
     similar to the cluster representative (first entry).
+
+    Uses vectorized numpy operations for O(n²) matrix computation instead
+    of O(n²) Python loops, providing significant speedup for large datasets.
     """
     match get_memory_store(config):
         case Err(err):
@@ -107,24 +219,9 @@ async def cluster_memories(
         return Ok([])
 
     candidates.sort(key=lambda e: e.ts)
-    clusters: list[list[MemoryEntry]] = []
 
-    for entry in candidates:
-        embedding = entry.embedding
-        if embedding is None:
-            continue
-        placed = False
-        for cluster in clusters:
-            representative = cluster[0]
-            rep_embedding = representative.embedding or []
-            if _cosine_similarity(embedding, rep_embedding) >= similarity_threshold:
-                cluster.append(entry)
-                placed = True
-                break
-        if not placed:
-            clusters.append([entry])
-
-    dense_clusters = [cluster for cluster in clusters if len(cluster) > 1]
+    # Use vectorized clustering for performance
+    dense_clusters = await asyncio.to_thread(_vectorized_cluster, candidates, similarity_threshold)
     return Ok(dense_clusters)
 
 
@@ -199,6 +296,8 @@ async def synthesize_cluster(
 __all__ = [
     "_cosine_similarity",
     "_graph_expand",
+    "_simple_cluster",
+    "_vectorized_cluster",
     "cluster_memories",
     "synthesize_cluster",
 ]

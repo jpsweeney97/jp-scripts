@@ -73,52 +73,90 @@ async def run_and_capture(command: str, cwd: Path) -> str:
     return (stdout + stderr).decode("utf-8", errors="replace")
 
 
+def _batch_check_files(paths: list[Path], workspace_root: Path) -> dict[Path, bool]:
+    """Check which paths are files within the workspace. Returns path -> is_valid mapping.
+
+    Runs all stat calls in a single thread to minimize overhead.
+    Uses a local cache to avoid repeated stat calls on the same path.
+    """
+    result: dict[Path, bool] = {}
+    for path in paths:
+        if path in result:
+            continue
+        try:
+            if path.is_file() and workspace_root in path.parents:
+                result[path] = True
+            else:
+                result[path] = False
+        except OSError:
+            result[path] = False
+    return result
+
+
 async def resolve_files_from_output(output: str, root: Path) -> tuple[list[Path], set[Path]]:
-    """Parse command output for file paths that exist in the workspace and their dependencies."""
-    found: set[Path] = set()
-    ordered: list[Path] = []
-    python_candidates: set[Path] = set()
+    """Parse command output for file paths that exist in the workspace and their dependencies.
+
+    Optimized to batch stat calls and avoid redundant file checks.
+    """
     try:
         workspace_root = root.resolve()
     except OSError:
         workspace_root = root
 
+    # Phase 1: Collect all candidate paths from output (no I/O yet)
+    raw_candidates: list[Path] = []
     for match in FILE_PATTERN.finditer(output):
         raw_path = match.group("path")
         clean_path = raw_path.strip(".'\"()")
-        candidate = (workspace_root / clean_path).resolve()
-
         try:
-            if candidate.is_file() and workspace_root in candidate.parents:
-                if candidate not in found:
-                    ordered.append(candidate)
-                found.add(candidate)
-                if candidate.suffix.lower() == ".py":
-                    python_candidates.add(candidate)
+            candidate = (workspace_root / clean_path).resolve()
+            raw_candidates.append(candidate)
         except OSError:
             continue
 
-    dependencies: set[Path] = set()
+    # Phase 2: Batch check which files exist (single threaded batch)
+    file_status = await asyncio.to_thread(_batch_check_files, raw_candidates, workspace_root)
+
+    # Build found set and ordered list from batch results
+    found: set[Path] = set()
+    ordered: list[Path] = []
+    python_candidates: set[Path] = set()
+
+    for candidate in raw_candidates:
+        if file_status.get(candidate, False):
+            if candidate not in found:
+                ordered.append(candidate)
+            found.add(candidate)
+            if candidate.suffix.lower() == ".py":
+                python_candidates.add(candidate)
+
+    # Phase 3: Get dependencies for Python files (already cached in structure module)
+    all_deps: set[Path] = set()
     for path in python_candidates:
         try:
             deps = await asyncio.to_thread(structure.get_import_dependencies, path, workspace_root)
+            for dep in deps:
+                try:
+                    all_deps.add(dep.resolve())
+                except OSError:
+                    continue
         except Exception as exc:
             logger.debug("Dependency discovery failed for %s: %s", path, exc)
             continue
-        for dep in deps:
-            try:
-                resolved_dep = dep.resolve()
-            except OSError:
-                continue
-            try:
-                if resolved_dep.is_file() and workspace_root in resolved_dep.parents:
-                    dependencies.add(resolved_dep)
-            except OSError:
-                continue
 
-    for dep in dependencies:
-        if dep not in found:
-            ordered.append(dep)
+    # Phase 4: Batch check dependency files (reusing cache for any already checked)
+    dep_paths = [dep for dep in all_deps if dep not in file_status]
+    if dep_paths:
+        dep_status = await asyncio.to_thread(_batch_check_files, dep_paths, workspace_root)
+        file_status.update(dep_status)
+
+    # Add valid dependencies to result
+    dependencies: set[Path] = set()
+    for dep in all_deps:
+        if file_status.get(dep, False):
+            dependencies.add(dep)
+            if dep not in found:
+                ordered.append(dep)
 
     return ordered, found | dependencies
 

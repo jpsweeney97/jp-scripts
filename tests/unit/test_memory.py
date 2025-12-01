@@ -84,8 +84,14 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
             return Ok(entry)
 
         def search(
-            self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None
+            self,
+            _vector: list[float] | None,
+            _limit: int,
+            *,
+            query_tokens: list[str] | None = None,
+            tag_filter: set[str] | None = None,
         ) -> Ok[list[memory_core.MemoryEntry]]:
+            _ = tag_filter  # Accept but ignore for test
             return Ok(
                 [
                     memory_core.MemoryEntry(
@@ -164,8 +170,14 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
             return Ok(entry)
 
         def search(
-            self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None
+            self,
+            _vector: list[float] | None,
+            _limit: int,
+            *,
+            query_tokens: list[str] | None = None,
+            tag_filter: set[str] | None = None,
         ) -> Ok[list[memory_core.MemoryEntry]]:
+            _ = tag_filter  # Accept but ignore for test
             return Ok([vector_entry])
 
         def prune(self, _root: Path) -> Ok[int]:
@@ -562,8 +574,14 @@ def test_hybrid_search_returns_both_vector_and_keyword_matches(
             return Ok(entry)
 
         def search(
-            self, _vector: list[float] | None, _limit: int, *, query_tokens: list[str] | None = None
+            self,
+            _vector: list[float] | None,
+            _limit: int,
+            *,
+            query_tokens: list[str] | None = None,
+            tag_filter: set[str] | None = None,
         ) -> Ok[list[memory_core.MemoryEntry]]:
+            _ = tag_filter  # Accept but ignore for test
             # Vector search returns vector_only and both
             return Ok([both, vector_only])
 

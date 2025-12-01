@@ -61,22 +61,35 @@ class TokenCounter:
 
     def trim_to_fit(self, text: str, max_tokens: int, model: str | None = None) -> str:
         """Trim text to fit within max_tokens."""
+        trimmed, _ = self.trim_to_fit_counted(text, max_tokens, model)
+        return trimmed
+
+    def trim_to_fit_counted(
+        self, text: str, max_tokens: int, model: str | None = None
+    ) -> tuple[str, int]:
+        """Trim text to fit within max_tokens, returning (text, token_count).
+
+        This avoids needing to re-tokenize after trimming.
+        """
         if max_tokens <= 0:
-            return ""
+            return "", 0
 
         target_model = model or self.default_model
         encoder = self._get_encoder(target_model)
         if encoder is None:
-            return text[: self.tokens_to_characters(max_tokens)]
+            trimmed = text[: self.tokens_to_characters(max_tokens)]
+            return trimmed, self._heuristic_tokens(trimmed)
 
         try:
             encoded = encoder.encode(text, disallowed_special=())
             if len(encoded) <= max_tokens:
-                return text
-            return encoder.decode(encoded[:max_tokens])
+                return text, len(encoded)
+            trimmed_tokens = encoded[:max_tokens]
+            return encoder.decode(trimmed_tokens), len(trimmed_tokens)
         except Exception as exc:
             logger.warning("Token trim failed for model %s: %s", target_model, exc)
-            return text[: self.tokens_to_characters(max_tokens)]
+            trimmed = text[: self.tokens_to_characters(max_tokens)]
+            return trimmed, self._heuristic_tokens(trimmed)
 
     def tokens_to_characters(self, tokens: int) -> int:
         """Coarse conversion from tokens to characters (upper bound)."""
@@ -185,10 +198,11 @@ class TokenBudgetManager:
         if not truncated:
             return ""
 
-        final_tokens = self.token_counter.count_tokens(truncated, model=self.model)
-        if final_tokens > token_budget:
-            truncated = self.token_counter.trim_to_fit(truncated, token_budget, model=self.model)
-            final_tokens = self.token_counter.count_tokens(truncated, model=self.model)
+        # Use trim_to_fit_counted to get both trimmed text and count in one pass
+        # This avoids 2 extra tokenization passes (count + trim + count)
+        truncated, final_tokens = self.token_counter.trim_to_fit_counted(
+            truncated, token_budget, model=self.model
+        )
 
         self._track_allocation(priority, final_tokens)
         return truncated

@@ -240,6 +240,56 @@ def _write_entries(path: Path, entries: Sequence[MemoryEntry]) -> None:
     os.replace(temp_path, path)
 
 
+def _streaming_keyword_search(
+    path: Path,
+    query_tokens: list[str],
+    limit: int,
+    *,
+    tag_filter: set[str] | None = None,
+) -> list[tuple[MemoryEntry, float]]:
+    """Stream entries and maintain top-k scored results using a min-heap.
+
+    This avoids loading all entries into memory at once. Uses heapq to maintain
+    only the top `limit` entries as we stream through the file.
+
+    Args:
+        path: Path to the JSONL file.
+        query_tokens: Tokenized query for scoring.
+        limit: Maximum number of results to return.
+        tag_filter: Optional set of tags. If provided, only entries with at least
+                   one matching tag are considered (pre-filter before scoring).
+    """
+    import heapq
+
+    if not query_tokens:
+        return []
+
+    # Use negative scores for min-heap to get max-k behavior
+    # Heap entries: (neg_score, counter, entry) - counter breaks ties
+    heap: list[tuple[float, int, MemoryEntry]] = []
+    counter = 0
+
+    for entry in _iter_entries(path):
+        # Pre-filter by tags if specified (metadata indexing optimization)
+        if tag_filter is not None:
+            entry_tags = set(entry.tags)
+            if not entry_tags.intersection(tag_filter):
+                continue
+
+        score = _score(query_tokens, entry)
+        if score > 0:
+            counter += 1
+            if len(heap) < limit:
+                heapq.heappush(heap, (score, counter, entry))
+            elif score > heap[0][0]:
+                heapq.heapreplace(heap, (score, counter, entry))
+
+    # Extract results in descending score order
+    results = [(entry, score) for score, _counter, entry in heap]
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
 def _score(query_tokens: list[str], entry: MemoryEntry) -> float:
     """Score an entry based on keyword overlap with time decay."""
     if not query_tokens or not entry.tokens:
@@ -391,6 +441,7 @@ class LanceDBStore(MemoryStore):
         limit: int,
         *,
         query_tokens: list[str] | None = None,
+        tag_filter: set[str] | None = None,
     ) -> Result[list[MemoryEntry], JPScriptsError]:
         if query_vec is None:
             return Ok([])
@@ -402,10 +453,13 @@ class LanceDBStore(MemoryStore):
                 ConfigurationError("Failed to prepare LanceDB table", context={"error": str(exc)})
             )
 
+        # Fetch extra if we need to filter by tags (post-filter for LanceDB)
+        fetch_limit = limit * 3 if tag_filter is not None else limit
+
         try:
             results = cast(
                 Sequence[MemoryRecordProtocol],
-                table.search(query_vec).limit(limit).to_pydantic(self._model_cls),
+                table.search(query_vec).limit(fetch_limit).to_pydantic(self._model_cls),
             )
         except Exception as exc:  # pragma: no cover - defensive
             return Err(ConfigurationError("LanceDB search failed", context={"error": str(exc)}))
@@ -413,6 +467,11 @@ class LanceDBStore(MemoryStore):
         matches: list[MemoryEntry] = []
         for row in results:
             tags = list(row.tags or [])
+
+            # Apply tag filter if specified
+            if tag_filter is not None and not set(tags).intersection(tag_filter):
+                continue
+
             token_source = f"{row.content} {' '.join(tags)}".strip()
             matches.append(
                 MemoryEntry(
@@ -426,6 +485,9 @@ class LanceDBStore(MemoryStore):
                     related_files=list(row.related_files or []),
                 )
             )
+            if len(matches) >= limit:
+                break
+
         return Ok(matches)
 
     def prune(
@@ -467,15 +529,15 @@ class JsonlArchiver(MemoryStore):
         limit: int,
         *,
         query_tokens: list[str] | None = None,
+        tag_filter: set[str] | None = None,
     ) -> Result[list[MemoryEntry], JPScriptsError]:
         _ = query_vec
-        entries = self.load_entries()
         if not query_tokens:
             return Ok([])
-        scored = [(entry, _score(query_tokens, entry)) for entry in entries]
-        scored = [item for item in scored if item[1] > 0]
-        scored.sort(key=lambda item: item[1], reverse=True)
-        return Ok([entry for entry, _score_val in scored[:limit]])
+        # Use streaming search to avoid loading all entries into memory
+        # Pass tag_filter for pre-filtering during streaming
+        scored = _streaming_keyword_search(self._path, query_tokens, limit, tag_filter=tag_filter)
+        return Ok([entry for entry, _score_val in scored])
 
     def prune(self, root: Path) -> Result[int, JPScriptsError]:
         entries = self.load_entries()
@@ -567,13 +629,19 @@ class HybridMemoryStore(MemoryStore):
         limit: int,
         *,
         query_tokens: list[str] | None = None,
+        tag_filter: set[str] | None = None,
     ) -> Result[list[MemoryEntry], JPScriptsError]:
-        entries = self._archiver.load_entries()
+        # Use streaming keyword search to avoid loading all entries
+        # We fetch more than limit to allow for RRF fusion
+        rrf_fetch_limit = limit * 3  # Fetch extra for better RRF coverage
+
         vector_results: list[MemoryEntry] = []
         vector_ranks: dict[str, int] = {}
 
         if self._vector_store and query_vec is not None:
-            match self._vector_store.search(query_vec, limit, query_tokens=query_tokens):
+            match self._vector_store.search(
+                query_vec, rrf_fetch_limit, query_tokens=query_tokens, tag_filter=tag_filter
+            ):
                 case Err(err):
                     return Err(err)
                 case Ok(results):
@@ -581,17 +649,22 @@ class HybridMemoryStore(MemoryStore):
                     vector_ranks = {entry.id: idx + 1 for idx, entry in enumerate(results)}
 
         keyword_ranks: dict[str, int] = {}
+        keyword_entries: dict[str, MemoryEntry] = {}
         if query_tokens:
-            kw_scored = [(entry, _score(query_tokens, entry)) for entry in entries]
-            kw_scored = [item for item in kw_scored if item[1] > 0]
-            kw_scored.sort(key=lambda item: item[1], reverse=True)
+            # Use streaming search instead of loading all entries
+            # Pass tag_filter for pre-filtering during streaming
+            kw_scored = _streaming_keyword_search(
+                self._archiver.path, query_tokens, rrf_fetch_limit, tag_filter=tag_filter
+            )
             keyword_ranks = {entry.id: idx + 1 for idx, (entry, _score_val) in enumerate(kw_scored)}
+            keyword_entries = {entry.id: entry for entry, _score_val in kw_scored}
 
         if not vector_ranks and not keyword_ranks:
             return Ok([])
 
         k_const = 60.0
-        entry_lookup: dict[str, MemoryEntry] = {entry.id: entry for entry in entries}
+        # Build entry lookup only from results we have, not all entries
+        entry_lookup: dict[str, MemoryEntry] = keyword_entries.copy()
         for entry in vector_results:
             entry_lookup[entry.id] = entry
 
@@ -667,10 +740,12 @@ __all__ = [
     "_compute_file_hash",
     "_fallback_path",
     "_format_entry",
+    "_iter_entries",
     "_load_entries",
     "_parse_entry",
     "_resolve_store",
     "_score",
+    "_streaming_keyword_search",
     "_tokenize",
     "_write_entries",
     "get_memory_store",
