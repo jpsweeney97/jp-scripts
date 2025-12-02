@@ -2,27 +2,25 @@
 
 This module provides:
 - Tool execution from the unified registry
-- Safe shell command execution with validation
+- Safe shell command execution with validation (str-returning wrapper)
 - Template environment loading
 
-Note: This module contains a simplified str-returning run_safe_shell.
-For the Result-returning version, use jpscripts.core.sys.run_safe_shell.
+The run_safe_shell here is a thin wrapper around core.sys.run_safe_shell
+that converts the Result type to a string for agent/LLM consumption.
 """
 
 from __future__ import annotations
 
-import shlex
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
 
-from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.cost_tracker import TokenUsage
-from jpscripts.core.result import Err
-from jpscripts.core.sys import CommandResult, get_sandbox
+from jpscripts.core.result import Err, Ok
+from jpscripts.core.sys import run_safe_shell as core_run_safe_shell
 
 from .circuit import enforce_circuit_breaker
 from .models import ToolCall
@@ -91,6 +89,9 @@ async def run_safe_shell(
 ) -> str:
     """Shared safe shell runner for AgentEngine and MCP.
 
+    This is a thin wrapper around core.sys.run_safe_shell that converts
+    the Result type to a string for agent/LLM consumption.
+
     Uses tokenized command validation to enforce:
     - Allowlisted binaries only (read-only operations)
     - No shell metacharacters (pipes, redirects, etc.)
@@ -106,55 +107,27 @@ async def run_safe_shell(
     Returns:
         Command output on success, error message on failure
     """
-    # Use tokenized validation instead of regex
-    verdict, reason = validate_command(command, root)
+    result = await core_run_safe_shell(command, root, audit_prefix, config)
 
-    if verdict != CommandVerdict.ALLOWED:
-        logger.warning(
-            "%s.reject verdict=%s reason=%r command=%r",
-            audit_prefix,
-            verdict.name,
-            reason,
-            command,
-        )
-        # Map verdict to user-friendly error message
-        if verdict == CommandVerdict.BLOCKED_FORBIDDEN:
-            return f"SecurityError: {reason}"
-        if verdict == CommandVerdict.BLOCKED_NOT_ALLOWLISTED:
-            return f"SecurityError: Command not permitted by policy. {reason}"
-        if verdict == CommandVerdict.BLOCKED_PATH_ESCAPE:
-            return f"SecurityError: {reason}"
-        if verdict == CommandVerdict.BLOCKED_DANGEROUS_FLAG:
-            return f"SecurityError: {reason}"
-        if verdict == CommandVerdict.BLOCKED_METACHAR:
-            return f"SecurityError: {reason}"
-        if verdict == CommandVerdict.BLOCKED_UNPARSEABLE:
-            return f"Unable to parse command; simplify quoting. ({reason})"
-        return f"SecurityError: {reason}"
-
-    # Parse command for execution
-    try:
-        tokens = shlex.split(command)
-    except ValueError as exc:
-        logger.warning("%s.reject parse_error=%s", audit_prefix, exc)
-        return f"Unable to parse command; simplify quoting. ({exc})"
-
-    if not tokens:
-        return "Invalid command argument."
-
-    runner = get_sandbox(config)
-    run_result = await runner.run_command(tokens, root, env=None)
-    if isinstance(run_result, Err):
-        logger.warning("%s.reject runner_error=%s", audit_prefix, run_result.error)
-        return f"Failed to run command: {run_result.error}"
-
-    result: CommandResult = run_result.value
-    if result.returncode != 0:
-        logger.warning("%s.fail code=%s cmd=%r", audit_prefix, result.returncode, command)
-        return f"Command failed with exit code {result.returncode}"
-
-    combined = (result.stdout + result.stderr).strip()
-    return combined or "Command produced no output."
+    match result:
+        case Err(error):
+            # Log the error with audit prefix
+            logger.warning("%s.reject error=%s command=%r", audit_prefix, error, command)
+            # Convert to user-friendly error message
+            error_str = str(error)
+            if "blocked by policy" in error_str.lower():
+                return f"SecurityError: {error}"
+            if "parse" in error_str.lower():
+                return f"Unable to parse command; simplify quoting. ({error})"
+            return f"Failed to run command: {error}"
+        case Ok(cmd_result):
+            if cmd_result.returncode != 0:
+                logger.warning(
+                    "%s.fail code=%s cmd=%r", audit_prefix, cmd_result.returncode, command
+                )
+                return f"Command failed with exit code {cmd_result.returncode}"
+            combined = (cmd_result.stdout + cmd_result.stderr).strip()
+            return combined or "Command produced no output."
 
 
 __all__ = [
