@@ -71,6 +71,10 @@ class ParallelSwarmController:
             fetch_response: Callback to fetch LLM responses
             max_turns_per_task: Maximum agent turns per task
             task_executor: Optional custom task executor (overrides fetch_response)
+
+        Raises:
+            ValueError: If neither task_executor nor fetch_response is provided.
+                The controller requires at least one way to execute tasks.
         """
         self.objective = objective.strip()
         self.config = config
@@ -81,7 +85,7 @@ class ParallelSwarmController:
 
         # Create task executor: prefer explicit executor, then build from fetch_response
         if task_executor is not None:
-            self._task_executor: TaskExecutor | None = task_executor
+            self._task_executor: TaskExecutor = task_executor
         elif fetch_response is not None:
             self._task_executor = SwarmAgentExecutor(
                 config=config,
@@ -90,7 +94,10 @@ class ParallelSwarmController:
                 max_turns=max_turns_per_task,
             )
         else:
-            self._task_executor = None
+            raise ValueError(
+                "ParallelSwarmController requires either task_executor or fetch_response. "
+                "Provide one of these arguments to enable task execution."
+            )
 
         self._repo: AsyncRepo | None = None
         self._worktree_manager: WorktreeManager | None = None
@@ -152,16 +159,7 @@ class ParallelSwarmController:
 
         [invariant:async-io] All I/O operations use async patterns.
         """
-        # Validate we have a task executor
-        if self._task_executor is None:
-            return TaskResult(
-                task_id=task.id,
-                status=TaskStatus.FAILED,
-                branch_name=ctx.branch_name,
-                error_message="No task executor configured",
-            )
-
-        # Delegate to the task executor
+        # Delegate to the task executor (guaranteed non-None by __init__)
         return await self._task_executor.execute(task, ctx)
 
     async def _run_parallel_batch(
