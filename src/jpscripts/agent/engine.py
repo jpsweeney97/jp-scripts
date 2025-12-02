@@ -82,23 +82,54 @@ class AgentEngine(Generic[ResponseT]):
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)
 
+    async def _apply_governance(
+        self,
+        response: ResponseT,
+        history: list[Message],
+        prepared: PreparedPrompt,
+        raw: str,
+    ) -> tuple[ResponseT, PreparedPrompt, str]:
+        """Apply constitutional governance checks if enabled.
+
+        Validates agent responses against governance rules (no shell=True,
+        no os.system, no bare except, etc.) and re-prompts if violations found.
+
+        Args:
+            response: Parsed agent response
+            history: Conversation history
+            prepared: The prepared prompt that generated this response
+            raw: Raw response string
+
+        Returns:
+            Tuple of (response, prepared_prompt, raw_response) after governance checks.
+            May differ from input if governance triggered a retry.
+
+        Raises:
+            ToolExecutionError: If fatal violations persist after max retries.
+        """
+        if not self._governance_enabled or self._workspace_root is None:
+            return response, prepared, raw
+
+        return await enforce_governance(
+            response,
+            history,
+            prepared,
+            raw,
+            self._workspace_root,
+            self._render_prompt,
+            self._fetch_response,
+            self._parser,
+        )
+
     async def step(self, history: list[Message]) -> ResponseT:
         prepared = await self._render_prompt(history)
         raw = await self._fetch_response(prepared)
         response = self._parser(raw)
 
-        # Apply governance check if enabled and workspace_root is set
-        if self._governance_enabled and self._workspace_root is not None:
-            response, prepared, raw = await enforce_governance(
-                response,
-                history,
-                prepared,
-                raw,
-                self._workspace_root,
-                self._render_prompt,
-                self._fetch_response,
-                self._parser,
-            )
+        # Apply governance check (handles enabled check internally)
+        response, prepared, raw = await self._apply_governance(
+            response, history, prepared, raw
+        )
 
         usage_snapshot = _estimate_token_usage(prepared.prompt, raw)
         files_touched = await self._infer_files_touched(response)
