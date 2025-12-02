@@ -41,6 +41,20 @@ STRUCTURED_EXTENSIONS = {".json", ".yml", ".yaml"}
 SENSITIVE_PATTERNS = [".env", ".env.*", "*.pem", "*.key", "id_rsa"]
 
 
+def is_sensitive_file(path: Path) -> bool:
+    """Check if a file matches sensitive patterns.
+
+    Patterns checked: .env, .env.*, *.pem, *.key, id_rsa
+
+    Args:
+        path: File path to check
+
+    Returns:
+        True if file should be blocked, False otherwise
+    """
+    return any(fnmatch.fnmatch(path.name, pattern) for pattern in SENSITIVE_PATTERNS)
+
+
 class GatherContextResult(BaseModel):
     """Structured result for context gathering."""
 
@@ -219,10 +233,9 @@ def read_file_context(
         limit: Hard cap for safety (default: DEFAULT_MODEL_CONTEXT_LIMIT).
     """
     effective_limit = max(0, min(max_chars, limit))
-    for pattern in SENSITIVE_PATTERNS:
-        if fnmatch.fnmatch(path.name, pattern):
-            logger.warning("Blocked sensitive file read: %s", path)
-            return None
+    if is_sensitive_file(path):
+        logger.warning("Blocked sensitive file read: %s", path)
+        return None
     try:
         estimated_tokens = int(path.stat().st_size / 4)
         if estimated_tokens > 10_000:
@@ -256,6 +269,11 @@ def smart_read_context(
         max_tokens: Optional token limit (converted to chars at 4 chars/token).
         limit: Hard cap for safety (default: DEFAULT_MODEL_CONTEXT_LIMIT).
     """
+    # Check for sensitive files first
+    if is_sensitive_file(path):
+        logger.warning("Blocked sensitive file read: %s", path)
+        return ""
+
     limits: list[int] = [max_chars, limit]
     if max_tokens is not None:
         limits.append(max(0, max_tokens * 4))
@@ -402,6 +420,7 @@ __all__ = [
     "GatherContextResult",
     "gather_context",
     "get_file_skeleton",
+    "is_sensitive_file",
     "read_file_context",
     "resolve_files_from_output",
     "run_and_capture",

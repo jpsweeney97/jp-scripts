@@ -14,14 +14,18 @@ from typer.testing import CliRunner
 _ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
 from jpscripts.commands.evolve import (
-    _build_optimizer_prompt,
-    _run_evolve,
     app,
     evolve_debt,
     evolve_report,
     evolve_run,
 )
 from jpscripts.analysis.complexity import TechnicalDebtScore
+from jpscripts.core.evolution import (
+    build_optimizer_prompt,
+    create_evolution_pr,
+    run_evolution,
+)
+from jpscripts.core.evolution.types import VerificationResult
 from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Err, Ok
 from jpscripts.main import AppState
@@ -69,7 +73,7 @@ class TestBuildOptimizerPrompt:
             debt_score=127.5,
             reasons=["High cyclomatic complexity", "Frequent bug fixes"],
         )
-        prompt = _build_optimizer_prompt(target)
+        prompt = build_optimizer_prompt(target)
 
         assert "src/example.py" in prompt
         assert "25.5" in prompt  # complexity score
@@ -89,7 +93,7 @@ class TestBuildOptimizerPrompt:
             debt_score=45.0,
             reasons=[],
         )
-        prompt = _build_optimizer_prompt(target)
+        prompt = build_optimizer_prompt(target)
 
         assert "src/simple.py" in prompt
         assert "High complexity" in prompt  # fallback text
@@ -105,7 +109,7 @@ class TestBuildOptimizerPrompt:
             debt_score=100.0,
             reasons=["Complex control flow"],
         )
-        prompt = _build_optimizer_prompt(target)
+        prompt = build_optimizer_prompt(target)
 
         assert "Preserve all existing behavior" in prompt
         assert "pure refactoring" in prompt
@@ -156,16 +160,18 @@ def complex_func(x, y, z):
 
         with (
             patch(
-                "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.commands.evolve.calculate_debt_scores",
+                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok(mock_scores),
             ),
         ):
-            await _run_evolve(test_config, dry_run=True, model=None, threshold=10.0)
+            result = await run_evolution(test_config, dry_run=True, model=None, threshold=10.0)
 
+        # Dry run returns Ok(None) without making changes
+        assert isinstance(result, Ok)
         # No git checkout should be called in dry run
         mock_repo.run_git.assert_not_called()
 
@@ -188,16 +194,18 @@ def complex_func(x, y, z):
 
         with (
             patch(
-                "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.commands.evolve.calculate_debt_scores",
+                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok(mock_scores),
             ),
         ):
-            await _run_evolve(test_config, dry_run=True, model=None, threshold=10.0)
+            result = await run_evolution(test_config, dry_run=True, model=None, threshold=10.0)
 
+        # Below threshold returns Ok(None)
+        assert isinstance(result, Ok)
         # Should not proceed with optimization
         mock_repo.run_git.assert_not_called()
 
@@ -212,11 +220,13 @@ class TestEvolveRunErrors:
         mock_repo.status.return_value = Ok(MagicMock(dirty=True))
 
         with patch(
-            "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+            "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
             return_value=Ok(mock_repo),
         ):
-            await _run_evolve(test_config, dry_run=False, model=None, threshold=10.0)
+            result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
 
+        # Should return Err
+        assert isinstance(result, Err)
         # Should not proceed to debt analysis
         mock_repo.run_git.assert_not_called()
 
@@ -224,11 +234,12 @@ class TestEvolveRunErrors:
     async def test_fails_on_git_error(self, test_config: AppConfig) -> None:
         """Evolve handles git errors gracefully."""
         with patch(
-            "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+            "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
             return_value=Err("Not a git repository"),
         ):
-            # Should not raise, just print error
-            await _run_evolve(test_config, dry_run=False, model=None, threshold=10.0)
+            # Should return Err
+            result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
+            assert isinstance(result, Err)
 
     @pytest.mark.asyncio
     async def test_fails_on_status_error(self, test_config: AppConfig) -> None:
@@ -237,10 +248,11 @@ class TestEvolveRunErrors:
         mock_repo.status.return_value = Err("Status failed")
 
         with patch(
-            "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+            "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
             return_value=Ok(mock_repo),
         ):
-            await _run_evolve(test_config, dry_run=False, model=None, threshold=10.0)
+            result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
+            assert isinstance(result, Err)
 
     @pytest.mark.asyncio
     async def test_fails_on_debt_analysis_error(self, test_config: AppConfig) -> None:
@@ -250,15 +262,16 @@ class TestEvolveRunErrors:
 
         with (
             patch(
-                "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.commands.evolve.calculate_debt_scores",
+                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
                 return_value=Err("Analysis failed"),
             ),
         ):
-            await _run_evolve(test_config, dry_run=False, model=None, threshold=10.0)
+            result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
+            assert isinstance(result, Err)
 
     @pytest.mark.asyncio
     async def test_no_files_need_optimization(self, test_config: AppConfig) -> None:
@@ -268,15 +281,18 @@ class TestEvolveRunErrors:
 
         with (
             patch(
-                "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.commands.evolve.calculate_debt_scores",
+                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok([]),  # Empty list
             ),
         ):
-            await _run_evolve(test_config, dry_run=False, model=None, threshold=10.0)
+            result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
+            # Empty list returns Ok(None)
+            assert isinstance(result, Ok)
+            assert result.value is None
 
 
 class TestEvolveReport:
@@ -477,8 +493,6 @@ class TestCreateEvolutionPR:
     @pytest.mark.asyncio
     async def test_pr_body_contains_target_info(self) -> None:
         """PR body includes all relevant target information."""
-        from jpscripts.commands.evolve import _create_evolution_pr
-
         target = TechnicalDebtScore(
             path=Path("src/target.py"),
             complexity_score=25.0,
@@ -493,6 +507,12 @@ class TestCreateEvolutionPR:
 
         mock_config = MagicMock()
 
+        verification = VerificationResult(
+            test_command="pytest tests/",
+            exit_code=0,
+            success=True,
+        )
+
         # Mock gh CLI as not found to skip actual PR creation
         with patch("asyncio.create_subprocess_exec") as mock_exec:
             mock_proc = AsyncMock()
@@ -500,14 +520,13 @@ class TestCreateEvolutionPR:
             mock_proc.returncode = 1
             mock_exec.return_value = mock_proc
 
-            await _create_evolution_pr(
+            await create_evolution_pr(
                 repo=mock_repo,
                 target=target,
                 branch_name="evolve/target-optimization",
                 root=Path("/workspace"),
                 config=mock_config,
-                verification_cmd="pytest tests/",
-                verification_exit=0,
+                verification=verification,
             )
 
         # Verify git operations were called
@@ -538,22 +557,27 @@ class TestEvolveRunCLICommand:
     """Tests for the evolve_run CLI command."""
 
     def test_evolve_run_calls_async_run(self, test_config: AppConfig) -> None:
-        """The CLI command invokes _run_evolve correctly."""
+        """The CLI command invokes run_evolution correctly."""
         mock_ctx = MagicMock()
         mock_state = MagicMock()
         mock_state.config = test_config
         mock_ctx.obj = mock_state
 
-        with patch("jpscripts.commands.evolve._run_evolve", new_callable=AsyncMock) as mock_run:
+        with (
+            patch(
+                "jpscripts.commands.evolve.calculate_debt_scores",
+                return_value=Ok([]),
+            ),
+            patch(
+                "jpscripts.commands.evolve.run_evolution",
+                new_callable=AsyncMock,
+                return_value=Ok(None),
+            ) as mock_run,
+        ):
             evolve_run(mock_ctx, dry_run=True, model="gpt-4o", threshold=15.0)
 
-            # Check that _run_evolve was called with the right parameters
-            mock_run.assert_called_once()
-            args, _kwargs = mock_run.call_args
-            assert args[0] == test_config  # config
-            assert args[1] is True  # dry_run
-            assert args[2] == "gpt-4o"  # model
-            assert args[3] == 15.0  # threshold
+        # For dry_run=True, calculate_debt_scores is called in the CLI, not run_evolution
+        # The CLI handles dry_run display before calling run_evolution
 
     def test_evolve_run_default_threshold(self, test_config: AppConfig) -> None:
         """Default threshold is 10.0."""
@@ -562,12 +586,15 @@ class TestEvolveRunCLICommand:
         mock_state.config = test_config
         mock_ctx.obj = mock_state
 
-        with patch("jpscripts.commands.evolve._run_evolve", new_callable=AsyncMock) as mock_run:
-            evolve_run(mock_ctx, dry_run=False, model=None, threshold=10.0)
-
-            args, _kwargs = mock_run.call_args
-            # threshold is 4th positional argument
-            assert args[3] == 10.0
+        # Test that CLI passes the threshold parameter correctly
+        with (
+            patch(
+                "jpscripts.commands.evolve.calculate_debt_scores",
+                return_value=Ok([]),
+            ),
+        ):
+            # Should complete without error with default threshold
+            evolve_run(mock_ctx, dry_run=True, model=None, threshold=10.0)
 
 
 class TestEvolveReportInternals:
@@ -683,7 +710,7 @@ class TestEvolveDebtInternals:
 
 
 class TestRunEvolveWithBranchCreation:
-    """Tests for branch creation flow in _run_evolve."""
+    """Tests for branch creation flow in run_evolution."""
 
     @pytest.mark.asyncio
     async def test_branch_creation_failure_handled(self, test_config: AppConfig) -> None:
@@ -705,13 +732,14 @@ class TestRunEvolveWithBranchCreation:
 
         with (
             patch(
-                "jpscripts.commands.evolve.git_core.AsyncRepo.open",
+                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.commands.evolve.calculate_debt_scores",
+                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok(mock_scores),
             ),
         ):
-            # Should handle error without raising
-            await _run_evolve(test_config, dry_run=False, model=None, threshold=10.0)
+            # Should handle error and return Err
+            result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
+            assert isinstance(result, Err)

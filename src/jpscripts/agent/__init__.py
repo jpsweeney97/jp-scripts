@@ -26,6 +26,15 @@ from jpscripts.agent.context import (
     scan_recent,
 )
 from jpscripts.agent.engine import AgentEngine
+from jpscripts.agent.middleware import (
+    AgentMiddleware,
+    BaseMiddleware,
+    CircuitBreakerMiddleware,
+    GovernanceMiddleware,
+    StepContext,
+    TracingMiddleware,
+    run_middleware_pipeline,
+)
 
 # Export from execution module
 from jpscripts.agent.execution import (
@@ -81,9 +90,15 @@ __all__ = [
     # Classes
     "AgentEngine",
     "AgentEvent",
+    "AgentMiddleware",
     "AgentResponse",
     "AgentTraceStep",
     "AttemptContext",
+    "BaseMiddleware",
+    "CircuitBreakerMiddleware",
+    "GovernanceMiddleware",
+    "StepContext",
+    "TracingMiddleware",
     # Enums and Types
     "EventKind",
     "MemoryProtocol",
@@ -113,6 +128,7 @@ __all__ = [
     "load_constitution",
     "parse_agent_response",
     "prepare_agent_prompt",
+    "run_middleware_pipeline",
     "run_repair_loop",
     "run_safe_shell",
     "scan_recent",

@@ -1,16 +1,18 @@
 """Safety monitoring and circuit breaker logic.
 
 This module provides:
-- Token estimation using tiktoken
+- Token estimation using tiktoken (lazy-loaded)
 - Circuit breaker enforcement
 - Black box crash report generation
 """
 
 from __future__ import annotations
 
+import functools
+import importlib
+from collections.abc import Sequence
 from pathlib import Path
-
-import tiktoken
+from typing import Protocol, cast
 
 from jpscripts.core import runtime
 from jpscripts.core.cost_tracker import TokenUsage
@@ -18,14 +20,24 @@ from jpscripts.core.runtime import CircuitBreaker
 
 from .models import SafetyLockdownError
 
-# Pre-warm tiktoken encoder at module import time.
-# This adds ~100ms to import but avoids a blocking call during agent execution.
-_TOKENIZER: tiktoken.Encoding = tiktoken.get_encoding("cl100k_base")
+
+class _TokenizerProtocol(Protocol):
+    """Protocol for tiktoken encoder interface."""
+
+    def encode(
+        self, text: str, *, disallowed_special: Sequence[str] | tuple[str, ...] = ()
+    ) -> list[int]: ...
 
 
-def _get_tokenizer() -> tiktoken.Encoding:
-    """Get the tiktoken encoder (cl100k_base for GPT-4/Claude)."""
-    return _TOKENIZER
+@functools.lru_cache(maxsize=1)
+def _get_tokenizer() -> _TokenizerProtocol:
+    """Get the tiktoken encoder (cl100k_base for GPT-4/Claude).
+
+    Lazily imports tiktoken on first call to avoid ~100ms startup penalty.
+    Thread-safe via lru_cache.
+    """
+    tiktoken_module = importlib.import_module("tiktoken")  # safety: checked
+    return cast(_TokenizerProtocol, tiktoken_module.get_encoding("cl100k_base"))
 
 
 def _approximate_tokens(content: str) -> int:

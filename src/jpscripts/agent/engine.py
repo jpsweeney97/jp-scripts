@@ -6,12 +6,13 @@ This module provides the main AgentEngine class which composes:
 - Safety monitoring (circuit breaker)
 - Trace recording
 - Tool execution
+
+The engine supports an optional middleware pipeline for extensibility.
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Generic
 
@@ -19,10 +20,16 @@ from pydantic import BaseModel
 
 from jpscripts.core.cost_tracker import TokenUsage
 
-from .circuit import _estimate_token_usage, enforce_circuit_breaker
-from .governance import enforce_governance
+from .circuit import _estimate_token_usage
+from .middleware import (
+    AgentMiddleware,
+    CircuitBreakerMiddleware,
+    GovernanceMiddleware,
+    StepContext,
+    TracingMiddleware,
+    run_middleware_pipeline,
+)
 from .models import (
-    AgentTraceStep,
     MemoryProtocol,
     Message,
     PreparedPrompt,
@@ -30,7 +37,7 @@ from .models import (
     ToolCall,
 )
 from .tools import execute_tool
-from .tracing import TraceRecorder, _get_tracer
+from .tracing import TraceRecorder
 
 
 class AgentEngine(Generic[ResponseT]):
@@ -38,10 +45,13 @@ class AgentEngine(Generic[ResponseT]):
 
     This class composes the extracted modules to provide:
     - Response fetching and parsing
-    - Governance enforcement
-    - Safety monitoring (circuit breaker)
-    - Trace recording
+    - Governance enforcement via middleware
+    - Safety monitoring (circuit breaker) via middleware
+    - Trace recording via middleware
     - Tool execution
+
+    The engine uses a middleware pipeline for extensibility. Default middleware
+    can be disabled with use_default_middleware=False.
     """
 
     def __init__(
@@ -58,6 +68,8 @@ class AgentEngine(Generic[ResponseT]):
         trace_dir: Path | None = None,
         workspace_root: Path | None = None,
         governance_enabled: bool = True,
+        middleware: Sequence[AgentMiddleware[ResponseT]] | None = None,
+        use_default_middleware: bool = True,
     ) -> None:
         self.persona = persona
         self.model = model
@@ -79,116 +91,92 @@ class AgentEngine(Generic[ResponseT]):
         self._last_usage_snapshot: TokenUsage | None = None
         self._last_files_touched: list[Path] = []
 
+        # Build middleware pipeline
+        self._middleware: list[AgentMiddleware[ResponseT]] = []
+
+        if use_default_middleware:
+            # Default middleware in execution order:
+            # 1. Governance (validates responses, may retry)
+            if governance_enabled and workspace_root is not None:
+                self._middleware.append(
+                    GovernanceMiddleware(
+                        workspace_root=workspace_root,
+                        render_prompt=self._render_prompt,
+                        fetch_response=self._fetch_response,
+                        parser=parser,
+                        enabled=True,
+                    )
+                )
+
+            # 2. Circuit breaker (enforces safety limits)
+            self._middleware.append(CircuitBreakerMiddleware(persona=persona))
+
+            # 3. Tracing (records execution traces)
+            self._middleware.append(
+                TracingMiddleware(
+                    trace_recorder=self._trace_recorder,
+                    persona=persona,
+                )
+            )
+
+        # Add custom middleware after defaults
+        if middleware:
+            self._middleware.extend(middleware)
+
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)
 
-    async def _apply_governance(
-        self,
-        response: ResponseT,
-        history: list[Message],
-        prepared: PreparedPrompt,
-        raw: str,
-    ) -> tuple[ResponseT, PreparedPrompt, str]:
-        """Apply constitutional governance checks if enabled.
+    async def step(self, history: list[Message]) -> ResponseT:
+        """Execute one agent turn with middleware pipeline.
 
-        Validates agent responses against governance rules (no shell=True,
-        no os.system, no bare except, etc.) and re-prompts if violations found.
+        The step method:
+        1. Renders the prompt
+        2. Runs before_step middleware
+        3. Fetches and parses response
+        4. Computes usage metrics
+        5. Runs after_step middleware (governance, circuit breaker, tracing)
 
         Args:
-            response: Parsed agent response
             history: Conversation history
-            prepared: The prepared prompt that generated this response
-            raw: Raw response string
 
         Returns:
-            Tuple of (response, prepared_prompt, raw_response) after governance checks.
-            May differ from input if governance triggered a retry.
+            Parsed response from the model
 
         Raises:
-            ToolExecutionError: If fatal violations persist after max retries.
+            SafetyLockdownError: If circuit breaker is triggered
+            ToolExecutionError: If governance violations persist
         """
-        if not self._governance_enabled or self._workspace_root is None:
-            return response, prepared, raw
+        # Create context
+        ctx: StepContext[ResponseT] = StepContext(history=list(history))
 
-        return await enforce_governance(
-            response,
-            history,
-            prepared,
-            raw,
-            self._workspace_root,
-            self._render_prompt,
-            self._fetch_response,
-            self._parser,
-        )
+        # Phase 1: Render prompt
+        ctx.prepared = await self._render_prompt(history)
 
-    async def step(self, history: list[Message]) -> ResponseT:
-        prepared = await self._render_prompt(history)
-        raw = await self._fetch_response(prepared)
-        response = self._parser(raw)
+        # Phase 2: Run before_step middleware
+        ctx = await run_middleware_pipeline(self._middleware, ctx, phase="before")
 
-        # Apply governance check (handles enabled check internally)
-        response, prepared, raw = await self._apply_governance(
-            response, history, prepared, raw
-        )
+        # Phase 3: Fetch and parse response (prepared is guaranteed set after render)
+        if ctx.prepared is None:
+            raise RuntimeError("Prepared prompt was None after middleware - should not happen")
+        ctx.raw_response = await self._fetch_response(ctx.prepared)
+        ctx.response = self._parser(ctx.raw_response)
 
-        usage_snapshot = _estimate_token_usage(prepared.prompt, raw)
-        files_touched = await self._infer_files_touched(response)
-        self._last_usage_snapshot = usage_snapshot
-        self._last_files_touched = files_touched
+        # Phase 4: Compute metrics for middleware
+        ctx.usage_snapshot = _estimate_token_usage(ctx.prepared.prompt, ctx.raw_response)
+        ctx.files_touched = await self._infer_files_touched(ctx.response)
 
-        enforce_circuit_breaker(
-            usage=usage_snapshot,
-            files_touched=files_touched,
-            persona=self.persona,
-            context="agent_response",
-        )
+        # Store for execute_tool access
+        self._last_usage_snapshot = ctx.usage_snapshot
+        self._last_files_touched = ctx.files_touched
 
-        await self._record_trace(history, response)
-        return response
+        # Phase 5: Run after_step middleware (governance, circuit breaker, tracing)
+        ctx = await run_middleware_pipeline(self._middleware, ctx, phase="after")
 
-    async def _record_trace(
-        self, history: Sequence[Message], response: BaseModel, tool_output: str | None = None
-    ) -> None:
-        from jpscripts.core.console import get_logger
-
-        logger = get_logger(__name__)
-        try:
-            step = AgentTraceStep(
-                timestamp=datetime.now(UTC).isoformat(),
-                agent_persona=self.persona,
-                input_history=[{"role": msg.role, "content": msg.content} for msg in history],
-                response=response.model_dump(),
-                tool_output=tool_output,
-            )
-            await self._trace_recorder.append(step)
-            tracer = _get_tracer()
-            if tracer is not None:
-                files_touched = [str(path) for path in self._last_files_touched]
-                usage_snapshot = self._last_usage_snapshot
-                with tracer.start_as_current_span("agent.turn") as span:
-                    span.set_attribute("agent.persona", self.persona)
-                    if files_touched:
-                        span.set_attribute("code.files_touched", files_touched)
-                    if usage_snapshot is not None:
-                        span.set_attribute("usage.prompt_tokens", usage_snapshot.prompt_tokens)
-                        span.set_attribute(
-                            "usage.completion_tokens", usage_snapshot.completion_tokens
-                        )
-                        span.set_attribute("usage.total_tokens", usage_snapshot.total_tokens)
-                    tool_call = getattr(response, "tool_call", None)
-                    if tool_call is not None:
-                        span.add_event(
-                            "tool_call",
-                            {
-                                "tool_call": tool_call.model_dump()
-                                if hasattr(tool_call, "model_dump")
-                                else str(tool_call)
-                            },
-                        )
-                    if tool_output:
-                        span.add_event("tool_output", {"output": tool_output})
-        except Exception as exc:  # pragma: no cover - best effort
-            logger.debug("Failed to record trace: %s", exc)
+        # Return the (potentially modified) response
+        if ctx.response is None:
+            # Should not happen in normal flow, but handle defensively
+            raise RuntimeError("Response was None after middleware pipeline")
+        return ctx.response
 
     async def _infer_files_touched(self, response: BaseModel) -> list[Path]:
         if not hasattr(response, "file_patch"):
