@@ -32,6 +32,7 @@ except ImportError:  # pragma: no cover - optional dependency
 from jpscripts.agent import AgentEngine, Message, PreparedPrompt
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
+from jpscripts.core.result import Err
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
 from jpscripts.providers import (
@@ -533,7 +534,18 @@ class SwarmController:
         self._engines[role.name] = engine
 
         await self.queue.put(AgentUpdate(role, UpdateKind.STATUS, "starting"))
-        response = await engine.step([])
+        step_result = await engine.step([])
+
+        # Handle Result from engine.step()
+        if isinstance(step_result, Err):
+            error = step_result.error
+            await self.queue.put(
+                AgentUpdate(role, UpdateKind.STDERR, f"Agent error ({error.kind}): {error.message}")
+            )
+            await self.queue.put(AgentUpdate(role, UpdateKind.EXIT, "1"))
+            return
+
+        response = step_result.value
         await self.queue.put(AgentUpdate(role, UpdateKind.EXIT, "0"))
 
         self.swarm_state = response.swarm_state

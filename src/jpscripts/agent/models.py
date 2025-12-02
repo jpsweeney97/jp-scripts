@@ -5,6 +5,7 @@ used throughout the agent subsystem, including:
 - Response and message types
 - OpenTelemetry protocol types
 - Event types and configuration
+- AgentResult type for error handling
 """
 
 from __future__ import annotations
@@ -14,9 +15,11 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
 
 from pydantic import BaseModel, Field
+
+from jpscripts.core.result import Err, JPScriptsError, Ok, Result
 
 if TYPE_CHECKING:
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # pyright: ignore[reportMissingImports]
@@ -137,6 +140,44 @@ class SafetyLockdownError(RuntimeError):
         super().__init__(f"SafetyLockdownError triggered\n{report}")
 
 
+class AgentError(JPScriptsError):
+    """Error returned by AgentEngine.step() when an operation fails.
+
+    Wraps various failure modes into a single error type for the Result pattern:
+    - Safety lockdown (circuit breaker triggered)
+    - Middleware errors (governance, tracing)
+    - Response parsing errors
+    - Prompt rendering errors
+
+    Attributes:
+        kind: Category of the error (safety, middleware, parse, render)
+        cause: The original exception that caused this error (if any)
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "unknown",
+        cause: Exception | None = None,
+        context: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, context=context)
+        self.kind = kind
+        self.cause = cause
+        if cause and not context:
+            self.context["cause_type"] = type(cause).__name__
+
+
+# -----------------------------------------------------------------------------
+# AgentResult Type
+# -----------------------------------------------------------------------------
+
+# Generic type for AgentEngine.step() return value
+# Usage: async def step(self, history: list[Message]) -> AgentResult[ResponseT]
+AgentResult = Result[ResponseT, AgentError]
+
+
 class AgentTraceStep(BaseModel):
     timestamp: str
     agent_persona: str
@@ -221,7 +262,9 @@ __all__ = [
     # Event types (from agent/types.py)
     "AgentEvent",
     # Core models
+    "AgentError",
     "AgentResponse",
+    "AgentResult",
     "AgentTraceStep",
     # OpenTelemetry protocols
     "BatchSpanProcessorProtocol",

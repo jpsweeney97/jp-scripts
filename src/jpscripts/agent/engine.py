@@ -29,11 +29,16 @@ from .middleware import (
     TracingMiddleware,
     run_middleware_pipeline,
 )
+from jpscripts.core.result import Err, Ok
+
 from .models import (
+    AgentError,
+    AgentResult,
     MemoryProtocol,
     Message,
     PreparedPrompt,
     ResponseT,
+    SafetyLockdownError,
     ToolCall,
 )
 from .patching import extract_patch_paths
@@ -127,7 +132,7 @@ class AgentEngine(Generic[ResponseT]):
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)
 
-    async def step(self, history: list[Message]) -> ResponseT:
+    async def step(self, history: list[Message]) -> AgentResult[ResponseT]:
         """Execute one agent turn with middleware pipeline.
 
         The step method:
@@ -141,43 +146,72 @@ class AgentEngine(Generic[ResponseT]):
             history: Conversation history
 
         Returns:
-            Parsed response from the model
-
-        Raises:
-            SafetyLockdownError: If circuit breaker is triggered
-            ToolExecutionError: If governance violations persist
+            Ok(response) on success, Err(AgentError) on failure.
+            Possible error kinds:
+            - "safety": Circuit breaker triggered (SafetyLockdownError)
+            - "render": Prompt rendering failed
+            - "parse": Response parsing failed
+            - "middleware": Middleware pipeline error
         """
-        # Create context
-        ctx: StepContext[ResponseT] = StepContext(history=list(history))
+        try:
+            # Create context
+            ctx: StepContext[ResponseT] = StepContext(history=list(history))
 
-        # Phase 1: Render prompt
-        ctx.prepared = await self._render_prompt(history)
+            # Phase 1: Render prompt
+            ctx.prepared = await self._render_prompt(history)
 
-        # Phase 2: Run before_step middleware
-        ctx = await run_middleware_pipeline(self._middleware, ctx, phase="before")
+            # Phase 2: Run before_step middleware
+            ctx = await run_middleware_pipeline(self._middleware, ctx, phase="before")
 
-        # Phase 3: Fetch and parse response (prepared is guaranteed set after render)
-        if ctx.prepared is None:
-            raise RuntimeError("Prepared prompt was None after middleware - should not happen")
-        ctx.raw_response = await self._fetch_response(ctx.prepared)
-        ctx.response = self._parser(ctx.raw_response)
+            # Phase 3: Fetch and parse response (prepared is guaranteed set after render)
+            if ctx.prepared is None:
+                return Err(
+                    AgentError(
+                        "Prepared prompt was None after middleware",
+                        kind="middleware",
+                    )
+                )
+            ctx.raw_response = await self._fetch_response(ctx.prepared)
+            ctx.response = self._parser(ctx.raw_response)
 
-        # Phase 4: Compute metrics for middleware
-        ctx.usage_snapshot = _estimate_token_usage(ctx.prepared.prompt, ctx.raw_response)
-        ctx.files_touched = await self._infer_files_touched(ctx.response)
+            # Phase 4: Compute metrics for middleware
+            ctx.usage_snapshot = _estimate_token_usage(ctx.prepared.prompt, ctx.raw_response)
+            ctx.files_touched = await self._infer_files_touched(ctx.response)
 
-        # Store for execute_tool access
-        self._last_usage_snapshot = ctx.usage_snapshot
-        self._last_files_touched = ctx.files_touched
+            # Store for execute_tool access
+            self._last_usage_snapshot = ctx.usage_snapshot
+            self._last_files_touched = ctx.files_touched
 
-        # Phase 5: Run after_step middleware (governance, circuit breaker, tracing)
-        ctx = await run_middleware_pipeline(self._middleware, ctx, phase="after")
+            # Phase 5: Run after_step middleware (governance, circuit breaker, tracing)
+            ctx = await run_middleware_pipeline(self._middleware, ctx, phase="after")
 
-        # Return the (potentially modified) response
-        if ctx.response is None:
-            # Should not happen in normal flow, but handle defensively
-            raise RuntimeError("Response was None after middleware pipeline")
-        return ctx.response
+            # Return the (potentially modified) response
+            if ctx.response is None:
+                return Err(
+                    AgentError(
+                        "Response was None after middleware pipeline",
+                        kind="middleware",
+                    )
+                )
+            return Ok(ctx.response)
+
+        except SafetyLockdownError as exc:
+            return Err(
+                AgentError(
+                    f"Safety lockdown: {exc.report}",
+                    kind="safety",
+                    cause=exc,
+                )
+            )
+        except Exception as exc:
+            # Catch-all for unexpected errors (parsing, middleware, etc.)
+            return Err(
+                AgentError(
+                    f"Agent step failed: {exc}",
+                    kind="unknown",
+                    cause=exc,
+                )
+            )
 
     async def _infer_files_touched(self, response: BaseModel) -> list[Path]:
         if not hasattr(response, "file_patch"):

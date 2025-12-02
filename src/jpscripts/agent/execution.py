@@ -17,6 +17,7 @@ from jpscripts.agent import ops
 from jpscripts.agent.context import expand_context_paths
 from jpscripts.agent.engine import AgentEngine
 from jpscripts.agent.models import (
+    AgentError,
     AgentEvent,
     AgentResponse,
     EventKind,
@@ -28,6 +29,7 @@ from jpscripts.agent.models import (
     SecurityError,
     ToolCall,
 )
+from jpscripts.core.result import Err, Ok
 from jpscripts.agent.ops import verify_syntax  # Re-export for backward compatibility
 from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
@@ -499,14 +501,16 @@ class RepairLoopOrchestrator:
                 governance_enabled=True,
             )
 
-            try:
-                agent_response = await engine.step(self.history)
-            except ValidationError as exc:
-                validation_error = f"Agent response validation failed: {exc}"
+            step_result = await engine.step(self.history)
+
+            # Handle Result from engine.step()
+            if isinstance(step_result, Err):
+                error = step_result.error
+                error_message = f"Agent step failed ({error.kind}): {error.message}"
                 yield AgentEvent(
                     EventKind.VALIDATION_ERROR,
-                    validation_error,
-                    {"error": validation_error},
+                    error_message,
+                    {"error": error_message, "kind": error.kind},
                 )
                 _append_history(
                     self.history,
@@ -514,13 +518,14 @@ class RepairLoopOrchestrator:
                         role="system",
                         content=(
                             "<Turn>\nAgent thought: (invalid)\nTool output: "
-                            f"{validation_error}\n</Turn>"
+                            f"{error_message}\n</Turn>"
                         ),
                     ),
                 )
-                current_error = validation_error
+                current_error = error_message
                 continue
 
+            agent_response = step_result.value
             tool_call: ToolCall | None = agent_response.tool_call
             patch_text = (agent_response.file_patch or "").strip()
             thought = agent_response.thought_process

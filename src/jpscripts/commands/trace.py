@@ -22,6 +22,7 @@ from rich.tree import Tree
 
 from jpscripts.agent import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.core.console import console
+from jpscripts.core.result import Err
 from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.replay import (
     RecordedAgentResponse,
@@ -383,7 +384,15 @@ def replay_trace(
                 Message(role=entry.get("role", "user"), content=entry.get("content", ""))
                 for entry in step.input_history
             ]
-            final_response = await engine.step(history)
+            step_result = await engine.step(history)
+
+            # Handle Result from engine.step()
+            if isinstance(step_result, Err):
+                error = step_result.error
+                raise ReplayDivergenceError(
+                    f"Agent error during replay ({error.kind}): {error.message}"
+                )
+            final_response = step_result.value
 
         if final_response is None:
             raise ReplayDivergenceError("Replay produced no responses.")
