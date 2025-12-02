@@ -393,3 +393,67 @@ logger.warning("Potential issue: %s", exc)
   - Final: 674 tests, 0 failing, 57% coverage
 
 To start a fresh audit, ask Claude to "run a technical debt audit".
+
+---
+
+## 12. Active refactoring roadmap
+
+### Session continuity protocol
+
+**IMPORTANT:** At the start of each session or after any `/compact` operation, you MUST:
+
+1. **Read the active roadmap file:** `docs/REFACTORING_ROADMAP.md`
+2. **Check the Progress Tracker section** to determine:
+   - Which phase is currently in progress
+   - Which specific step was last completed
+   - Whether there are any blockers
+3. **Resume from the exact position** - do not restart completed work
+
+### Current active roadmap
+
+**File:** `docs/REFACTORING_ROADMAP.md`
+**Purpose:** Architecture consolidation (system.py decomposition, AST extraction, engine/agent merge)
+
+### Progress tracking requirements
+
+When working on the roadmap:
+
+1. **Before starting a step:**
+   - Mark the step as "IN PROGRESS" in the roadmap file
+   - Update "Current Position" in the Progress Tracker section
+
+2. **After completing a step:**
+   - Check off the step's verification checkboxes
+   - Mark the step as "COMPLETED"
+
+3. **After completing a phase:**
+   - Check off the phase in "Overall Status"
+   - Update "Current Position" to the next phase
+   - Commit and push all changes:
+     ```bash
+     git add -A
+     git commit -m "refactor: <phase description>"
+     git push
+     ```
+   - Update roadmap with commit hash for reference
+
+4. **If interrupted mid-step:**
+   - Note exactly where you stopped in the roadmap
+   - List any partial work completed
+   - Note any issues encountered
+
+### Roadmap file format
+
+The roadmap uses this structure for tracking:
+```markdown
+### Step X.Y: Description
+**Status:** NOT STARTED | IN PROGRESS | COMPLETED | BLOCKED
+
+**Action:** What to do
+
+**Verification:**
+- [ ] Check 1
+- [ ] Check 2
+```
+
+Update the status and check boxes as you work. This enables exact resumption after compaction or session restart.

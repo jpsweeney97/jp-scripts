@@ -17,6 +17,10 @@ from jpscripts.analysis.dependency_walker import (
     SymbolKind,
     SymbolNode,
 )
+from jpscripts.analysis.skeleton import (
+    SYNTAX_WARNING,
+    get_file_skeleton,
+)
 from jpscripts.analysis.structure import (
     generate_map,
     get_import_dependencies,
@@ -38,6 +42,9 @@ __all__ = [
     "DependencyWalker",
     "SymbolKind",
     "SymbolNode",
+    # skeleton
+    "SYNTAX_WARNING",
+    "get_file_skeleton",
     # structure
     "generate_map",
     "get_import_dependencies",
