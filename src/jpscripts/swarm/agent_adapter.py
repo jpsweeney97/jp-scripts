@@ -19,7 +19,7 @@ from jpscripts.core.config import AppConfig
 from jpscripts.structures.dag import DAGTask, TaskStatus, WorktreeContext
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.result import Err, Ok
-from jpscripts.core.system import run_safe_shell
+from jpscripts.core.sys import run_safe_shell
 from jpscripts.engine import Message, PreparedPrompt, ToolCall, parse_agent_response
 from jpscripts.git import AsyncRepo
 from jpscripts.swarm.types import TaskResult

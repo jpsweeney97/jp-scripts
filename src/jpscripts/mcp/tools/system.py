@@ -8,7 +8,7 @@ Provides tools for system interactions:
 
 from __future__ import annotations
 
-from jpscripts.core import system as system_core
+from jpscripts.core import sys as system_core
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.engine import AUDIT_PREFIX, run_safe_shell

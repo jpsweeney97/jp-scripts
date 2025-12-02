@@ -14,7 +14,7 @@ from pathlib import Path
 from jpscripts.core import security
 from jpscripts.core.console import get_logger
 from jpscripts.core.result import Err, Ok
-from jpscripts.core.system import run_safe_shell
+from jpscripts.core.sys import run_safe_shell
 
 logger = get_logger(__name__)
 

@@ -19,7 +19,7 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.result import Err
-from jpscripts.core.system import CommandResult, get_sandbox
+from jpscripts.core.sys import CommandResult, get_sandbox
 
 from .models import ToolCall
 from .safety_monitor import enforce_circuit_breaker
