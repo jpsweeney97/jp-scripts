@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import os
 import shutil
+import tempfile
 import tomllib
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -145,6 +146,44 @@ class MCPCheck(DiagnosticCheck):
         return "warn", "jpscripts MCP server not registered."
 
 
+class WorktreeCheck(DiagnosticCheck):
+    """Check for orphaned git worktrees from crashed swarm sessions."""
+
+    def __init__(self, config: AppConfig) -> None:
+        self.config = config
+        self.name = "Worktrees"
+        # Pattern from swarm/worktree.py: worktree-{task_id}-{8hex}
+        self._pattern = "worktree-*-????????"
+
+    async def run(self) -> tuple[str, str]:
+        # Get worktree root - default is /tmp/jp-worktrees
+        worktree_root_cfg = self.config.infra.worktree_root
+        worktree_root = (
+            worktree_root_cfg.expanduser()
+            if worktree_root_cfg
+            else Path(tempfile.gettempdir()) / "jp-worktrees"
+        )
+
+        if not worktree_root.exists():
+            return "ok", "No worktree directory found."
+
+        # Scan for orphaned worktrees
+        def _scan() -> list[Path]:
+            return list(worktree_root.glob(self._pattern))
+
+        orphans = await asyncio.to_thread(_scan)
+
+        if orphans:
+            count = len(orphans)
+            return (
+                "warn",
+                f"Found {count} orphaned worktree{'s' if count != 1 else ''} in {worktree_root}. "
+                f"Run `git worktree prune` or delete manually.",
+            )
+
+        return "ok", f"No orphaned worktrees in {worktree_root}"
+
+
 DEFAULT_TOOLS: list[ExternalTool] = [
     ExternalTool(
         name="Git", binary="git", install_hint="Install via your package manager (brew, apt, etc.)"
@@ -238,6 +277,7 @@ async def _run_deep_checks(
         AuthCheck(config),
         VectorDBCheck(config),
         MCPCheck(),
+        WorktreeCheck(config),
     ]
     results = await asyncio.gather(*(check.run() for check in diag_checks))
     return [
