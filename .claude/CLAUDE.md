@@ -396,64 +396,107 @@ To start a fresh audit, ask Claude to "run a technical debt audit".
 
 ---
 
-## 12. Active refactoring roadmap
+## 12. Multi-phase project roadmaps
+
+For large refactors, migrations, or multi-session projects, use the roadmap template system to ensure continuity across sessions, compactions, and conversation restarts.
+
+### Template location
+
+**Template:** `.claude/templates/ROADMAP_TEMPLATE.md`
+
+### When to use a roadmap
+
+Create a roadmap when the work:
+- Spans multiple sessions or days
+- Has 3+ distinct phases
+- Requires coordination of changes across many files
+- Needs rollback procedures if something goes wrong
+- Would be difficult to resume if context is lost
+
+### Creating a roadmap
+
+1. **Copy the template** to your project docs:
+   ```bash
+   cp .claude/templates/ROADMAP_TEMPLATE.md docs/[PROJECT_NAME]_ROADMAP.md
+   ```
+
+2. **Fill in the template:**
+   - Replace all `[BRACKETED PLACEHOLDERS]` with actual values
+   - Define phases and steps with clear actions
+   - Add sub-tasks for granular tracking
+   - Document rollback procedures for each phase
+   - Delete the instruction comments
+
+3. **Update CLAUDE.md** to reference the active roadmap (see below)
 
 ### Session continuity protocol
 
-**IMPORTANT:** At the start of each session or after any `/compact` operation, you MUST:
+**CRITICAL:** At the start of each session or after any `/compact` operation, you MUST:
 
-1. **Read the active roadmap file:** `docs/REFACTORING_ROADMAP.md`
+1. **Read the active roadmap file** listed below
 2. **Check the Progress Tracker section** to determine:
    - Which phase is currently in progress
    - Which specific step was last completed
    - Whether there are any blockers
 3. **Resume from the exact position** - do not restart completed work
 
-### Current active roadmap
-
-**File:** `docs/REFACTORING_ROADMAP.md`
-**Purpose:** Architecture consolidation (system.py decomposition, AST extraction, engine/agent merge)
-
 ### Progress tracking requirements
 
-When working on the roadmap:
+When working on a roadmap:
 
 1. **Before starting a step:**
-   - Mark the step as "IN PROGRESS" in the roadmap file
-   - Update "Current Position" in the Progress Tracker section
+   - Mark the step as `IN PROGRESS`
+   - Update "Current Position" in the Progress Tracker
 
 2. **After completing a step:**
-   - Check off the step's verification checkboxes
-   - Mark the step as "COMPLETED"
+   - Check off all sub-task and verification checkboxes
+   - Mark the step as `COMPLETED`
 
 3. **After completing a phase:**
-   - Check off the phase in "Overall Status"
+   - Complete the Phase Completion Checklist
+   - Update the Overall Status table with commit hash
    - Update "Current Position" to the next phase
-   - Commit and push all changes:
+   - Commit and push:
      ```bash
-     git add -A
-     git commit -m "refactor: <phase description>"
-     git push
+     git add -A && git commit -m "refactor: [phase description]" && git push
      ```
-   - Update roadmap with commit hash for reference
 
 4. **If interrupted mid-step:**
-   - Note exactly where you stopped in the roadmap
+   - Add a Session Log entry noting exactly where you stopped
    - List any partial work completed
    - Note any issues encountered
 
-### Roadmap file format
+5. **On session start:**
+   - Read the Session Log for context
+   - Check Current Position for where to resume
 
-The roadmap uses this structure for tracking:
-```markdown
-### Step X.Y: Description
-**Status:** NOT STARTED | IN PROGRESS | COMPLETED | BLOCKED
+### Completing and archiving a roadmap
 
-**Action:** What to do
+When all phases are complete:
 
-**Verification:**
-- [ ] Check 1
-- [ ] Check 2
-```
+1. **Run final verification** (full test suite, linting, type checking)
+2. **Complete the Completion Checklist** in the roadmap
+3. **Archive the roadmap** by renaming with `_COMPLETED` suffix:
+   ```bash
+   mv docs/[NAME]_ROADMAP.md docs/[NAME]_ROADMAP_COMPLETED.md
+   ```
+4. **Update this section** to remove the active roadmap reference
 
-Update the status and check boxes as you work. This enables exact resumption after compaction or session restart.
+### Status values
+
+| Status | Meaning |
+|--------|---------|
+| `NOT STARTED` | Work has not begun |
+| `IN PROGRESS` | Currently being worked on |
+| `COMPLETED` | Finished and verified |
+| `BLOCKED` | Cannot proceed (document reason) |
+| `ROLLED BACK` | Was completed but had to be undone |
+
+### Active roadmap
+
+**File:** None currently active
+
+<!-- When a roadmap is active, update this section:
+**File:** `docs/[NAME]_ROADMAP.md`
+**Purpose:** [One-sentence description]
+-->
