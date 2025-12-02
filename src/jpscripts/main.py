@@ -31,7 +31,6 @@ from . import __version__
 from .core.config import AppConfig, ConfigLoadResult, load_config
 from .core.console import console, setup_logging
 from .core.diagnostics import run_diagnostics_suite
-from .core.registry import discover_commands
 from .core.runtime import RuntimeContext, get_runtime_or_none, set_runtime_context
 
 app = typer.Typer(help="jp: the modern Python CLI for the jp-scripts toolbox.")
@@ -255,24 +254,108 @@ _commands_registered = False
 
 
 def _register_commands() -> None:
-    """Register all commands from the commands/ directory.
+    """Register all commands explicitly.
 
     Uses a module-level flag to ensure registration happens only once,
     even if called multiple times.
+
+    Command structure:
+    - Typer apps: evolve, handbook, memory, serialize, team, trace, watch
+    - Function commands: agent, git_extra, git_ops, init, map, nav, notes, search, system, web
+
+    Note: Imports are inside this function to avoid circular imports.
+    Some command modules (like evolve.py) import AppState from main.py.
     """
     global _commands_registered
     if _commands_registered:
         return
 
     start = perf_counter()
-    commands_path = Path(__file__).resolve().parent / "commands"
-    typer_modules, function_commands = discover_commands(commands_path)
 
-    for name, module in typer_modules:
-        app.add_typer(module.app, name=name)
+    # Import command modules here to avoid circular imports
+    # (some commands import AppState from main.py)
+    from .commands import agent as agent_cmd
+    from .commands import (
+        evolve,
+        git_extra,
+        git_ops,
+        handbook,
+        memory,
+        nav,
+        notes,
+        search,
+        serialize,
+        system,
+        team,
+        trace,
+        watch,
+        web,
+    )
+    from .commands import init as init_cmd
+    from .commands import map as map_cmd
 
-    for spec in function_commands:
-        app.command(spec.name)(spec.handler)
+    # Register Typer app modules as subcommand groups
+    app.add_typer(evolve.app, name="evolve")
+    app.add_typer(handbook.app, name="handbook")
+    app.add_typer(memory.app, name="memory")
+    app.add_typer(serialize.app, name="serialize")
+    app.add_typer(team.app, name="team")
+    app.add_typer(trace.app, name="trace")
+    app.add_typer(watch.app, name="watch")
+
+    # Register function commands from git_ops module
+    app.command("status-all")(git_ops.status_all)
+    app.command("whatpush")(git_ops.whatpush)
+    app.command("sync")(git_ops.sync)
+
+    # Register function commands from git_extra module
+    app.command("gundo-last")(git_extra.gundo_last)
+    app.command("gstage")(git_extra.gstage)
+    app.command("gpr")(git_extra.gpr)
+    app.command("gbrowse")(git_extra.gbrowse)
+    app.command("git-branchcheck")(git_extra.git_branchcheck)
+    app.command("stashview")(git_extra.stashview)
+
+    # Register function commands from nav module
+    app.command("recent")(nav.recent)
+    app.command("proj")(nav.proj)
+
+    # Register function commands from init module
+    app.command("init")(init_cmd.init)
+    app.command("config-fix")(init_cmd.config_fix)
+
+    # Register function commands from web module
+    app.command("web-snap")(web.web_snap)
+
+    # Register function commands from system module
+    app.command("process-kill")(system.process_kill)
+    app.command("port-kill")(system.port_kill)
+    app.command("brew-explorer")(system.brew_explorer)
+    app.command("audioswap")(system.audioswap)
+    app.command("ssh-open")(system.ssh_open)
+    app.command("tmpserver")(system.tmpserver)
+    app.command("update")(system.update)
+    app.command("panic")(system.panic)
+
+    # Register function commands from notes module
+    app.command("note")(notes.note)
+    app.command("note-search")(notes.note_search)
+    app.command("standup")(notes.standup)
+    app.command("standup-note")(notes.standup_note)
+    app.command("cliphist")(notes.cliphist)
+
+    # Register function commands from map module
+    app.command("map")(map_cmd.map_cmd)
+    app.command("repo-map")(map_cmd.map_cmd)
+
+    # Register function commands from search module
+    app.command("ripper")(search.ripper)
+    app.command("todo-scan")(search.todo_scan)
+    app.command("loggrep")(search.loggrep)
+
+    # Register function commands from agent module
+    app.command("fix")(agent_cmd.codex_exec)
+    app.command("agent")(agent_cmd.codex_exec)
 
     elapsed = perf_counter() - start
     logger.debug("Command registry initialized in %.3f seconds", elapsed)

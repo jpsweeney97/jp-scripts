@@ -1,6 +1,12 @@
 """CLI command discovery and registration.
 
-Handles dynamic command loading from the commands directory:
+DEPRECATED: This module is no longer used by main.py.
+Commands are now registered explicitly in main.py._register_commands().
+
+This module is retained for backward compatibility but will be removed
+in a future version. Do not rely on discover_commands() in new code.
+
+Historical purpose:
     - Module discovery
     - Typer app registration
     - Function command registration
@@ -10,6 +16,7 @@ from __future__ import annotations
 
 import importlib
 import logging
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -107,9 +114,20 @@ def discover_commands(
     """
     Discover Typer command modules and standalone command callables.
 
+    .. deprecated::
+        This function is deprecated. Commands are now registered explicitly
+        in main.py._register_commands(). This function will be removed in
+        a future version.
+
     Returns:
         A tuple of (typer_modules, function_commands).
     """
+    warnings.warn(
+        "discover_commands() is deprecated. Commands are now registered "
+        "explicitly in main.py._register_commands().",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     typer_modules: list[tuple[str, CommandModule]] = []
     function_commands: list[CommandSpec] = []
     command_exports = _load_command_exports()
