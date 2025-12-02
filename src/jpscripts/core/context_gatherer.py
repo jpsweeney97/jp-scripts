@@ -26,7 +26,7 @@ from rich.console import Console
 from jpscripts.analysis import structure
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.console import get_logger
-from jpscripts.core.tokens import DEFAULT_MODEL_CONTEXT_LIMIT as _TOKEN_DEFAULT
+from jpscripts.ai.tokens import DEFAULT_MODEL_CONTEXT_LIMIT as _TOKEN_DEFAULT
 
 logger = get_logger(__name__)
 

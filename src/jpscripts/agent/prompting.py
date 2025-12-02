@@ -29,7 +29,7 @@ from jpscripts.core.nav import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.analysis.structure import generate_map
-from jpscripts.core.tokens import TokenBudgetManager
+from jpscripts.ai.tokens import TokenBudgetManager
 from jpscripts.engine import AgentResponse, PreparedPrompt
 from jpscripts.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory
 

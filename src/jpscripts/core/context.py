@@ -22,7 +22,7 @@ from jpscripts.core.context_gatherer import (
     run_and_capture,
     smart_read_context,
 )
-from jpscripts.core.tokens import TRUNCATION_MARKER, TokenBudgetManager, TokenCounter
+from jpscripts.ai.tokens import TRUNCATION_MARKER, TokenBudgetManager, TokenCounter
 
 __all__ = [
     "DEFAULT_MODEL_CONTEXT_LIMIT",

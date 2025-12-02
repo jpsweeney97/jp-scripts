@@ -13,7 +13,7 @@ import json
 import re
 from pathlib import Path
 
-from jpscripts.core import search as search_core
+from jpscripts.net import search as search_core
 from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
 from jpscripts.core.security import validate_path_safe_async

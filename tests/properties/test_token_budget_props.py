@@ -14,10 +14,10 @@ from typing import TYPE_CHECKING
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from jpscripts.core.tokens import TokenBudgetManager
+from jpscripts.ai.tokens import TokenBudgetManager
 
 if TYPE_CHECKING:
-    from jpscripts.core.tokens import Priority
+    from jpscripts.ai.tokens import Priority
 
 # === Strategies ===
 

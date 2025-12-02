@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from jpscripts.core.dag import TaskStatus
+from jpscripts.structures.dag import TaskStatus
 
 
 @dataclass

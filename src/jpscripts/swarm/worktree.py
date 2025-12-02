@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from jpscripts.core.dag import TaskStatus, WorktreeContext
+from jpscripts.structures.dag import TaskStatus, WorktreeContext
 from jpscripts.core.result import Err, GitError, Ok, Result
 from jpscripts.git import AsyncRepo
 

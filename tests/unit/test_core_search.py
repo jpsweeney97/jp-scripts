@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from jpscripts.core.search import (
+from jpscripts.net.search import (
     TodoEntry,
     _ensure_rg,
     get_ripgrep_cmd,

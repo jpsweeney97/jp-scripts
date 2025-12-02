@@ -16,7 +16,7 @@ class TestFetchPageContent:
 
         with patch.dict("sys.modules", {"trafilatura": mock_trafilatura}):
             # Import fresh each time to use the mocked module
-            from jpscripts.core.web import fetch_page_content
+            from jpscripts.net.web import fetch_page_content
 
             result = fetch_page_content("https://example.com")
 
@@ -32,7 +32,7 @@ class TestFetchPageContent:
             # Patch the import statement inside the function
             import builtins
 
-            from jpscripts.core.web import fetch_page_content
+            from jpscripts.net.web import fetch_page_content
 
             original_import = builtins.__import__
 
@@ -53,7 +53,7 @@ class TestFetchPageContent:
         mock_trafilatura.fetch_url.return_value = None
 
         with patch.dict("sys.modules", {"trafilatura": mock_trafilatura}):
-            from jpscripts.core.web import fetch_page_content
+            from jpscripts.net.web import fetch_page_content
 
             result = fetch_page_content("https://example.com/nonexistent")
 
@@ -67,7 +67,7 @@ class TestFetchPageContent:
         mock_trafilatura.extract.return_value = None
 
         with patch.dict("sys.modules", {"trafilatura": mock_trafilatura}):
-            from jpscripts.core.web import fetch_page_content
+            from jpscripts.net.web import fetch_page_content
 
             result = fetch_page_content("https://example.com/empty")
 
@@ -81,7 +81,7 @@ class TestFetchPageContent:
         mock_trafilatura.extract.side_effect = Exception("Parse error")
 
         with patch.dict("sys.modules", {"trafilatura": mock_trafilatura}):
-            from jpscripts.core.web import fetch_page_content
+            from jpscripts.net.web import fetch_page_content
 
             result = fetch_page_content("https://example.com/bad")
 
@@ -95,7 +95,7 @@ class TestFetchPageContent:
         mock_trafilatura.extract.return_value = "content"
 
         with patch.dict("sys.modules", {"trafilatura": mock_trafilatura}):
-            from jpscripts.core.web import fetch_page_content
+            from jpscripts.net.web import fetch_page_content
 
             fetch_page_content("https://example.com/page")
 

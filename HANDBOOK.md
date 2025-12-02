@@ -161,7 +161,7 @@ async with manager.create_worktree("task-001") as ctx:
 
 ```python
 from jpscripts.swarm import ParallelSwarmController
-from jpscripts.core.dag import DAGGraph, DAGTask
+from jpscripts.structures.dag import DAGGraph, DAGTask
 
 dag = DAGGraph(tasks=[...])
 controller = ParallelSwarmController(
@@ -218,7 +218,7 @@ truncated = walker.slice_to_budget("main", max_tokens=500)
 ### Token-Aware Allocation
 
 ```python
-from jpscripts.core.tokens import TokenBudgetManager, SemanticSlicer
+from jpscripts.ai.tokens import TokenBudgetManager, SemanticSlicer
 
 # Priority-based allocation
 manager = TokenBudgetManager(total_budget=4000, model="gpt-4o")
