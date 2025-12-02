@@ -39,7 +39,7 @@ from jpscripts.core.sys import run_safe_shell
 from jpscripts.git import client as git_core
 from jpscripts.main import AppState
 from jpscripts.memory import save_memory
-from jpscripts.providers import CompletionOptions, Message, ProviderType, infer_provider_type
+from jpscripts.providers import CompletionOptions, Message, infer_provider_type
 from jpscripts.providers.factory import get_provider
 
 logger = get_logger(__name__)
@@ -315,10 +315,8 @@ async def _run_evolve(
     optimizer_prompt = _build_optimizer_prompt(target)
     target_model = model or config.ai.default_model
 
-    # Determine provider (force native, not Codex)
+    # Determine provider from model
     ptype = infer_provider_type(target_model)
-    if ptype == ProviderType.CODEX:
-        ptype = ProviderType.OPENAI
     provider = get_provider(config, model_id=target_model, provider_type=ptype)
 
     async def fetch_response(prepared: PreparedPrompt) -> str:

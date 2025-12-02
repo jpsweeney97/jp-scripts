@@ -126,17 +126,20 @@ class VectorDBCheck(DiagnosticCheck):
 class MCPCheck(DiagnosticCheck):
     def __init__(self) -> None:
         self.name = "MCP"
-        self.config_path = Path.home() / ".codex" / "config.toml"
+        # Check for MCP config in Claude Code's config location
+        self.config_path = Path.home() / ".claude" / "mcp_servers.json"
 
     async def run(self) -> tuple[str, str]:
         if not self.config_path.exists():
             return "warn", f"MCP config missing at {self.config_path}"
         try:
-            data = tomllib.loads(self.config_path.read_text(encoding="utf-8"))
+            import json
+
+            data = json.loads(self.config_path.read_text(encoding="utf-8"))
         except Exception as exc:
             return "warn", f"MCP config unreadable: {exc}"
 
-        servers = data.get("mcpServers") if isinstance(data, dict) else None
+        servers = data.get("servers") if isinstance(data, dict) else None
         if isinstance(servers, dict) and "jpscripts" in servers:
             return "ok", "jpscripts MCP server registered."
         return "warn", "jpscripts MCP server not registered."
@@ -159,7 +162,6 @@ DEFAULT_TOOLS: list[ExternalTool] = [
         binary="gh",
         install_hint="Install via your package manager (brew, apt, etc.)",
     ),
-    ExternalTool(name="Codex", binary="codex", install_hint="npm install -g @openai/codex"),
     ExternalTool(
         name="Python",
         binary="python3",

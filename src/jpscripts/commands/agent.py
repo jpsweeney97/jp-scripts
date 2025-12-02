@@ -2,7 +2,7 @@
 Agent command for delegating tasks to LLM providers.
 
 This module provides the CLI interface for the jp agent functionality,
-supporting multiple LLM providers (Anthropic, OpenAI, Codex CLI).
+supporting multiple LLM providers (Anthropic, OpenAI).
 
 Usage:
     jp agent "Fix the failing test" --run "pytest tests/"
@@ -28,7 +28,6 @@ from jpscripts.agent import (
     parse_agent_response,
     prepare_agent_prompt,
 )
-from jpscripts.ui.agent_ui import display_agent_response, render_repair_loop_events
 from jpscripts.core.console import console
 from jpscripts.providers import (
     CompletionOptions,
@@ -37,8 +36,8 @@ from jpscripts.providers import (
     ProviderError,
     ProviderType,
 )
-from jpscripts.providers.codex import is_codex_available  # noqa: F401 (re-exported for tests)
 from jpscripts.providers.factory import ProviderConfig, get_provider, parse_provider_type
+from jpscripts.ui.agent_ui import display_agent_response, render_repair_loop_events
 
 # ---------------------------------------------------------------------------
 # Provider-based response fetching
@@ -101,7 +100,6 @@ async def _fetch_agent_response(
     model: str,
     provider_type: str | None,
     *,
-    full_auto: bool = False,
     web: bool = False,
 ) -> str:
     """Fetch agent response using the appropriate provider.
@@ -113,9 +111,8 @@ async def _fetch_agent_response(
         prepared: The prepared prompt
         config: Application configuration
         model: Model ID to use
-        provider_type: Explicit provider type ("anthropic", "openai", "codex", or None for auto)
-        full_auto: For Codex: run without confirmation
-        web: For Codex: enable web search
+        provider_type: Explicit provider type ("anthropic", "openai", or None for auto)
+        web: Enable web search (provider support varies)
 
     Returns:
         The response text from the LLM
@@ -125,15 +122,13 @@ async def _fetch_agent_response(
     if provider_type:
         try:
             ptype = parse_provider_type(provider_type)
-        except ValueError:
-            console.print(f"[red]Unknown provider: {provider_type}[/red]")
+        except ValueError as exc:
+            console.print(f"[red]Provider error: {exc}[/red]")
             raise typer.Exit(code=1)
 
-    # Create provider config - prefer_codex when no explicit provider given
+    # Create provider config
     pconfig = ProviderConfig(
-        prefer_codex=(provider_type is None),
-        codex_full_auto=full_auto,
-        codex_web_enabled=web,
+        web_enabled=web,
     )
 
     try:
@@ -183,9 +178,6 @@ def codex_exec(
         "-x",
         help="Run this shell command first and attach referenced files from output (RAG).",
     ),
-    full_auto: bool = typer.Option(
-        False, "--full-auto", "-y", help="Run without asking for confirmation (dangerous)."
-    ),
     model: str | None = typer.Option(
         None, "--model", "-m", help="Model to use. Defaults to config."
     ),
@@ -193,7 +185,7 @@ def codex_exec(
         None,
         "--provider",
         "-p",
-        help="LLM provider: 'anthropic', 'openai', or 'codex'. Auto-detected from model if not specified.",
+        help="LLM provider: 'anthropic' or 'openai'. Auto-detected from model if not specified.",
     ),
     loop: bool | None = typer.Option(
         None,
@@ -212,7 +204,7 @@ def codex_exec(
         help="Save a summary of successful fixes to memory.",
     ),
     web: bool = typer.Option(
-        False, "--web/--no-web", help="Enable web search tool for the agent (Codex only)."
+        False, "--web/--no-web", help="Enable web search tool for the agent (provider support varies)."
     ),
 ) -> None:
     """Delegate a task to an LLM agent.
@@ -220,7 +212,6 @@ def codex_exec(
     Supports multiple providers:
     - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.)
     - OpenAI GPT/o1 (gpt-4o, o1, etc.)
-    - Codex CLI (default for backward compatibility)
 
     Examples:
         jp agent "Fix the failing test" --run "pytest tests/"
@@ -246,7 +237,6 @@ def codex_exec(
                 state.config,
                 target_model,
                 provider,
-                full_auto=full_auto,
                 web=web,
             )
 
@@ -310,7 +300,6 @@ def codex_exec(
             state.config,
             target_model,
             provider,
-            full_auto=full_auto,
             web=web,
         )
     )

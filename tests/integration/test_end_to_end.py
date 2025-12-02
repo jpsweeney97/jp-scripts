@@ -126,7 +126,6 @@ def test_god_mode_cycle(
         model: str,
         provider_type: str | None,
         *,
-        full_auto: bool = False,
         web: bool = False,
     ) -> str:
         """Fake LLM that captures the prompt and returns a valid fix."""
@@ -149,9 +148,6 @@ def test_god_mode_cycle(
         )
 
     # Mock the provider call but NOT prepare_agent_prompt
-    monkeypatch.setattr(
-        "jpscripts.commands.agent.is_codex_available", lambda: False
-    )  # Prevent Codex auto-detection
     monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Run the fix command with --run to trigger gather_context
@@ -209,7 +205,6 @@ def test_repair_loop_integration(
         model: str,
         provider_type: str | None,
         *,
-        full_auto: bool = False,
         web: bool = False,
     ) -> str:
         nonlocal call_count
@@ -241,9 +236,6 @@ def test_repair_loop_integration(
             }
         )
 
-    monkeypatch.setattr(
-        "jpscripts.commands.agent.is_codex_available", lambda: False
-    )  # Prevent Codex auto-detection
     monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Use python -m py_compile as the verification command
@@ -285,9 +277,6 @@ def test_security_blocks_dangerous_commands_in_fix(
         was_called = True
         return json.dumps({"thought_process": "x", "criticism": "x", "final_message": "x"})
 
-    monkeypatch.setattr(
-        "jpscripts.commands.agent.is_codex_available", lambda: False
-    )  # Prevent Codex auto-detection
     monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Try to run with a dangerous command
@@ -346,7 +335,6 @@ def function_{i}(arg1: int, arg2: str) -> bool:
         model: str,
         provider_type: str | None,
         *,
-        full_auto: bool = False,
         web: bool = False,
     ) -> str:
         captured_prompts.append(prepared.prompt)
@@ -358,9 +346,6 @@ def function_{i}(arg1: int, arg2: str) -> bool:
             }
         )
 
-    monkeypatch.setattr(
-        "jpscripts.commands.agent.is_codex_available", lambda: False
-    )  # Prevent Codex auto-detection
     monkeypatch.setattr("jpscripts.commands.agent._fetch_agent_response", fake_fetch_response)
 
     # Run fix with a command that would detect the large file

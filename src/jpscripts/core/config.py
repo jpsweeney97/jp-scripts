@@ -43,7 +43,7 @@ class ConfigError(RuntimeError):
 class AIConfig(BaseModel):
     """AI/LLM-related configuration."""
 
-    default_model: str = Field(default="claude-opus-4-5", description="Default Codex/LLM model.")
+    default_model: str = Field(default="claude-opus-4-5", description="Default LLM model.")
     model_context_limits: dict[str, int] = Field(
         default_factory=lambda: {
             "claude-opus-4-5": 200_000,

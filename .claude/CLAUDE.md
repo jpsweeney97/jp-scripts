@@ -9,11 +9,13 @@ You are Claude Code running in a developer's terminal. Treat this file as author
 **jpscripts** is a Python CLI toolkit and AI agent framework for developer productivity.
 
 ### Quick facts
+
 - **Main entry:** `jp` command (via `src/jpscripts/main.py`)
 - **Stack:** Python 3.12+, Typer CLI, asyncio, Rich console
 - **Package:** `jpscripts` (editable install: `pip install -e ".[dev,ai]"`)
 
 ### Key directories
+
 ```
 src/jpscripts/
 ├── main.py              # CLI bootstrap, command discovery
@@ -30,6 +32,7 @@ tests/                   # pytest test suite
 ```
 
 ### Common commands
+
 ```bash
 make test                # Run full test suite with linting
 pytest                   # Fast test run (skip linting)
@@ -40,6 +43,7 @@ ruff format src          # Formatting
 ```
 
 ### Related docs
+
 - `CONTRIBUTING.md` - Development setup, testing, git workflow
 - `docs/ARCHITECTURE.md` - System design and diagrams
 - `docs/EXTENDING.md` - How to add commands, tools, providers
@@ -281,6 +285,7 @@ Your job is not only to write code, but to help the user steer their project saf
 These conventions were established from the technical debt audit. Follow them to maintain consistency.
 
 ### Error handling
+
 - **Use Result[T, E] pattern** for operations that can fail expectedly (file I/O, network, parsing)
 - **Use exceptions** only for unexpected/programming errors
 - **Never** use bare `except Exception: pass` - always log or handle explicitly
@@ -316,12 +321,14 @@ except SomeError as exc:  # Always use 'exc', not 'e' or 'err'
 ```
 
 ### Layer boundaries
+
 - **CLI commands** (`commands/`) may import from: `core/`, `git/`, `providers/`
 - **CLI commands must NOT** import from `mcp/` - move shared logic to `core/`
 - **MCP tools** (`mcp/tools/`) may import from: `core/`, `git/`
 - **Providers** should receive config values via parameters, not import AppConfig directly
 
 ### Module size
+
 - Flag any file exceeding **500 LOC** - it likely needs splitting
 - Recently split modules:
   - `core/governance/` - package with ast_checker.py, secret_scanner.py, diff_parser.py, etc.
@@ -331,22 +338,26 @@ except SomeError as exc:  # Always use 'exc', not 'e' or 'err'
   - `core/memory/store.py` (753 LOC)
 
 ### Async patterns
+
 - **One `asyncio.run()`** per command entry point, not multiple
 - Use `asyncio.gather()` for concurrent operations, not sequential awaits
 - Heavy sync operations must use `asyncio.to_thread()`
 
 ### Testing requirements
+
 - Safety-critical code (error handling, rate limiting, security) **must** have tests
 - Test failure paths, not just happy paths
 - Avoid over-mocking - test actual behavior where possible
 - New MCP tools require corresponding test coverage
 
 ### Performance
+
 - **Lazy load** heavy dependencies (rich, lancedb, sentence-transformers)
 - **Pre-compile** regex patterns at module level, not inside functions
 - Be aware of O(n²) patterns in loops - document or optimize
 
 ### Security
+
 - Always validate paths stay within workspace using `security.validate_path_safe()`
 - Redact API keys from error messages before logging/raising
 - Never use `shell=True` in subprocess calls
@@ -382,7 +393,9 @@ logger.warning("Potential issue: %s", exc)
 ## 11. Technical debt audits
 
 ### Previous Audits
+
 - `TECH_DEBT_AUDIT_2025-12-01_COMPLETED.md` - 24 items, completed 2025-12-01
+
   - Completed: 22, Deferred: 2 (marginal benefit module splits)
   - Phases: Critical fixes, Security, Test coverage, Complexity, Module splitting, Async patterns, Performance, Documentation
   - Final: 704 tests passing, all modules documented
@@ -407,8 +420,8 @@ For large refactors, migrations, or multi-session projects, use the roadmap temp
 ### When to use a roadmap
 
 Create a roadmap when the work:
-- Spans multiple sessions or days
-- Has 3+ distinct phases
+
+- Has 2+ distinct phases
 - Requires coordination of changes across many files
 - Needs rollback procedures if something goes wrong
 - Would be difficult to resume if context is lost
@@ -416,11 +429,13 @@ Create a roadmap when the work:
 ### Creating a roadmap
 
 1. **Copy the template** to your project docs:
+
    ```bash
    cp .claude/templates/ROADMAP_TEMPLATE.md docs/[PROJECT_NAME]_ROADMAP.md
    ```
 
 2. **Fill in the template:**
+
    - Replace all `[BRACKETED PLACEHOLDERS]` with actual values
    - Define phases and steps with clear actions
    - Add sub-tasks for granular tracking
@@ -445,14 +460,17 @@ Create a roadmap when the work:
 When working on a roadmap:
 
 1. **Before starting a step:**
+
    - Mark the step as `IN PROGRESS`
    - Update "Current Position" in the Progress Tracker
 
 2. **After completing a step:**
+
    - Check off all sub-task and verification checkboxes
    - Mark the step as `COMPLETED`
 
 3. **After completing a phase:**
+
    - Complete the Phase Completion Checklist
    - Update the Overall Status table with commit hash
    - Update "Current Position" to the next phase
@@ -462,6 +480,7 @@ When working on a roadmap:
      ```
 
 4. **If interrupted mid-step:**
+
    - Add a Session Log entry noting exactly where you stopped
    - List any partial work completed
    - Note any issues encountered
@@ -484,19 +503,15 @@ When all phases are complete:
 
 ### Status values
 
-| Status | Meaning |
-|--------|---------|
-| `NOT STARTED` | Work has not begun |
-| `IN PROGRESS` | Currently being worked on |
-| `COMPLETED` | Finished and verified |
-| `BLOCKED` | Cannot proceed (document reason) |
+| Status        | Meaning                            |
+| ------------- | ---------------------------------- |
+| `NOT STARTED` | Work has not begun                 |
+| `IN PROGRESS` | Currently being worked on          |
+| `COMPLETED`   | Finished and verified              |
+| `BLOCKED`     | Cannot proceed (document reason)   |
 | `ROLLED BACK` | Was completed but had to be undone |
 
 ### Active roadmap
 
-**File:** None currently active
-
-<!-- When a roadmap is active, update this section:
-**File:** `docs/[NAME]_ROADMAP.md`
-**Purpose:** [One-sentence description]
--->
+**File:** `docs/SHELL_GOVERNANCE_CODEX_ROADMAP.md`
+**Purpose:** Consolidate shell execution, extract governance logic, and retire CodexProvider

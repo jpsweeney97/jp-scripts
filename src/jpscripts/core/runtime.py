@@ -43,7 +43,6 @@ class WarningState:
 
     semantic_unavailable: bool = False
     memory_degraded: bool = False
-    codex_missing: bool = False
 
 
 @dataclass

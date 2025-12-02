@@ -10,8 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import shutil
-import subprocess
+import re
 from pathlib import Path
 from textwrap import dedent
 
@@ -23,6 +22,8 @@ from rich.prompt import Prompt
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
+from jpscripts.providers import CompletionOptions, LLMProvider, Message, ProviderError
+from jpscripts.providers.factory import get_provider
 
 
 def _write_config(path: Path, config: AppConfig) -> None:
@@ -107,7 +108,7 @@ def init(
 
 
 def config_fix(ctx: typer.Context) -> None:
-    """Attempt to fix a broken configuration file using Codex."""
+    """Attempt to fix a broken configuration file using the default LLM provider."""
     state = ctx.obj
     path = state.config_meta.path
 
@@ -124,39 +125,56 @@ def config_fix(ctx: typer.Context) -> None:
 
     console.print(Panel(f"Attempting to fix {path}...", title="Self-Healing", box=box.SIMPLE))
 
-    # Check for Codex
-    codex_bin = shutil.which("codex")
-    if not codex_bin:
-        console.print("[red]Codex CLI not found. Cannot auto-fix.[/red]")
-        console.print("Please fix the file manually or run `jp init` to overwrite it.")
-        raise typer.Exit(code=1)
-
     # Construct the prompt
     prompt = (
         f"The following TOML configuration file is invalid.\n"
         f"Error: {state.config_meta.error}\n\n"
         f"Content:\n```toml\n{content}\n```\n\n"
-        f"Fix the syntax errors and overwrite the file at {path} with the corrected TOML."
+        f"Please fix the syntax errors and respond with ONLY the corrected TOML content. "
+        f"Do not include any explanation or markdown formatting, just the raw TOML."
     )
 
-    # Delegate to Codex
-    # We use --full-auto (YOLO mode) because we are fixing a broken config
-    cmd = [codex_bin, "exec", prompt, "--full-auto", "--model", "gpt-5.1-codex-max"]
+    # Get the default provider
+    try:
+        provider = get_provider(state.config)
+    except ProviderError as exc:
+        console.print(f"[red]Provider error:[/red] {exc}")
+        console.print("Please fix the file manually or run `jp init` to overwrite it.")
+        raise typer.Exit(code=1)
+
+    console.print(f"[dim]Using {provider.provider_type.name.lower()} provider...[/dim]")
 
     try:
-        exit_code = asyncio.run(_run_codex_command(cmd))
-        if exit_code != 0:
-            raise subprocess.CalledProcessError(exit_code, cmd)
+        fixed_content = asyncio.run(_fix_config_with_provider(provider, prompt))
+        path.write_text(fixed_content + "\n", encoding="utf-8")
         console.print(f"[green]Repaired[/green] {path}")
-    except subprocess.CalledProcessError:
-        console.print("[red]Codex failed to fix the configuration.[/red]")
+    except ProviderError as exc:
+        console.print(f"[red]Provider failed to fix the configuration: {exc}[/red]")
+        raise typer.Exit(code=1)
+    except ValueError as exc:
+        console.print(f"[red]Could not extract valid TOML from response: {exc}[/red]")
         raise typer.Exit(code=1)
 
 
-async def _run_codex_command(cmd: list[str]) -> int:
-    """Run Codex CLI asynchronously while preserving terminal IO."""
-    proc = await asyncio.create_subprocess_exec(*cmd)
-    return await proc.wait()
+async def _fix_config_with_provider(provider: LLMProvider, prompt: str) -> str:
+    """Use the LLM provider to fix a broken config and extract the TOML."""
+    messages = [Message(role="user", content=prompt)]
+    options = CompletionOptions(temperature=0.0, max_tokens=2048)
+
+    response = await provider.complete(messages, options=options)
+    raw = response.content.strip()
+
+    # Try to extract TOML from markdown code block if present
+    toml_match = re.search(r"```(?:toml)?\s*\n?(.*?)\n?```", raw, re.DOTALL)
+    if toml_match:
+        return toml_match.group(1).strip()
+
+    # If no code block, assume the entire response is TOML
+    # Basic validation: should have at least one key = value pair
+    if "=" in raw and not raw.startswith("{"):
+        return raw
+
+    raise ValueError("Response does not appear to contain valid TOML")
 
 
 def _install_precommit_hook(workspace_root: Path) -> None:

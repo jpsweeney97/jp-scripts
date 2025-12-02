@@ -2,8 +2,8 @@
 LLM Provider abstraction for jp-scripts.
 
 This module provides a unified interface for interacting with different LLM
-backends (Anthropic Claude, OpenAI GPT, Codex CLI, etc.) while maintaining
-full feature parity across providers.
+backends (Anthropic Claude, OpenAI GPT) while maintaining full feature parity
+across providers.
 
 Usage:
     from jpscripts.providers import get_provider, LLMProvider
@@ -39,7 +39,6 @@ class ProviderType(Enum):
 
     ANTHROPIC = auto()
     OPENAI = auto()
-    CODEX = auto()  # Codex CLI wrapper
 
 
 @dataclass(frozen=True, slots=True)

@@ -79,7 +79,6 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
         config: Any,
         model: str,
         provider_type: Any,
-        full_auto: bool = False,
         web: bool = False,
     ) -> str:
         captured.append(prepared.prompt)
@@ -94,7 +93,7 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
         )
 
     with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response):
-        result = runner.invoke(agent_app, ["fix", "Fix the bug", "--full-auto"])
+        result = runner.invoke(agent_app, ["fix", "Fix the bug"])
 
         assert result.exit_code == 0
         assert captured

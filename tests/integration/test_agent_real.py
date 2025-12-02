@@ -66,7 +66,6 @@ def test_agent_prompt_includes_json_context(
             attach_recent=False,
             diff=True,
             run_command=None,
-            full_auto=True,
             model=None,
             provider=None,
             loop=False,

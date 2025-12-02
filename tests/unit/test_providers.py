@@ -35,7 +35,6 @@ class TestProviderTypes:
     def test_provider_type_values(self) -> None:
         assert ProviderType.ANTHROPIC.value == 1
         assert ProviderType.OPENAI.value == 2
-        assert ProviderType.CODEX.value == 3
 
     @pytest.mark.parametrize(
         "model_id,expected",
@@ -170,7 +169,6 @@ class TestProviderFactory:
         models = list_available_models()
         assert ProviderType.ANTHROPIC in models
         assert ProviderType.OPENAI in models
-        assert ProviderType.CODEX in models
         assert "claude-opus-4-5-20251101" in models[ProviderType.ANTHROPIC]
         assert "gpt-4o-2024-11-20" in models[ProviderType.OPENAI]
 
@@ -196,18 +194,16 @@ class TestProviderConfig:
 
     def test_config_defaults(self) -> None:
         config = ProviderConfig()
-        assert config.prefer_codex is False
-        assert config.codex_full_auto is False
-        assert config.codex_web_enabled is False
         assert config.fallback_enabled is True
+        assert config.web_enabled is False
 
     def test_config_with_options(self) -> None:
         config = ProviderConfig(
-            prefer_codex=True,
-            codex_full_auto=True,
+            fallback_enabled=False,
+            web_enabled=True,
         )
-        assert config.prefer_codex is True
-        assert config.codex_full_auto is True
+        assert config.fallback_enabled is False
+        assert config.web_enabled is True
 
 
 class TestAnthropicProvider:
@@ -314,38 +310,6 @@ class TestOpenAIProvider:
         name_value = function_payload.get("name")
         assert isinstance(name_value, str)
         assert name_value == "search"
-
-
-class TestCodexProvider:
-    """Test Codex provider utilities."""
-
-    def test_codex_availability(self) -> None:
-        from jpscripts.providers.codex import is_codex_available
-
-        # Just test that the function runs without error
-        result = is_codex_available()
-        assert isinstance(result, bool)
-
-    def test_format_messages(self) -> None:
-        from jpscripts.providers.codex import _format_messages_for_codex
-
-        messages = [
-            Message(role="user", content="Hello"),
-            Message(role="assistant", content="Hi"),
-        ]
-        formatted = _format_messages_for_codex(messages)
-        assert "[User]" in formatted
-        assert "[Assistant]" in formatted
-        assert "Hello" in formatted
-        assert "Hi" in formatted
-
-    def test_format_messages_with_system(self) -> None:
-        from jpscripts.providers.codex import _format_messages_for_codex
-
-        messages = [Message(role="user", content="Hello")]
-        formatted = _format_messages_for_codex(messages, system_prompt="Be helpful")
-        assert "[System]" in formatted
-        assert "Be helpful" in formatted
 
 
 class TestProviderErrors:
@@ -479,41 +443,3 @@ class TestOpenAIErrorHandling:
                 provider._get_client()
 
 
-class TestCodexErrorHandling:
-    """Test Codex provider error handling."""
-
-    def test_codex_not_available_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from jpscripts.providers.codex import is_codex_available
-
-        # Mock shutil.which to return None (codex not found)
-        monkeypatch.setattr("shutil.which", lambda x: None)
-        assert is_codex_available() is False
-
-    def test_codex_available_when_present(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from jpscripts.providers.codex import is_codex_available
-
-        # Mock shutil.which to return a path
-        monkeypatch.setattr(
-            "shutil.which", lambda x: "/usr/local/bin/codex" if x == "codex" else None
-        )
-        assert is_codex_available() is True
-
-    def test_format_messages_empty(self) -> None:
-        from jpscripts.providers.codex import _format_messages_for_codex
-
-        formatted = _format_messages_for_codex([])
-        assert formatted == ""
-
-    def test_format_messages_handles_assistant_role(self) -> None:
-        from jpscripts.providers.codex import _format_messages_for_codex
-
-        messages = [
-            Message(role="user", content="Hello"),
-            Message(role="assistant", content="Hi there"),
-            Message(role="user", content="How are you?"),
-        ]
-        formatted = _format_messages_for_codex(messages)
-        assert "[User]" in formatted
-        assert "[Assistant]" in formatted
-        assert "Hello" in formatted
-        assert "Hi there" in formatted

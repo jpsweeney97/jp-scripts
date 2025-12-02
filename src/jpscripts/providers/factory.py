@@ -13,11 +13,11 @@ Usage:
     # Explicit provider selection
     provider = get_provider(config, provider_type=ProviderType.ANTHROPIC)
 
-    # With Codex fallback preference
+    # With web search enabled
     provider = get_provider(
         config,
         model_id="o1",
-        prefer_codex=True,  # Use Codex CLI if available
+        provider_config=ProviderConfig(web_enabled=True),
     )
 """
 
@@ -45,7 +45,7 @@ def parse_provider_type(provider_str: str) -> ProviderType:
     """Parse a provider string to ProviderType enum.
 
     Args:
-        provider_str: Provider name ("anthropic", "openai", "codex")
+        provider_str: Provider name ("anthropic", "openai")
 
     Returns:
         The corresponding ProviderType
@@ -56,10 +56,11 @@ def parse_provider_type(provider_str: str) -> ProviderType:
     ptype_map = {
         "anthropic": ProviderType.ANTHROPIC,
         "openai": ProviderType.OPENAI,
-        "codex": ProviderType.CODEX,
     }
     ptype = ptype_map.get(provider_str.lower())
     if ptype is None:
+        if provider_str.lower() == "codex":
+            raise ValueError("Codex provider has been removed. Use 'anthropic' or 'openai' instead.")
         raise ValueError(f"Unknown provider: {provider_str}")
     return ptype
 
@@ -69,16 +70,12 @@ class ProviderConfig:
     """Configuration for provider instantiation.
 
     Attributes:
-        prefer_codex: If True, prefer Codex CLI for OpenAI models when available
-        codex_full_auto: Run Codex in full-auto mode
-        codex_web_enabled: Enable web search for Codex
         fallback_enabled: If True, fall back to other providers on failure
+        web_enabled: Enable web search capability
     """
 
-    prefer_codex: bool = False
-    codex_full_auto: bool = False
-    codex_web_enabled: bool = False
     fallback_enabled: bool = True
+    web_enabled: bool = False
     _provider_cache: dict[ProviderType, BaseLLMProvider] = field(default_factory=dict, repr=False)
 
 
@@ -90,7 +87,7 @@ def _ensure_providers_registered() -> None:
     lazily imports all provider modules on first use.
     """
     if not PROVIDER_REGISTRY:
-        from jpscripts.providers import anthropic, codex, openai  # noqa: F401
+        from jpscripts.providers import anthropic, openai  # noqa: F401
 
 
 def get_provider(
@@ -125,8 +122,8 @@ def get_provider(
         # Explicit provider
         provider = get_provider(config, provider_type=ProviderType.OPENAI)
 
-        # With Codex preference
-        pconfig = ProviderConfig(prefer_codex=True, codex_full_auto=True)
+        # With web search enabled
+        pconfig = ProviderConfig(web_enabled=True)
         provider = get_provider(config, model_id="o1", provider_config=pconfig)
     """
     pconfig = provider_config or ProviderConfig()
@@ -141,13 +138,6 @@ def get_provider(
         # Default to config's default model
         default_model = getattr(config, "default_model", "claude-sonnet-4-5")
         ptype = infer_provider_type(default_model)
-
-    # Check for Codex preference for OpenAI models
-    if ptype == ProviderType.OPENAI and pconfig.prefer_codex:
-        from jpscripts.providers.codex import is_codex_available
-
-        if is_codex_available():
-            ptype = ProviderType.CODEX
 
     # Create provider instance
     return _instantiate_provider(config, ptype, pconfig)
@@ -171,14 +161,8 @@ def _instantiate_provider(
     if factory is None:
         raise ProviderError(f"Unknown provider type: {ptype}")
 
-    # Build provider-specific kwargs
-    kwargs: dict[str, object] = {}
-    if ptype == ProviderType.CODEX:
-        kwargs["full_auto"] = pconfig.codex_full_auto
-        kwargs["web_enabled"] = pconfig.codex_web_enabled
-
     # Create and cache the provider
-    provider = factory(config, **kwargs)
+    provider = factory(config)
     pconfig._provider_cache[ptype] = provider
     return provider
 
@@ -221,13 +205,11 @@ def list_available_models() -> dict[ProviderType, tuple[str, ...]]:
         Dict mapping provider type to tuple of model IDs
     """
     from jpscripts.providers.anthropic import ANTHROPIC_AVAILABLE_MODELS
-    from jpscripts.providers.codex import CODEX_AVAILABLE_MODELS
     from jpscripts.providers.openai import OPENAI_AVAILABLE_MODELS
 
     return {
         ProviderType.ANTHROPIC: ANTHROPIC_AVAILABLE_MODELS,
         ProviderType.OPENAI: OPENAI_AVAILABLE_MODELS,
-        ProviderType.CODEX: CODEX_AVAILABLE_MODELS,
     }
 
 
@@ -244,11 +226,10 @@ def get_model_context_limit(model_id: str) -> int:
         ModelNotFoundError: If model is not recognized
     """
     from jpscripts.providers.anthropic import ANTHROPIC_CONTEXT_LIMITS
-    from jpscripts.providers.codex import CODEX_CONTEXT_LIMITS
     from jpscripts.providers.openai import OPENAI_CONTEXT_LIMITS
 
     # Check all provider limits
-    for limits in [ANTHROPIC_CONTEXT_LIMITS, OPENAI_CONTEXT_LIMITS, CODEX_CONTEXT_LIMITS]:
+    for limits in [ANTHROPIC_CONTEXT_LIMITS, OPENAI_CONTEXT_LIMITS]:
         if model_id in limits:
             return limits[model_id]
 
@@ -257,7 +238,7 @@ def get_model_context_limit(model_id: str) -> int:
         ptype = infer_provider_type(model_id)
         if ptype == ProviderType.ANTHROPIC:
             return 200_000  # Default for Claude
-        if ptype in (ProviderType.OPENAI, ProviderType.CODEX):
+        if ptype == ProviderType.OPENAI:
             return 128_000  # Default for GPT
     except ModelNotFoundError:
         pass
