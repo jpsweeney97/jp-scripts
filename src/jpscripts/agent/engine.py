@@ -36,6 +36,7 @@ from .models import (
     ResponseT,
     ToolCall,
 )
+from .patching import extract_patch_paths
 from .tools import execute_tool
 from .tracing import TraceRecorder
 
@@ -185,9 +186,6 @@ class AgentEngine(Generic[ResponseT]):
         file_patch = getattr(response, "file_patch", None)
         if not file_patch or self._workspace_root is None:
             return []
-
-        # Lazy import to avoid circular dependency
-        from jpscripts.agent.patching import extract_patch_paths
 
         return await extract_patch_paths(str(file_patch), self._workspace_root)
 
