@@ -82,13 +82,10 @@ class AgentEngine(Generic[ResponseT]):
         self._prompt_builder = prompt_builder
         self._fetch_response = fetch_response
         self._parser = parser
-        # Use unified tool registry if no tools provided
-        if tools is not None:
-            self._tools: Mapping[str, Callable[..., Awaitable[str]]] = tools
-        else:
-            from jpscripts.core.mcp_registry import get_tool_registry
-
-            self._tools = get_tool_registry()
+        # Tools must be explicitly provided by caller (dependency injection)
+        # Pass get_tool_registry() from jpscripts.core.mcp_registry for full tool support
+        # Or pass {} for tool-less operation (testing, trace replay)
+        self._tools: Mapping[str, Callable[..., Awaitable[str]]] = tools if tools is not None else {}
         self._memory = memory
         self._template_root = template_root
         self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")

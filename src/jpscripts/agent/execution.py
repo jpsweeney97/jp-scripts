@@ -34,6 +34,7 @@ from jpscripts.agent.ops import verify_syntax  # Re-export for backward compatib
 from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.agent.prompting import prepare_agent_prompt
+from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.agent.strategies import (
     STRATEGY_OVERRIDE_TEXT,
     AttemptContext,
@@ -482,7 +483,7 @@ class RepairLoopOrchestrator:
             )
 
             # Lambda with default args from captured scope; mypy cannot infer types
-            # tools=None uses unified registry from get_tool_registry()
+            # tools={} disables tools (step_back), get_tool_registry() enables full tools
             # workspace_root enables governance checks for constitutional compliance
             engine = AgentEngine[AgentResponse](
                 persona="Engineer",
@@ -495,7 +496,7 @@ class RepairLoopOrchestrator:
                 paths=list(dynamic_paths): self._build_prompt(msgs, ip, ld, temp, strat, paths),
                 fetch_response=self._fetch,
                 parser=parse_agent_response,
-                tools={} if strategy_cfg.name == "step_back" else None,
+                tools={} if strategy_cfg.name == "step_back" else get_tool_registry(),
                 template_root=self._root,
                 workspace_root=self._root,
                 governance_enabled=True,
