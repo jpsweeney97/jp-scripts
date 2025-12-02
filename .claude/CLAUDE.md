@@ -513,5 +513,9 @@ When all phases are complete:
 
 ### Active roadmap
 
-**File:** `docs/SHELL_GOVERNANCE_CODEX_ROADMAP.md`
-**Purpose:** Consolidate shell execution, extract governance logic, and retire CodexProvider
+**File:** None currently active
+
+<!-- When a roadmap is active, update this section:
+**File:** `docs/[NAME]_ROADMAP.md`
+**Purpose:** [One-sentence description]
+-->
