@@ -218,7 +218,7 @@ def _get_tracer() -> TracerProtocol | None:
         else:
             return None
 
-    _otel_tracer = trace_module.get_tracer("jpscripts.engine")
+    _otel_tracer = trace_module.get_tracer("jpscripts.agent")
     return _otel_tracer
 
 

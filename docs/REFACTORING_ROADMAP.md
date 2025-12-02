@@ -9,13 +9,13 @@
 ## Progress Tracker
 
 ### Overall Status
-- [x] **Phase 1:** Extract AST skeleton to `analysis/skeleton.py` (COMPLETED)
-- [ ] **Phase 2:** Decompose `core/system.py` into `core/sys/` package
+- [x] **Phase 1:** Extract AST skeleton to `analysis/skeleton.py` (COMPLETED - 42a742c)
+- [x] **Phase 2:** Decompose `core/system.py` into `core/sys/` package (COMPLETED - 28ae0fc)
 - [ ] **Phase 3:** Merge `engine/` into `agent/`
 
 ### Current Position
-**Phase:** Phase 2
-**Step:** 2.0 (Pre-conditions)
+**Phase:** Phase 3
+**Step:** 3.0 (Pre-conditions)
 **Blocked:** No
 
 ---

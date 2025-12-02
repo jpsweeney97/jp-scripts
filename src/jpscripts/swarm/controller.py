@@ -16,7 +16,7 @@ from jpscripts.core.result import (
     ValidationError,
     WorkspaceError,
 )
-from jpscripts.engine import PreparedPrompt
+from jpscripts.agent import PreparedPrompt
 from jpscripts.git import AsyncRepo
 from jpscripts.swarm.agent_adapter import SwarmAgentExecutor, TaskExecutor
 from jpscripts.swarm.types import MergeResult, TaskResult

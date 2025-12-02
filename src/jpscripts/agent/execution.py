@@ -27,7 +27,7 @@ from jpscripts.agent.strategies import (
     build_strategy_plan,
     detect_repeated_failure,
 )
-from jpscripts.agent.types import (
+from jpscripts.agent.models import (
     AgentEvent,
     EventKind,
     PatchFetcher,
@@ -38,14 +38,14 @@ from jpscripts.agent.types import (
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.engine import (
-    AgentEngine,
+from jpscripts.agent.engine import AgentEngine
+from jpscripts.agent.models import (
     AgentResponse,
     Message,
     PreparedPrompt,
     ToolCall,
-    parse_agent_response,
 )
+from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)

@@ -33,7 +33,7 @@ from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
-from jpscripts.engine import AgentEngine, Message, PreparedPrompt
+from jpscripts.agent import AgentEngine, Message, PreparedPrompt
 from jpscripts.providers import (
     CompletionOptions,
     LLMProvider,

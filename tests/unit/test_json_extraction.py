@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from jpscripts.engine import _clean_json_payload, _extract_balanced_json
+from jpscripts.agent.parsing import _clean_json_payload, _extract_balanced_json
 
 
 class TestExtractBalancedJson:

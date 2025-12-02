@@ -14,7 +14,7 @@ from collections.abc import AsyncIterator, Iterable, Sequence
 
 from pydantic import BaseModel, ConfigDict
 
-from jpscripts.engine import AgentTraceStep
+from jpscripts.agent import AgentTraceStep
 from jpscripts.providers import (
     CompletionOptions,
     CompletionResponse,

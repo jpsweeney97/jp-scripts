@@ -13,7 +13,7 @@ from jpscripts.core.config import AIConfig, AppConfig, InfraConfig, UserConfig
 from jpscripts.structures.dag import DAGGraph, DAGTask
 from jpscripts.core.result import Ok
 from jpscripts.core.runtime import RuntimeContext, reset_runtime_context, set_runtime_context
-from jpscripts.engine import PreparedPrompt
+from jpscripts.agent import PreparedPrompt
 from jpscripts.swarm import ParallelSwarmController
 
 

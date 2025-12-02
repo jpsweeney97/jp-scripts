@@ -1,17 +1,11 @@
-"""Agent engine subsystem for jpscripts.
+"""Agent execution engine.
 
-This package provides the core agent execution engine including:
-- AgentEngine: Main agent loop with governance, tracing, and safety
-- Response parsing and validation
-- Tool execution
+This module provides the main AgentEngine class which composes:
+- Response fetching and parsing
+- Governance enforcement
+- Safety monitoring (circuit breaker)
 - Trace recording
-- Safety monitoring
-
-Public API:
-- AgentEngine: Main agent execution class
-- parse_agent_response: Parse agent JSON responses
-- run_safe_shell: Execute commands safely
-- load_template_environment: Load Jinja2 templates
+- Tool execution
 """
 
 from __future__ import annotations
@@ -25,44 +19,18 @@ from pydantic import BaseModel
 
 from jpscripts.core.cost_tracker import TokenUsage
 
-from .governance_enforcer import enforce_governance
+from .circuit import _estimate_token_usage, enforce_circuit_breaker
+from .governance import enforce_governance
 from .models import (
-    AgentResponse,
     AgentTraceStep,
     MemoryProtocol,
     Message,
     PreparedPrompt,
     ResponseT,
-    SafetyLockdownError,
     ToolCall,
 )
-from .response_handler import (
-    _clean_json_payload,
-    _extract_balanced_json,
-    _extract_from_code_fence,
-    _extract_thinking_content,
-    _find_last_valid_json,
-    _split_thought_and_json,
-    parse_agent_response,
-)
-from .safety_monitor import (
-    _approximate_tokens,
-    _build_black_box_report,
-    _estimate_token_usage,
-    _get_tokenizer,
-    enforce_circuit_breaker,
-)
-from .tool_executor import (
-    AUDIT_PREFIX,
-    execute_tool,
-    load_template_environment,
-    run_safe_shell,
-)
-from .trace_recorder import (
-    TraceRecorder,
-    _get_tracer,
-    _load_otel_deps,
-)
+from .tools import execute_tool
+from .tracing import TraceRecorder, _get_tracer
 
 
 class AgentEngine(Generic[ResponseT]):
@@ -215,42 +183,6 @@ class AgentEngine(Generic[ResponseT]):
         )
 
 
-# Re-export everything for backwards compatibility
 __all__ = [
-    # Tool execution
-    "AUDIT_PREFIX",
-    # Engine class
     "AgentEngine",
-    # Models
-    "AgentResponse",
-    "AgentTraceStep",
-    "MemoryProtocol",
-    "Message",
-    "PreparedPrompt",
-    "ResponseT",
-    "SafetyLockdownError",
-    "ToolCall",
-    # Trace recording
-    "TraceRecorder",
-    # Safety
-    "_approximate_tokens",
-    "_build_black_box_report",
-    # Response handling
-    "_clean_json_payload",
-    "_estimate_token_usage",
-    "_extract_balanced_json",
-    "_extract_from_code_fence",
-    "_extract_thinking_content",
-    "_find_last_valid_json",
-    "_get_tokenizer",
-    "_get_tracer",
-    "_load_otel_deps",
-    "_split_thought_and_json",
-    "enforce_circuit_breaker",
-    # Governance
-    "enforce_governance",
-    "execute_tool",
-    "load_template_environment",
-    "parse_agent_response",
-    "run_safe_shell",
 ]

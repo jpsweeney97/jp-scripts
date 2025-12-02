@@ -23,14 +23,22 @@ from jpscripts.agent.context import (
     scan_recent,
 )
 
-# Export from types module
-from jpscripts.agent.types import (
+# Export from models module (merged from types and engine)
+from jpscripts.agent.models import (
     AgentEvent,
+    AgentResponse,
+    AgentTraceStep,
     EventKind,
+    MemoryProtocol,
+    Message,
     PatchFetcher,
+    PreparedPrompt,
     RepairLoopConfig,
     ResponseFetcher,
+    ResponseT,
+    SafetyLockdownError,
     SecurityError,
+    ToolCall,
 )
 
 # Export from ops module
@@ -57,36 +65,56 @@ from jpscripts.agent.strategies import (
     StrategyConfig,
 )
 
-# Re-export from engine for backwards compatibility
-from jpscripts.engine import (
-    PreparedPrompt,
-    parse_agent_response,
-)
+# Export from new agent submodules
+from jpscripts.agent.circuit import enforce_circuit_breaker
+from jpscripts.agent.engine import AgentEngine
+from jpscripts.agent.governance import enforce_governance
+from jpscripts.agent.parsing import parse_agent_response
+from jpscripts.agent.tools import AUDIT_PREFIX, execute_tool, run_safe_shell
+from jpscripts.agent.tracing import TraceRecorder
 
 __all__ = [
+    # Constants
     "AGENT_TEMPLATE_NAME",
+    "AUDIT_PREFIX",
     "GOVERNANCE_ANTI_PATTERNS",
+    # Classes
+    "AgentEngine",
     "AgentEvent",
+    "AgentResponse",
+    "AgentTraceStep",
     "AttemptContext",
-    "EventKind",
-    "PatchFetcher",
+    "MemoryProtocol",
+    "Message",
     "PreparedPrompt",
     "RepairLoopConfig",
     "RepairLoopOrchestrator",
     "RepairStrategy",
-    "ResponseFetcher",
-    "SecurityError",
+    "SafetyLockdownError",
     "StrategyConfig",
+    "ToolCall",
+    "TraceRecorder",
+    # Enums and Types
+    "EventKind",
+    "PatchFetcher",
+    "ResponseFetcher",
+    "ResponseT",
+    "SecurityError",
+    # Functions
     "apply_patch_text",
     "build_dependency_section",
     "build_file_context_section",
     "collect_git_context",
     "collect_git_diff",
+    "enforce_circuit_breaker",
+    "enforce_governance",
+    "execute_tool",
     "expand_context_paths",
     "load_constitution",
     "parse_agent_response",
     "prepare_agent_prompt",
     "run_repair_loop",
+    "run_safe_shell",
     "scan_recent",
     "verify_syntax",
 ]

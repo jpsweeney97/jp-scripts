@@ -27,7 +27,7 @@ from jpscripts.core.replay import (
     ReplayDivergenceError,
     ReplayProvider,
 )
-from jpscripts.engine import AgentEngine, AgentTraceStep, Message, PreparedPrompt
+from jpscripts.agent import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.providers import Message as ProviderMessage
 
 app = typer.Typer(help="Inspect agentic execution traces.")

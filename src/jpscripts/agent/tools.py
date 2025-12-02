@@ -4,6 +4,9 @@ This module provides:
 - Tool execution from the unified registry
 - Safe shell command execution with validation
 - Template environment loading
+
+Note: This module contains a simplified str-returning run_safe_shell.
+For the Result-returning version, use jpscripts.core.sys.run_safe_shell.
 """
 
 from __future__ import annotations
@@ -21,8 +24,8 @@ from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.result import Err
 from jpscripts.core.sys import CommandResult, get_sandbox
 
+from .circuit import enforce_circuit_breaker
 from .models import ToolCall
-from .safety_monitor import enforce_circuit_breaker
 
 logger = get_logger(__name__)
 
@@ -52,7 +55,7 @@ async def execute_tool(
     Returns:
         Tool output as a string
     """
-    from .safety_monitor import _estimate_token_usage
+    from .circuit import _estimate_token_usage
 
     normalized = call.tool.strip().lower()
     if normalized not in tools:

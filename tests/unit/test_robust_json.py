@@ -10,7 +10,7 @@ These tests verify that the JSON parser can handle:
 
 from __future__ import annotations
 
-from jpscripts.engine import (
+from jpscripts.agent.parsing import (
     _clean_json_payload,
     _extract_balanced_json,
     _extract_from_code_fence,

@@ -30,7 +30,7 @@ from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.analysis.structure import generate_map
 from jpscripts.ai.tokens import TokenBudgetManager
-from jpscripts.engine import AgentResponse, PreparedPrompt
+from jpscripts.agent.models import AgentResponse, PreparedPrompt
 from jpscripts.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory
 
 logger = get_logger(__name__)

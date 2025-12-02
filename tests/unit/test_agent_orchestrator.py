@@ -21,7 +21,7 @@ from jpscripts.agent.execution import (
 )
 from jpscripts.core.config import AppConfig
 from jpscripts.core.runtime import RuntimeContext, runtime_context
-from jpscripts.engine import PreparedPrompt
+from jpscripts.agent import PreparedPrompt
 
 # ---------------------------------------------------------------------------
 # Fixtures
