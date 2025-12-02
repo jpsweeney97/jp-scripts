@@ -15,7 +15,21 @@ from pydantic import ValidationError
 
 from jpscripts.agent import ops
 from jpscripts.agent.context import expand_context_paths
+from jpscripts.agent.engine import AgentEngine
+from jpscripts.agent.models import (
+    AgentEvent,
+    AgentResponse,
+    EventKind,
+    Message,
+    PatchFetcher,
+    PreparedPrompt,
+    RepairLoopConfig,
+    ResponseFetcher,
+    SecurityError,
+    ToolCall,
+)
 from jpscripts.agent.ops import verify_syntax  # Re-export for backward compatibility
+from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.agent.prompting import prepare_agent_prompt
 from jpscripts.agent.strategies import (
@@ -27,25 +41,9 @@ from jpscripts.agent.strategies import (
     build_strategy_plan,
     detect_repeated_failure,
 )
-from jpscripts.agent.models import (
-    AgentEvent,
-    EventKind,
-    PatchFetcher,
-    RepairLoopConfig,
-    ResponseFetcher,
-    SecurityError,
-)
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
-from jpscripts.agent.engine import AgentEngine
-from jpscripts.agent.models import (
-    AgentResponse,
-    Message,
-    PreparedPrompt,
-    ToolCall,
-)
-from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)

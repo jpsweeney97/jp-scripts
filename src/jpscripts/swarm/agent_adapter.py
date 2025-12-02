@@ -13,15 +13,15 @@ from typing import Protocol
 
 from pydantic import ValidationError as PydanticValidationError
 
+from jpscripts.agent import Message, PreparedPrompt, ToolCall, parse_agent_response
 from jpscripts.agent.execution import apply_patch_text, verify_syntax
 from jpscripts.agent.prompting import prepare_agent_prompt
 from jpscripts.core.config import AppConfig
-from jpscripts.structures.dag import DAGTask, TaskStatus, WorktreeContext
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.sys import run_safe_shell
-from jpscripts.agent import Message, PreparedPrompt, ToolCall, parse_agent_response
 from jpscripts.git import AsyncRepo
+from jpscripts.structures.dag import DAGTask, TaskStatus, WorktreeContext
 from jpscripts.swarm.types import TaskResult
 
 

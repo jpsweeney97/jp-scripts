@@ -20,6 +20,7 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.tree import Tree
 
+from jpscripts.agent import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.core.console import console
 from jpscripts.core.decorators import handle_exceptions
 from jpscripts.core.replay import (
@@ -27,7 +28,6 @@ from jpscripts.core.replay import (
     ReplayDivergenceError,
     ReplayProvider,
 )
-from jpscripts.agent import AgentEngine, AgentTraceStep, Message, PreparedPrompt
 from jpscripts.providers import Message as ProviderMessage
 
 app = typer.Typer(help="Inspect agentic execution traces.")

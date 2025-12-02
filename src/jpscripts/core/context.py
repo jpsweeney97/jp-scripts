@@ -8,6 +8,7 @@ This module provides a unified interface for context-related utilities:
 
 from __future__ import annotations
 
+from jpscripts.ai.tokens import TRUNCATION_MARKER, TokenBudgetManager, TokenCounter
 from jpscripts.core.context_gatherer import (
     DEFAULT_MODEL_CONTEXT_LIMIT,
     FILE_PATTERN,
@@ -22,7 +23,6 @@ from jpscripts.core.context_gatherer import (
     run_and_capture,
     smart_read_context,
 )
-from jpscripts.ai.tokens import TRUNCATION_MARKER, TokenBudgetManager, TokenCounter
 
 __all__ = [
     "DEFAULT_MODEL_CONTEXT_LIMIT",

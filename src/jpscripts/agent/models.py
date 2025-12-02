@@ -150,9 +150,8 @@ class AgentTraceStep(BaseModel):
 # -----------------------------------------------------------------------------
 
 
-class SecurityError(RuntimeError):
-    """Raised when a tool invocation is considered unsafe."""
-
+# Re-export from core for backward compatibility
+from jpscripts.core.errors import SecurityError
 
 # Type aliases for async fetchers
 PatchFetcher = Callable[["PreparedPrompt"], Awaitable[str]]
@@ -219,29 +218,29 @@ class RepairLoopConfig:
 # -----------------------------------------------------------------------------
 
 __all__ = [
+    # Event types (from agent/types.py)
+    "AgentEvent",
     # Core models
     "AgentResponse",
     "AgentTraceStep",
-    "MemoryProtocol",
-    "Message",
-    "PreparedPrompt",
-    "ResponseT",
-    "SafetyLockdownError",
-    "ToolCall",
     # OpenTelemetry protocols
     "BatchSpanProcessorProtocol",
+    "EventKind",
+    "MemoryProtocol",
+    "Message",
     "OTLPSpanExporterProtocol",
+    "PatchFetcher",
+    "PreparedPrompt",
+    "RepairLoopConfig",
     "ResourceProtocol",
+    "ResponseFetcher",
+    "ResponseT",
+    "SafetyLockdownError",
+    "SecurityError",
     "SpanProcessorProtocol",
     "SpanProtocol",
+    "ToolCall",
     "TraceModuleProtocol",
     "TracerProtocol",
     "TracerProviderProtocol",
-    # Event types (from agent/types.py)
-    "AgentEvent",
-    "EventKind",
-    "PatchFetcher",
-    "RepairLoopConfig",
-    "ResponseFetcher",
-    "SecurityError",
 ]

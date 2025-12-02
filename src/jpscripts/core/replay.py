@@ -73,7 +73,7 @@ class ReplayProvider(LLMProvider):
 
     @property
     def provider_type(self) -> ProviderType:
-        return ProviderType.CODEX
+        return ProviderType.ANTHROPIC  # Replay uses Anthropic as default type
 
     @property
     def default_model(self) -> str:

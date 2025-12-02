@@ -24,8 +24,8 @@ from rich.table import Table
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.analysis.complexity import analyze_file_complexity
+from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
 from jpscripts.core.result import JPScriptsError

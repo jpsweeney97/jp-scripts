@@ -19,8 +19,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.commands.ui import fzf_stream_with_command
-from jpscripts.net import search as search_core
 from jpscripts.core.console import console
+from jpscripts.net import search as search_core
 
 
 def _run_search_with_fallback(

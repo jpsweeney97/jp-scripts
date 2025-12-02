@@ -125,6 +125,7 @@ class RuntimeContext:
     _rate_limiter: Any | None = field(default=None, repr=False)
     _cost_tracker: Any | None = field(default=None, repr=False)
     _circuit_breaker: CircuitBreaker | None = field(default=None, repr=False)
+    _mcp_circuit_breaker: CircuitBreaker | None = field(default=None, repr=False)
 
     def get_rate_limiter(self) -> Any:
         """Get or create the rate limiter for this context."""
@@ -162,6 +163,27 @@ class RuntimeContext:
                 model_id=getattr(self.config, "default_model", "default"),
             )
         return self._circuit_breaker
+
+    def get_mcp_circuit_breaker(self) -> CircuitBreaker:
+        """Get or create the MCP-specific circuit breaker.
+
+        MCP tools have their own circuit breaker with higher limits since they
+        may be called by external agents with different usage patterns.
+
+        Default limits:
+            - max_cost_velocity: 10.0 USD/min (vs 5.0 for agent)
+            - max_file_churn: 20 files (vs 12 for agent)
+        """
+        if self._mcp_circuit_breaker is None:
+            # MCP gets more permissive limits by default
+            max_velocity = getattr(self.config, "mcp_max_cost_velocity", Decimal("10.0"))
+            max_churn = getattr(self.config, "mcp_max_file_churn", 20)
+            self._mcp_circuit_breaker = CircuitBreaker(
+                max_cost_velocity=Decimal(str(max_velocity)),
+                max_file_churn=int(max_churn),
+                model_id="mcp",
+            )
+        return self._mcp_circuit_breaker
 
 
 # Context variable for async/thread safety

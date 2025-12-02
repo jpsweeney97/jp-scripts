@@ -20,6 +20,7 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.result import Err, Ok
+from jpscripts.core.safety import estimate_tokens_from_args
 from jpscripts.core.sys import run_safe_shell as core_run_safe_shell
 
 from .circuit import enforce_circuit_breaker
@@ -53,13 +54,17 @@ async def execute_tool(
     Returns:
         Tool output as a string
     """
-    from .circuit import _estimate_token_usage
-
     normalized = call.tool.strip().lower()
     if normalized not in tools:
         return f"Unknown tool: {call.tool}"
 
-    usage = last_usage or _estimate_token_usage("", "")
+    # Use provided usage or estimate from tool arguments
+    if last_usage is not None:
+        usage = last_usage
+    else:
+        estimated = estimate_tokens_from_args(**call.arguments)
+        usage = TokenUsage(prompt_tokens=estimated, completion_tokens=0)
+
     files_touched = list(last_files_touched or [])
 
     enforce_circuit_breaker(

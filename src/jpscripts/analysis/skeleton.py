@@ -220,13 +220,13 @@ def get_file_skeleton(source: str, *, limit: int = 1_000_000) -> str:
 
 __all__ = [
     "SYNTAX_WARNING",
-    "get_file_skeleton",
+    "_doc_expr",
     # Internal helpers (exported for testing)
     "_fallback_read",
     "_is_parseable",
     "_line_offsets",
     "_node_length",
-    "_doc_expr",
-    "_skeletonize_function",
     "_skeletonize_class",
+    "_skeletonize_function",
+    "get_file_skeleton",
 ]

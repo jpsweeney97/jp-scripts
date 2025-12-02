@@ -12,9 +12,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from jpscripts.structures.dag import TaskStatus, WorktreeContext
 from jpscripts.core.result import Err, GitError, Ok, Result
 from jpscripts.git import AsyncRepo
+from jpscripts.structures.dag import TaskStatus, WorktreeContext
 
 # Pre-compiled pattern for worktree directory detection
 _WORKTREE_DIR_PATTERN = re.compile(r"^worktree-[\w-]+-[a-f0-9]{8}$")

@@ -16,6 +16,7 @@ from fastmcp.tools import Tool
 
 from jpscripts.core.config import AppConfig, load_config
 from jpscripts.core.runtime import RuntimeContext, _runtime_ctx
+from jpscripts.core.safety import wrap_mcp_tool
 from jpscripts.mcp import get_tool_metadata, logger, set_config
 from jpscripts.mcp.tools import discover_tools
 
@@ -67,6 +68,9 @@ def register_tools(mcp: FastMCP) -> None:
 
     Uses the unified tool registry from discover_tools() to ensure
     AgentEngine and MCP server use identical tool sets.
+
+    Each tool is wrapped with circuit breaker enforcement to prevent
+    runaway cost or file churn from external MCP clients.
     """
     tools = discover_tools()
     registered_count = 0
@@ -82,14 +86,17 @@ def register_tools(mcp: FastMCP) -> None:
                     f"MCP tool '{tool_name}' argument '{param_name}' is missing a type hint."
                 )
 
+        # Wrap with circuit breaker enforcement
+        wrapped_func = wrap_mcp_tool(func, tool_name)
+
         try:
-            tool = Tool.from_function(func, **metadata)
+            tool = Tool.from_function(wrapped_func, **metadata)
             mcp.add_tool(tool)
             registered_count += 1
         except Exception as exc:
             logger.error("Failed to register tool %s", tool_name, exc_info=exc)
 
-    logger.info("Registered %d MCP tools from unified registry", registered_count)
+    logger.info("Registered %d MCP tools from unified registry (with safety wrappers)", registered_count)
 
 
 def create_server() -> FastMCP:

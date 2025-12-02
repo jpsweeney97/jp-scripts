@@ -31,21 +31,21 @@ __all__ = [
     "CommandResult",
     "DockerSandbox",
     "LocalSandbox",
-    "SandboxProtocol",
-    "get_sandbox",
-    "run_safe_shell",
     # process
     "ProcessInfo",
+    "SandboxProtocol",
     "find_processes",
-    "kill_process",
-    "kill_process_async",
     # audio
     "get_audio_devices",
-    "set_audio_device",
-    # network
-    "get_ssh_hosts",
-    "run_temp_server",
     # package
     "get_brew_info",
+    "get_sandbox",
+    # network
+    "get_ssh_hosts",
+    "kill_process",
+    "kill_process_async",
+    "run_safe_shell",
+    "run_temp_server",
     "search_brew",
+    "set_audio_device",
 ]

@@ -26,12 +26,12 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from typer.main import get_command
 
+from jpscripts.agent.tools import AUDIT_PREFIX, run_safe_shell
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
 from jpscripts.core.mcp_registry import get_tool_metadata, get_tool_registry
 from jpscripts.core.result import CapabilityMissingError, Err, Ok
 from jpscripts.core.security import validate_path, validate_workspace_root
-from jpscripts.agent.tools import AUDIT_PREFIX, run_safe_shell
 from jpscripts.memory import (
     STOPWORDS,
     EmbeddingClient,

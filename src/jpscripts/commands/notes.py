@@ -24,10 +24,10 @@ from rich.table import Table
 
 from jpscripts.commands.ui import fzf_select_async, fzf_stream_with_command
 from jpscripts.core import notes_impl
-from jpscripts.net import search as search_core
 from jpscripts.core.console import console
 from jpscripts.core.result import Err, Ok
 from jpscripts.git import client as git_core
+from jpscripts.net import search as search_core
 
 CLIPHIST_DIR = Path.home() / ".local" / "share" / "jpscripts" / "cliphist"
 CLIPHIST_FILE = CLIPHIST_DIR / "history.txt"

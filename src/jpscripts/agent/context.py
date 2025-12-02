@@ -12,6 +12,8 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
+from jpscripts.ai.tokens import Priority, TokenBudgetManager
+from jpscripts.analysis.structure import get_import_dependencies
 from jpscripts.core import security
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import (
@@ -22,8 +24,6 @@ from jpscripts.core.context_gatherer import (
 )
 from jpscripts.core.nav import scan_recent
 from jpscripts.core.result import Err, Ok
-from jpscripts.analysis.structure import get_import_dependencies
-from jpscripts.ai.tokens import Priority, TokenBudgetManager
 from jpscripts.git import client as git_core
 from jpscripts.git import ops as git_ops
 

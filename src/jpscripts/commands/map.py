@@ -10,8 +10,8 @@ from pathlib import Path
 
 import typer
 
-from jpscripts.core.console import console
 from jpscripts.analysis.structure import generate_map
+from jpscripts.core.console import console
 
 
 def map_cmd(
