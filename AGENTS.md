@@ -1,303 +1,104 @@
-# jpscripts Constitution & Agent System Prompt
-
-> **Version:** 2.0
-> **Owner:** jp-scripts maintainers
-> **Purpose:** Codify non-negotiable engineering standards for agents and humans.
-> **Scope:** All code, tests, and tools within the jpscripts workspace.
-
----
-
-## Core Invariants
-
-You MUST adhere to these invariants at all times. Any violation requires explicit approval.
+# Rust/codex-rs
 
-### [invariant:typing] Strict Typing
+In the codex-rs folder where the rust code lives:
 
-- All code must pass `mypy --strict`
-- Every function, method, and attribute carries explicit type annotations, including `-> None` for procedures
-- **Any use of `Any` is prohibited** unless wrapping third-party APIs without stubs
-  - When unavoidable, justify with a `# type: ignore` comment plus runtime validation at the boundary
-- All MCP tool parameters and configuration objects use `pydantic.BaseModel` or `dataclass`
-- No raw dicts for structured data
+- Crate names are prefixed with `codex-`. For example, the `core` folder's crate is named `codex-core`
+- When using format! and you can inline variables into {}, always do that.
+- Install any commands the repo relies on (for example `just`, `rg`, or `cargo-insta`) if they aren't already available before running instructions here.
+- Never add or modify any code related to `CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR` or `CODEX_SANDBOX_ENV_VAR`.
+  - You operate in a sandbox where `CODEX_SANDBOX_NETWORK_DISABLED=1` will be set whenever you use the `shell` tool. Any existing code that uses `CODEX_SANDBOX_NETWORK_DISABLED_ENV_VAR` was authored with this fact in mind. It is often used to early exit out of tests that the author knew you would not be able to run given your sandbox limitations.
+  - Similarly, when you spawn a process using Seatbelt (`/usr/bin/sandbox-exec`), `CODEX_SANDBOX=seatbelt` will be set on the child process. Integration tests that want to run Seatbelt themselves cannot be run under Seatbelt, so checks for `CODEX_SANDBOX=seatbelt` are also often used to early exit out of tests, as appropriate.
+- Always collapse if statements per https://rust-lang.github.io/rust-clippy/master/index.html#collapsible_if
+- Always inline format! args when possible per https://rust-lang.github.io/rust-clippy/master/index.html#uninlined_format_args
+- Use method references over closures when possible per https://rust-lang.github.io/rust-clippy/master/index.html#redundant_closure_for_method_calls
+- Do not use unsigned integer even if the number cannot be negative.
+- When writing tests, prefer comparing the equality of entire objects over fields one by one.
+- When making a change that adds or changes an API, ensure that the documentation in the `docs/` folder is up to date if applicable.
 
-### [invariant:async-io] Async-First I/O
+Run `just fmt` (in `codex-rs` directory) automatically after making Rust code changes; do not ask for approval to run it. Before finalizing a change to `codex-rs`, run `just fix -p <project>` (in `codex-rs` directory) to fix any linter issues in the code. Prefer scoping with `-p` to avoid slow workspace‑wide Clippy builds; only run `just fix` without `-p` if you changed shared crates. Additionally, run the tests:
 
-- All I/O (git, filesystem, subprocess, HTTP) executes in `async def`
-- Blocking calls must be wrapped in `asyncio.to_thread`
-- Shell execution **never** uses `shell=True`
-- Commands are tokenized with `shlex.split` and executed via:
-  - `asyncio.create_subprocess_exec`
-  - `core.system.run_safe_shell`
-- All shell-capable code must invoke `core.command_validation.validate_command` before execution
-- **Security module async functions:** Path validation in async contexts must use the async variants:
-  - `await security.validate_path_safe_async(path, root)` - validates paths asynchronously
-  - `await security.validate_workspace_root_safe_async(root)` - validates workspace roots asynchronously
-  - `security._is_git_repo_async(path)` - async git repository detection (internal)
+1. Run the test for the specific project that was changed. For example, if changes were made in `codex-rs/tui`, run `cargo test -p codex-tui`.
+2. Once those pass, if any changes were made in common, core, or protocol, run the complete test suite with `cargo test --all-features`.
+   When running interactively, ask the user before running `just fix` to finalize. `just fmt` does not require approval. project-specific or individual tests can be run without asking the user, but do ask the user before running the complete test suite.
 
-### [invariant:error-handling] Result-Based Errors
+## TUI style conventions
 
-- **No bare `except` clauses**
-- Catch specific exceptions and map to `Result[T, JPScriptsError]` variants
-- Core layers return `Result` without printing
-- Command layers pattern-match `Ok`/`Err` and render via console
-- MCP layers use `tool_error_handler`
-- Raw stack traces are never shown to users; errors are wrapped in typed domain errors
+See `codex-rs/tui/styles.md`.
 
-### [invariant:context-and-memory] Smart Context Management
+## TUI code conventions
 
-- Structured content (`.py`/`.json`/`.yaml`) is never naively sliced
-- Use `smart_read_context` and `TokenBudgetManager` for truncation
-- For Python code, use `DependencyWalker` for semantic slicing
-- File memories include content hashes
-- Prune memory entries on drift or deletion
-- Retrieval uses reciprocal rank fusion (k=60)
+- Use concise styling helpers from ratatui’s Stylize trait.
+  - Basic spans: use "text".into()
+  - Styled spans: use "text".red(), "text".green(), "text".magenta(), "text".dim(), etc.
+  - Prefer these over constructing styles with `Span::styled` and `Style` directly.
+  - Example: patch summary file lines
+    - Desired: vec!["  └ ".into(), "M".red(), " ".dim(), "tui/src/app.rs".dim()]
 
-### [invariant:testing] Comprehensive Testing
+### TUI Styling (ratatui)
 
-- Every CLI command has a smoke test in `tests/test_smoke.py` covering `--help` and basic invocation
-- Async tests use `pytest.mark.asyncio`
-- Security-sensitive code ships explicit security tests
-- Bug fixes include regression coverage
-- Follow the Reflexion Protocol: **Plan → Test (Red) → Execute (Green) → Verify**
+- Prefer Stylize helpers: use "text".dim(), .bold(), .cyan(), .italic(), .underlined() instead of manual Style where possible.
+- Prefer simple conversions: use "text".into() for spans and vec![…].into() for lines; when inference is ambiguous (e.g., Paragraph::new/Cell::from), use Line::from(spans) or Span::from(text).
+- Computed styles: if the Style is computed at runtime, using `Span::styled` is OK (`Span::from(text).set_style(style)` is also acceptable).
+- Avoid hardcoded white: do not use `.white()`; prefer the default foreground (no color).
+- Chaining: combine helpers by chaining for readability (e.g., url.cyan().underlined()).
+- Single items: prefer "text".into(); use Line::from(text) or Span::from(text) only when the target type isn’t obvious from context, or when using .into() would require extra type annotations.
+- Building lines: use vec![…].into() to construct a Line when the target type is obvious and no extra type annotations are needed; otherwise use Line::from(vec![…]).
+- Avoid churn: don’t refactor between equivalent forms (Span::styled ↔ set_style, Line::from ↔ .into()) without a clear readability or functional gain; follow file‑local conventions and do not introduce type annotations solely to satisfy .into().
+- Compactness: prefer the form that stays on one line after rustfmt; if only one of Line::from(vec![…]) or vec![…].into() avoids wrapping, choose that. If both wrap, pick the one with fewer wrapped lines.
 
-### [invariant:destructive-fs] Protected Filesystem Operations
+### Text wrapping
 
-Destructive Python file operations are forbidden unless explicitly marked safe:
+- Always use textwrap::wrap to wrap plain strings.
+- If you have a ratatui Line and you want to wrap it, use the helpers in tui/src/wrapping.rs, e.g. word_wrap_lines / word_wrap_line.
+- If you need to indent wrapped lines, use the initial_indent / subsequent_indent options from RtOptions if you can, rather than writing custom logic.
+- If you have a list of lines and you need to prefix them all with some prefix (optionally different on the first vs subsequent lines), use the `prefix_lines` helper from line_utils.
 
-```python
-# Forbidden without marker:
-shutil.rmtree(path)
-os.remove(path)
+## Tests
 
-# Allowed with safety marker:
-shutil.rmtree(path)  # safety: checked
-```
+### Snapshot tests
 
-This is enforced by AST analysis via `SecurityVisitor`.
+This repo uses snapshot tests (via `insta`), especially in `codex-rs/tui`, to validate rendered output. When UI or text output changes intentionally, update the snapshots as follows:
 
-#### Atomic File Operations (TOCTOU Prevention)
+- Run tests to generate any updated snapshots:
+  - `cargo test -p codex-tui`
+- Check what’s pending:
+  - `cargo insta pending-snapshots -p codex-tui`
+- Review changes by reading the generated `*.snap.new` files directly in the repo, or preview a specific file:
+  - `cargo insta show -p codex-tui path/to/file.snap.new`
+- Only if you intend to accept all new snapshots in this crate, run:
+  - `cargo insta accept -p codex-tui`
 
-Direct usage of Python's built-in `open()` for writing is **prohibited** within the agent runtime. This prevents Time-of-Check Time-of-Use (TOCTOU) race conditions where a validated path could be swapped for a symlink between validation and file open.
+If you don’t have the tool:
 
-```python
-# ❌ FORBIDDEN - vulnerable to TOCTOU attacks:
-path = validate_path(user_input, root)
-with open(path, "w") as f:
-    f.write(content)
+- `cargo install cargo-insta`
 
-# ✅ REQUIRED - atomic validation + open:
-from jpscripts.core.security import validate_and_open
-result = validate_and_open(user_input, root, "w")
-match result:
-    case Ok(fh):
-        with fh:
-            fh.write(content)
-    case Err(e):
-        handle_error(e)
-```
+### Test assertions
 
-The `validate_and_open()` function:
-- Validates the path stays within workspace bounds
-- Opens the file with `O_NOFOLLOW` to reject symlinks at open time
-- Returns a `Result[IO, SecurityError]` for safe error handling
+- Tests should use pretty_assertions::assert_eq for clearer diffs. Import this at the top of the test module if it isn't already.
 
-### [invariant:dynamic-execution] No Dynamic Execution
+### Integration tests (core)
 
-The following are **strictly forbidden** to prevent obfuscated shell injection:
-- `eval()`
-- `exec()`
-- Dynamic imports via string manipulation
+- Prefer the utilities in `core_test_support::responses` when writing end-to-end Codex tests.
 
----
+- All `mount_sse*` helpers return a `ResponseMock`; hold onto it so you can assert against outbound `/responses` POST bodies.
+- Use `ResponseMock::single_request()` when a test should only issue one POST, or `ResponseMock::requests()` to inspect every captured `ResponsesRequest`.
+- `ResponsesRequest` exposes helpers (`body_json`, `input`, `function_call_output`, `custom_tool_call_output`, `call_output`, `header`, `path`, `query_param`) so assertions can target structured payloads instead of manual JSON digging.
+- Build SSE payloads with the provided `ev_*` constructors and the `sse(...)`.
+- Prefer `wait_for_event` over `wait_for_event_with_timeout`.
+- Prefer `mount_sse_once` over `mount_sse_once_match` or `mount_sse_sequence`
 
-## Cognitive Standards
+- Typical pattern:
 
-Apply these mental checks before every action.
+  ```rust
+  let mock = responses::mount_sse_once(&server, responses::sse(vec![
+      responses::ev_response_created("resp-1"),
+      responses::ev_function_call(call_id, "shell", &serde_json::to_string(&args)?),
+      responses::ev_completed("resp-1"),
+  ])).await;
 
-### Safety Scan
+  codex.submit(Op::UserTurn { ... }).await?;
 
-Before executing any tool, performing any write, or running any command:
-1. **List potential side effects** (file modification, process termination, network calls)
-2. **Verify reversibility** - can this be undone?
-3. **Check authorization** - is this within allowed operations?
-
-### Invariant Citation
-
-Every step in a proposed plan must explicitly cite the Constitution Invariant ID it satisfies:
-
-```
-Step 1: Create async subprocess wrapper
-        [invariant:async-io] - Uses asyncio.create_subprocess_exec
-        [invariant:typing] - Returns Result[str, ProcessError]
-```
-
-### Anti-Pattern Check
-
-Before finalizing any response, verify against known anti-patterns:
-
-| Anti-Pattern | Detection | Remediation |
-|-------------|-----------|-------------|
-| Sync I/O | `subprocess.run()` without `asyncio.to_thread` | Wrap in async context |
-| Shell Injection | `shell=True`, `os.system()` | Use `shlex.split` + `subprocess_exec` |
-| Bare Except | `except:` without type | Specify exception types |
-| Naive Slicing | `content[:limit]` on code | Use `smart_read_context` |
-| Any Type | `def foo() -> Any` | Add proper type annotations |
-
----
-
-## Protocols
-
-### Reflexion Protocol
-
-```
-Plan → Test (Red) → Execute (Green) → Verify
-```
-
-**On first failure:**
-- Retry with a minimal adjustment
-
-**On second failure:**
-1. HALT execution
-2. Perform structured reflection:
-   - Identify root causes
-   - Question assumptions
-   - Choose an alternate approach
-3. Document the reflection
-4. Proceed with revised plan
-
-### Commits and Edits Protocol
-
-- **Never amend or revert** user changes unless explicitly requested
-- Validate file existence before reading or writing
-- Prefer idempotent operations
-- Avoid destructive commands (`reset`, `checkout`, `rm`) without explicit approval
-- When creating commits:
-  - Use conventional commit messages
-  - Include `[invariant:*]` markers for modified code
-
-### Command Execution Protocol
-
-1. **Validate:** `core.command_validation.validate_command(cmd, cwd)`
-2. **Tokenize:** `shlex.split(cmd)` - never construct from raw strings
-3. **Execute:** `asyncio.create_subprocess_exec(*tokens, ...)`
-4. **Warn:** When commands reference paths outside workspace
-
-### Protocol: Self-Repair
-
-- **Dependency Conflicts**: If import errors occur, run `uv pip install -e .` or `pip install -e .` immediately.
-- **Type Narrowing**: If `mypy` flags a union type, assert the type explicitly before usage. Do not cast `Any`.
-- **Context Exhaustion**: If context limit is reached, call `tools.read_file_paged` on only the critical sections of files.
-
----
-
-## Security Clearance
-
-### Allowed Operations
-
-✅ Read operations on paths validated by `security.validate_path` within workspace root
-✅ Write operations limited to workspace and configured writable roots
-✅ External writes require explicit approval
-✅ Async subprocess execution after command validation
-✅ Use `shlex.split` for command tokenization
-
-### Forbidden Operations
-
-❌ Following symlinks outside the workspace
-❌ Naive truncation of structured files
-❌ Exposing raw stack traces to users
-❌ Executing `shell=True` or `os.system()`
-❌ Unsafe path traversal (e.g., `../../../etc/passwd`)
-❌ Reading sensitive files (`.env`, `*.pem`, `*.key`, `id_rsa`)
-
----
-
-## Parallel Swarm Execution
-
-When operating in parallel swarm mode:
-
-### Worktree Isolation
-
-Each parallel task runs in its own git worktree to prevent:
-- Git `index.lock` contention
-- Filesystem race conditions
-- Merge conflicts during parallel execution
-
-### DAG-Based Orchestration
-
-Tasks are organized as a Directed Acyclic Graph (DAG):
-- Tasks with disjoint file sets can run in parallel
-- Tasks with shared files must be sequenced
-- Use `DAGGraph.detect_disjoint_subgraphs()` for parallel grouping
-
-### Merge Strategy (Moderate)
-
-| Conflict Type | Strategy |
-|--------------|----------|
-| TRIVIAL (whitespace, imports) | Auto-resolve |
-| SEMANTIC (logic changes) | Attempt LLM resolution |
-| COMPLEX (structural overlap) | Flag for human review |
-
----
-
-## Quick Reference
-
-```python
-# Check a command
-from jpscripts.core.command_validation import validate_command
-verdict, reason = validate_command(cmd, cwd)
-
-# Smart context reading
-from jpscripts.core.context_gatherer import smart_read_context
-content = smart_read_context(path, max_chars, max_tokens)
-
-# Semantic code slicing
-from jpscripts.core.dependency_walker import DependencyWalker
-walker = DependencyWalker(source)
-slice = walker.slice_to_budget("main", max_tokens=1000)
-
-# Async subprocess
-async def run_cmd(cmd: str, cwd: Path) -> str:
-    tokens = shlex.split(cmd)
-    proc = await asyncio.create_subprocess_exec(
-        *tokens, cwd=cwd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-    )
-    stdout, stderr = await proc.communicate()
-    return stdout.decode()
-
-# Async path validation (for MCP tools and async contexts)
-from jpscripts.core.security import validate_path_safe_async
-from jpscripts.core.result import Err
-
-async def safe_read(path: str, root: Path) -> str:
-    result = await validate_path_safe_async(path, root)
-    if isinstance(result, Err):
-        return f"Error: {result.error.message}"
-    return result.value.read_text()
-
-# Atomic file operations (TOCTOU-safe)
-from jpscripts.core.security import validate_and_open
-from jpscripts.core.result import Ok, Err
-
-def safe_write(path: str, root: Path, content: str) -> str:
-    result = validate_and_open(path, root, "w")
-    match result:
-        case Ok(fh):
-            with fh:
-                fh.write(content)
-            return "Success"
-        case Err(e):
-            return f"Error: {e.message}"
-
-# Result pattern
-match await async_operation():
-    case Ok(value):
-        process(value)
-    case Err(error):
-        handle_error(error)
-```
-
----
-
-*This constitution is automatically enforced by `SecurityVisitor` in `governance.py`. Violations will be flagged during code review and CI/CD.*
+  // Assert request body if needed.
+  let request = mock.single_request();
+  // assert using request.function_call_output(call_id) or request.json_body() or other helpers.
+  ```

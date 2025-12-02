@@ -175,8 +175,14 @@ class AsyncSerializer:
                 for dirpath, dirnames, filenames in os.walk(root):
                     rel_dir = Path(dirpath).relative_to(root)
 
-                    # First, prune default excludes to prevent recursion
-                    dirnames[:] = [d for d in dirnames if d not in DEFAULT_EXCLUDES]
+                    # First, prune default excludes and hidden directories to prevent recursion
+                    # Keep .env and .config as they contain useful configuration
+                    dirnames[:] = [
+                        d
+                        for d in dirnames
+                        if d not in DEFAULT_EXCLUDES
+                        and not (d.startswith(".") and d not in {".env", ".config"})
+                    ]
 
                     # Then apply gitignore and sorting
                     dirnames[:] = [
@@ -190,6 +196,9 @@ class AsyncSerializer:
                     for filename in sorted(filenames):
                         # Skip files matching default excludes
                         if filename in DEFAULT_EXCLUDES:
+                            continue
+                        # Skip audit logs and agent documentation noise
+                        if filename.startswith("TECH_DEBT_AUDIT") or filename == "AGENTS.md":
                             continue
                         relative = rel_dir / filename
                         if self._is_ignored(relative, gitignore):
