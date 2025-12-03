@@ -5,14 +5,14 @@ from __future__ import annotations
 import asyncio
 from decimal import Decimal
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
 from jpscripts.core.config import AppConfig, UserConfig
 from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.errors import SecurityError
-from jpscripts.core.runtime import CircuitBreaker, RuntimeContext, runtime_context
+from jpscripts.core.runtime import runtime_context
 from jpscripts.core.safety import wrap_mcp_tool
 
 
@@ -219,3 +219,129 @@ class TestMcpServerIntegration:
         # Each tool should have a name (from Tool.from_function)
         for tool in registered_tools:
             assert hasattr(tool, "name") or hasattr(tool, "fn")
+
+
+class TestMcpPathTraversalAttacks:
+    """Attack test cases for MCP filesystem tools path validation."""
+
+    @pytest.fixture
+    def test_config(self, tmp_path: Path) -> AppConfig:
+        """Create a test config with isolated workspace."""
+        return AppConfig(
+            user=UserConfig(
+                workspace_root=tmp_path,
+                notes_dir=tmp_path / "notes",
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_read_etc_passwd_blocked(self, test_config: AppConfig) -> None:
+        """Attempt to read /etc/passwd should be blocked."""
+        from jpscripts.mcp.tools.filesystem import read_file
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            result = await read_file("/etc/passwd")
+
+        assert "Error" in result
+        assert "escapes workspace" in result.lower() or "forbidden" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_path_traversal_blocked(self, test_config: AppConfig, tmp_path: Path) -> None:
+        """Attempt to read ../outside_workspace/secret should be blocked."""
+        from jpscripts.mcp.tools.filesystem import read_file
+
+        # Create a file outside the workspace
+        outside_dir = tmp_path.parent / "outside_workspace"
+        outside_dir.mkdir(exist_ok=True)
+        secret_file = outside_dir / "secret"
+        secret_file.write_text("top secret data")
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            result = await read_file("../outside_workspace/secret")
+
+        assert "Error" in result
+        # Should not contain the secret content
+        assert "top secret data" not in result
+
+    @pytest.mark.asyncio
+    async def test_symlink_escape_blocked(self, test_config: AppConfig, tmp_path: Path) -> None:
+        """Symlink pointing outside workspace should be blocked."""
+        from jpscripts.mcp.tools.filesystem import read_file
+
+        # Create a file outside the workspace
+        outside_dir = tmp_path.parent / "outside_symlink_target"
+        outside_dir.mkdir(exist_ok=True)
+        target_file = outside_dir / "secret.txt"
+        target_file.write_text("symlink escape secret")
+
+        # Create symlink inside workspace pointing outside
+        symlink_path = tmp_path / "escape_link"
+        symlink_path.symlink_to(target_file)
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            result = await read_file("escape_link")
+
+        assert "Error" in result
+        # Should not contain the secret content
+        assert "symlink escape secret" not in result
+
+    @pytest.mark.asyncio
+    async def test_write_path_traversal_blocked(self, test_config: AppConfig, tmp_path: Path) -> None:
+        """write_file should block path traversal attempts."""
+        from jpscripts.mcp.tools.filesystem import write_file
+
+        # Try to write outside workspace
+        outside_dir = tmp_path.parent / "outside_write_target"
+        outside_dir.mkdir(exist_ok=True)
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            result = await write_file("../outside_write_target/evil.txt", "malicious content")
+
+        assert "Error" in result
+        # The file should not have been created
+        assert not (outside_dir / "evil.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_write_no_mkdir_outside_workspace(self, test_config: AppConfig, tmp_path: Path) -> None:
+        """write_file should not create directories outside workspace."""
+        from jpscripts.mcp.tools.filesystem import write_file
+
+        # Try to create nested directories outside workspace
+        outside_path = tmp_path.parent / "should_not_exist"
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            result = await write_file("../should_not_exist/nested/deep/file.txt", "content")
+
+        assert "Error" in result
+        # The directory should not have been created
+        assert not outside_path.exists()
+
+    @pytest.mark.asyncio
+    async def test_list_directory_traversal_blocked(self, test_config: AppConfig) -> None:
+        """list_directory should block path traversal attempts."""
+        from jpscripts.mcp.tools.filesystem import list_directory
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            result = await list_directory("../")
+
+        assert "Error" in result
+
+    @pytest.mark.asyncio
+    async def test_valid_path_still_works(self, test_config: AppConfig, tmp_path: Path) -> None:
+        """Valid paths within workspace should still work (no false positives)."""
+        from jpscripts.mcp.tools.filesystem import read_file, write_file
+
+        # Create a valid file
+        valid_file = tmp_path / "valid.txt"
+        valid_file.write_text("valid content")
+
+        with runtime_context(test_config, workspace=test_config.user.workspace_root):
+            # Read should work
+            read_result = await read_file("valid.txt")
+            assert "valid content" in read_result
+            assert "Error" not in read_result
+
+            # Write should work
+            write_result = await write_file("new_file.txt", "new content")
+            assert "Successfully" in write_result
+            assert (tmp_path / "new_file.txt").exists()

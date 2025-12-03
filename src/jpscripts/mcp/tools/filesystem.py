@@ -140,8 +140,16 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
         return f"Error: File {candidate.name} already exists. Pass overwrite=True to replace it."
 
     def _open_and_write() -> int:
-        # Create parent directory first
-        candidate.parent.mkdir(parents=True, exist_ok=True)
+        # SECURITY: Validate path BEFORE creating parent directories
+        # This prevents directory creation outside workspace via path traversal
+        from jpscripts.core.security import validate_path_safe
+
+        validate_result = validate_path_safe(candidate, root)
+        if isinstance(validate_result, Err):
+            raise RuntimeError(validate_result.error.message)
+
+        # Now safe to create parent directories (path is validated)
+        validate_result.value.parent.mkdir(parents=True, exist_ok=True)
 
         result = validate_and_open(candidate, root, "w", encoding="utf-8")
         if isinstance(result, Err):
