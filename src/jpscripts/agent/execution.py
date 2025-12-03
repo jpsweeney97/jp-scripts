@@ -51,8 +51,6 @@ from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)
 
-_ACTIVE_ROOT: Path | None = None
-
 
 def _append_history(history: list[Message], entry: Message, keep: int = 3) -> None:
     history.append(entry)
@@ -726,78 +724,71 @@ class RepairLoopOrchestrator:
             AgentEvent objects as the repair progresses.
             The final event is COMPLETE with data["success"] indicating result.
         """
-        global _ACTIVE_ROOT
         self._setup()
         assert self._root is not None
 
-        previous_active_root = _ACTIVE_ROOT
-        _ACTIVE_ROOT = self._root  # pyright: ignore[reportConstantRedefinition]
+        last_error: str | None = None
 
-        try:
-            last_error: str | None = None
-
-            for attempt in range(self._attempt_cap):
-                success = False
-                async for event in self._run_attempt(attempt):
-                    yield event
-                    # Track success from COMMAND_SUCCESS events
-                    if event.kind == EventKind.COMMAND_SUCCESS:
-                        success = True
-                    # Track last error for archiving
-                    if event.kind == EventKind.COMMAND_FAILED:
-                        last_error = event.data.get("error")
-
-                if success:
-                    await _handle_success_and_archive(
-                        self.loop_config.auto_archive,
-                        self.fetch_response,
-                        self._app_config,
-                        self.base_prompt,
-                        self.command,
-                        last_error
-                        or (self.attempt_history[-1].last_error if self.attempt_history else None),
-                        self.model,
-                        self.loop_config.web_access,
-                    )
-                    yield AgentEvent(
-                        EventKind.COMPLETE,
-                        "Repair succeeded",
-                        {"success": True},
-                    )
-                    return
-
-            # Final verification
-            final_success = False
-            async for event in self._verify_final():
+        for attempt in range(self._attempt_cap):
+            success = False
+            async for event in self._run_attempt(attempt):
                 yield event
+                # Track success from COMMAND_SUCCESS events
                 if event.kind == EventKind.COMMAND_SUCCESS:
-                    final_success = True
+                    success = True
+                # Track last error for archiving
+                if event.kind == EventKind.COMMAND_FAILED:
+                    last_error = event.data.get("error")
 
-            if final_success:
+            if success:
                 await _handle_success_and_archive(
                     self.loop_config.auto_archive,
                     self.fetch_response,
                     self._app_config,
                     self.base_prompt,
                     self.command,
-                    self.attempt_history[-1].last_error if self.attempt_history else None,
+                    last_error
+                    or (self.attempt_history[-1].last_error if self.attempt_history else None),
                     self.model,
                     self.loop_config.web_access,
                 )
                 yield AgentEvent(
                     EventKind.COMPLETE,
-                    "Repair succeeded after final verification",
+                    "Repair succeeded",
                     {"success": True},
                 )
                 return
 
+        # Final verification
+        final_success = False
+        async for event in self._verify_final():
+            yield event
+            if event.kind == EventKind.COMMAND_SUCCESS:
+                final_success = True
+
+        if final_success:
+            await _handle_success_and_archive(
+                self.loop_config.auto_archive,
+                self.fetch_response,
+                self._app_config,
+                self.base_prompt,
+                self.command,
+                self.attempt_history[-1].last_error if self.attempt_history else None,
+                self.model,
+                self.loop_config.web_access,
+            )
             yield AgentEvent(
                 EventKind.COMPLETE,
-                "Repair failed after exhausting all attempts",
-                {"success": False},
+                "Repair succeeded after final verification",
+                {"success": True},
             )
-        finally:
-            _ACTIVE_ROOT = previous_active_root  # pyright: ignore[reportConstantRedefinition]
+            return
+
+        yield AgentEvent(
+            EventKind.COMPLETE,
+            "Repair failed after exhausting all attempts",
+            {"success": False},
+        )
 
 
 @dataclass
