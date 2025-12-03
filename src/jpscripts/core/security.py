@@ -148,9 +148,10 @@ async def _is_git_repo_async(path: Path) -> bool:
     """Async check if path is a git repository.
 
     Uses asyncio.create_subprocess_exec to avoid blocking the event loop.
+    Path resolution is offloaded to a thread to avoid blocking.
     """
     try:
-        resolved = path.expanduser().resolve()
+        resolved = await asyncio.to_thread(lambda: path.expanduser().resolve())
     except OSError:
         return False
 
@@ -236,6 +237,25 @@ def _resolve_with_limit(
             context={"path": str(path), "max_depth": max_depth},
         )
     )
+
+
+async def _resolve_with_limit_async(
+    path: Path, max_depth: int = MAX_SYMLINK_DEPTH
+) -> Result[Path, SecurityError]:
+    """Async resolve path with symlink depth limit to prevent abuse.
+
+    This is the non-blocking version that offloads filesystem operations
+    to a thread pool to avoid blocking the event loop.
+
+    Args:
+        path: The path to resolve
+        max_depth: Maximum symlink hops allowed (default: MAX_SYMLINK_DEPTH)
+
+    Returns:
+        Ok(resolved_path) if successful, Err(SecurityError) if depth exceeded
+    """
+    # Offload the entire blocking operation to a thread
+    return await asyncio.to_thread(_resolve_with_limit, path, max_depth)
 
 
 # ---------------------------------------------------------------------------
@@ -375,7 +395,8 @@ async def validate_workspace_root_safe_async(root: Path | str) -> Result[Path, W
     - Be a directory
     - Be either a git repository OR owned by the current user
 
-    This async version uses non-blocking subprocess calls for git checks.
+    This async version uses non-blocking operations for all filesystem I/O
+    to avoid blocking the event loop in high-concurrency scenarios.
 
     Args:
         root: The workspace root path to validate
@@ -383,9 +404,12 @@ async def validate_workspace_root_safe_async(root: Path | str) -> Result[Path, W
     Returns:
         Ok(resolved_path) if valid, Err(WorkspaceError) otherwise
     """
-    resolved = Path(root).expanduser().resolve()
+    # Offload blocking path resolution to thread
+    resolved = await asyncio.to_thread(lambda: Path(root).expanduser().resolve())
 
-    if not resolved.exists():
+    # Offload blocking filesystem checks to thread
+    exists = await asyncio.to_thread(resolved.exists)
+    if not exists:
         return Err(
             WorkspaceError(
                 f"Workspace root does not exist: {resolved}",
@@ -393,7 +417,8 @@ async def validate_workspace_root_safe_async(root: Path | str) -> Result[Path, W
             )
         )
 
-    if not resolved.is_dir():
+    is_dir = await asyncio.to_thread(resolved.is_dir)
+    if not is_dir:
         return Err(
             WorkspaceError(
                 f"Workspace root is not a directory: {resolved}",
@@ -401,7 +426,8 @@ async def validate_workspace_root_safe_async(root: Path | str) -> Result[Path, W
             )
         )
 
-    is_owned = _is_owned_by_current_user(resolved)
+    # Offload ownership check to thread
+    is_owned = await asyncio.to_thread(_is_owned_by_current_user, resolved)
     is_git = await _is_git_repo_async(resolved) if not is_owned else False
 
     if not (is_owned or is_git):
@@ -425,8 +451,8 @@ async def validate_path_safe_async(
     it does not escape the validated workspace root or target forbidden
     system directories.
 
-    This async version uses non-blocking subprocess calls for workspace
-    validation.
+    This async version uses non-blocking operations for all filesystem I/O
+    to avoid blocking the event loop in high-concurrency scenarios.
 
     TOCTOU Warning:
         This validation happens at a point in time. For security-critical
@@ -440,7 +466,7 @@ async def validate_path_safe_async(
     Returns:
         Ok(resolved_path) if safe, Err(SecurityError) otherwise
     """
-    # First validate the workspace root (async)
+    # First validate the workspace root (async, non-blocking)
     root_result = await validate_workspace_root_safe_async(root)
     if isinstance(root_result, Err):
         # Convert WorkspaceError to SecurityError for consistent typing
@@ -454,14 +480,16 @@ async def validate_path_safe_async(
 
     base_root = root_result.value
 
-    # Resolve path with symlink depth limiting (TOCTOU mitigation)
-    resolve_result = _resolve_with_limit(Path(path))
+    # Resolve path with symlink depth limiting (async, non-blocking)
+    resolve_result = await _resolve_with_limit_async(Path(path))
     if isinstance(resolve_result, Err):
         return resolve_result
 
     candidate = resolve_result.value
 
     # Check for forbidden system paths (defense-in-depth)
+    # Note: _is_forbidden_path is a fast in-memory check on path.parents,
+    # no filesystem I/O involved, so no need for to_thread
     if _is_forbidden_path(candidate):
         return Err(
             SecurityError(
