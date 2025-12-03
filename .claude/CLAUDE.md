@@ -513,8 +513,9 @@ When all phases are complete:
 
 ### Active roadmap
 
-**File:** `docs/ARCHITECTURE_HARDENING_ROADMAP.md`
-**Purpose:** Harden security, decouple architecture, optimize async I/O, and improve memory store performance.
+None currently active.
 
-Previously completed:
+### Previously completed roadmaps
+
+- `docs/ARCHITECTURE_HARDENING_ROADMAP_COMPLETED.md` - Architecture hardening (4 phases, completed 2025-12-02)
 - `docs/CODE_QUALITY_ROADMAP_COMPLETED.md` - Code quality improvements (6 phases, completed 2025-12-02)

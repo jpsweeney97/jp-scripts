@@ -401,9 +401,9 @@ The pruning implementation in `JsonlArchiver.prune()` is already efficient:
 - [x] All final verifications passing
 - [x] No `BLOCKED` or `IN PROGRESS` items remaining
 - [x] Session Log reviewed for any outstanding issues
-- [ ] Final commit pushed to remote
-- [ ] **Archive this roadmap:** Rename file with `_COMPLETED` suffix
-- [ ] **Update CLAUDE.md:** Remove from active roadmap reference
+- [x] Final commit pushed to remote
+- [x] **Archive this roadmap:** Renamed to `ARCHITECTURE_HARDENING_ROADMAP_COMPLETED.md`
+- [x] **Update CLAUDE.md:** Moved to previously completed roadmaps
 
 ---
 
