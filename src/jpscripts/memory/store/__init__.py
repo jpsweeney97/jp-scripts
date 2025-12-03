@@ -204,7 +204,7 @@ def iter_entries(path: Path) -> Iterator[MemoryEntry]:
                 except json.JSONDecodeError:
                     continue
                 yield parse_entry(raw)
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         logger.debug("Failed to read memory entries from %s: %s", path, exc)
         return
 

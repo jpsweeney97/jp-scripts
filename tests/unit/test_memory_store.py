@@ -455,3 +455,34 @@ class TestJsonlArchiver:
         assert result.value == 0
         loaded = archiver.load_entries()
         assert len(loaded) == 1
+
+
+class TestEncodingRobustness:
+    """Tests for encoding error handling."""
+
+    def test_iter_entries_handles_non_utf8_gracefully(self, tmp_path: Path) -> None:
+        """iter_entries should skip files with invalid UTF-8."""
+        from jpscripts.memory.store import iter_entries
+
+        jsonl_file = tmp_path / "corrupt.jsonl"
+        # Write invalid UTF-8 bytes directly
+        with open(jsonl_file, "wb") as f:
+            f.write(b"\xff\xfe invalid utf-8 bytes\n")
+
+        # Should return empty (gracefully handle error) instead of raising
+        entries = list(iter_entries(jsonl_file))
+        assert entries == []
+
+    def test_iter_entries_handles_valid_utf8(self, tmp_path: Path) -> None:
+        """iter_entries should work normally with valid UTF-8."""
+        from jpscripts.memory.store import iter_entries
+
+        jsonl_file = tmp_path / "valid.jsonl"
+        jsonl_file.write_text(
+            '{"id":"1","ts":"2024-01-01","content":"test","tags":[]}\n',
+            encoding="utf-8",
+        )
+
+        entries = list(iter_entries(jsonl_file))
+        assert len(entries) == 1
+        assert entries[0].id == "1"

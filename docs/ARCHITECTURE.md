@@ -17,6 +17,8 @@ graph TB
         config[config.py]
         console[console.py]
         runtime[runtime.py]
+        result[result.py]
+        mcp_registry[mcp_registry.py]
 
         subgraph Agent["Agent Subsystem"]
             agent_engine[agent/engine.py]
@@ -38,6 +40,27 @@ graph TB
             safety[core/security/safety.py]
             rate_limit[core/security/rate_limit.py]
         end
+
+        subgraph Evolution["Evolution Subsystem"]
+            evolution_orch[core/evolution/orchestrator.py]
+            evolution_pr[core/evolution/pr.py]
+        end
+
+        subgraph SystemOps["System Operations"]
+            sys_exec[core/sys/execution.py]
+            sys_process[core/sys/process.py]
+        end
+    end
+
+    subgraph Analysis["Analysis Subsystem"]
+        analysis_complexity[analysis/complexity.py]
+        analysis_skeleton[analysis/skeleton.py]
+    end
+
+    subgraph Features["Features"]
+        feat_nav[features/navigation/]
+        feat_notes[features/notes/]
+        feat_team[features/team/]
     end
 
     subgraph Git["Git Layer"]
@@ -47,7 +70,6 @@ graph TB
 
     subgraph MCP["MCP Layer"]
         mcp_server[mcp/server.py]
-        mcp_registry[mcp_registry.py]
         mcp_tools[mcp/tools/]
     end
 
@@ -55,6 +77,11 @@ graph TB
         anthropic[providers/anthropic.py]
         openai[providers/openai.py]
         factory[providers/factory.py]
+    end
+
+    subgraph Net["Network Layer"]
+        net_web[net/web.py]
+        net_search[net/search.py]
     end
 
     %% CLI Layer connections
@@ -84,11 +111,21 @@ graph TB
     mcp_tools --> security
     mcp_tools --> git_client
 
+    %% Evolution connections
+    evolution_orch --> Agent
+    evolution_pr --> git_client
+
+    %% Analysis connections
+    commands --> Analysis
+
     style CLI fill:#e1f5fe
     style Core fill:#fff3e0
     style Git fill:#e8f5e9
     style MCP fill:#f3e5f5
     style Providers fill:#fce4ec
+    style Analysis fill:#e0f2f1
+    style Features fill:#fce4ec
+    style Net fill:#e8eaf6
 ```
 
 ### Module Descriptions
@@ -100,16 +137,22 @@ graph TB
 | **agent/** | Agent engine, middleware, parsing, execution loop |
 | **memory/** | Persistent memory storage, embeddings, retrieval |
 | **governance/** | AST checker, secret scanner, constitutional compliance |
-| **core/security/** | Security package: path validation, command validation, rate limiting, safety |
-| **core/security/path.py** | Path traversal prevention, TOCTOU-safe file operations |
-| **core/security/command.py** | Shell command allowlist/blocklist |
-| **core/security/safety.py** | Safe shell execution policies |
-| **core/security/rate_limit.py** | Token bucket rate limiter |
+| **core/** | Shared infrastructure (config, security, runtime, errors) |
+| **core/security/** | Path validation, command validation, rate limiting, safety |
+| **core/evolution/** | Code evolution orchestrator, PR generation |
+| **core/sys/** | System operations (process, package, network, audio) |
 | **git/** | Git operations via subprocess |
 | **mcp/** | Model Context Protocol server and tools |
 | **providers/** | LLM provider implementations |
 | **swarm/** | Parallel execution with git worktree isolation |
 | **ai/** | Token utilities, AI-specific helpers |
+| **analysis/** | Static code analysis, complexity metrics, AST extraction |
+| **capabilities/** | Capability registry for feature flags and tool availability |
+| **features/** | Domain-specific features (navigation, notes, team) |
+| **net/** | Network utilities (web scraping, search integration) |
+| **structures/** | Data structures (DAG, etc.) |
+| **ui/** | UI layer (agent UI components) |
+| **templates/** | Template management and rendering |
 
 ---
 
@@ -228,35 +271,105 @@ flowchart LR
 
 ### Agent Subsystem (`agent/`)
 - **engine.py**: AgentEngine class, main orchestration
+- **execution.py**: Main agent loop, repair strategies
 - **middleware.py**: Middleware pipeline (tracing, governance, circuit breaker)
 - **parsing.py**: LLM response parsing, JSON extraction
 - **circuit.py**: Circuit breaker, cost velocity tracking
 - **governance.py**: Governance enforcement for agent responses
-- **execution.py**: Main agent loop, repair strategies
 - **prompting.py**: Prompt construction, context assembly
+- **archive.py**: Agent execution archive/history
+- **context.py**: Execution context management
+- **factory.py**: Agent factory, provider selection
+- **models.py**: Type definitions for agent responses
+- **ops.py**: Core operations (step, observe, act)
+- **patching.py**: Code patching utilities
+- **single_shot.py**: Single-shot agent execution
+- **strategies.py**: Repair and recovery strategies
+- **tools.py**: Agent tool definitions
+- **tracing.py**: Request tracing and observability
 
 ### Memory Subsystem (`memory/`)
+- **api.py**: Memory API interface
+- **models.py**: Data models (MemoryEntry, SearchResult)
+- **embedding.py**: Sentence transformer embeddings
+- **retrieval.py**: Semantic search, clustering
+- **patterns.py**: Pattern extraction and synthesis
 - **store/**: Storage backend package with pluggable implementations
   - **jsonl.py**: JSONL file-based storage with keyword search
   - **lance.py**: LanceDB vector store with semantic search
   - **hybrid.py**: Combined storage with RRF fusion
-- **embedding.py**: Sentence transformer embeddings
-- **retrieval.py**: Semantic search, clustering
-- **patterns.py**: Pattern extraction and synthesis
 
 ### Governance Subsystem (`governance/`)
 - **ast_checker.py**: Constitutional AI checks, AST analysis
 - **secret_scanner.py**: API key detection in code
+- **compliance.py**: High-level compliance scanning
+- **config.py**: Safety rules configuration loader
+- **diff_parser.py**: Diff analysis for pre-commit checks
+- **types.py**: Violation type definitions
 
 ### Core (`core/`)
-- **security/**: Security package (consolidated from individual modules)
+- **config.py**: Application configuration
+- **console.py**: Logging and output utilities
+- **runtime.py**: Context variables, circuit breaker state
+- **result.py**: Result[T, E] type for error handling
+- **errors.py**: Exception types (ConfigurationError, NetworkError)
+- **context.py**: Execution context management
+- **context_gatherer.py**: Gathers context for agent execution
+- **cost_tracker.py**: Token and cost tracking
+- **mcp_registry.py**: MCP server registry
+- **error_middleware.py**: Error handling middleware
+- **merge_resolver.py**: Git merge conflict resolution
+- **command_validation.py**: CLI command validation
+- **decorators.py**: Common decorators
+- **diagnostics.py**: Diagnostic utilities
+- **registry.py**: Tool and command registry
+- **replay.py**: Execution replay
+- **serializer.py**: Object serialization
+- **templates.py**: Template rendering
+- **rate_limit.py**: Token bucket rate limiter (legacy location)
+- **safety.py**: Safe shell execution policies (legacy location)
+- **security/**: Security package (consolidated)
   - **path.py**: Path traversal prevention, atomic operations
   - **command.py**: Shell command allowlist/blocklist
   - **safety.py**: Safe shell execution policies
   - **rate_limit.py**: Token bucket rate limiter
-- **runtime.py**: Context variables, circuit breaker state
-- **config.py**: Application configuration
-- **console.py**: Logging and output utilities
+- **sys/**: System operations package
+  - **execution.py**: Process execution
+  - **package.py**: Package management
+  - **network.py**: Network diagnostics
+  - **process.py**: Process management
+  - **audio.py**: Audio operations
+- **evolution/**: Code evolution package
+  - **orchestrator.py**: Evolution orchestration
+  - **pr.py**: Pull request generation
+  - **prompting.py**: Evolution prompting
+  - **types.py**: Type definitions
+  - **verification.py**: Solution verification
+
+### Analysis Subsystem (`analysis/`)
+- **complexity.py**: Code complexity metrics
+- **skeleton.py**: AST skeleton extraction
+- **dependency_walker.py**: Dependency graph traversal
+- **structure.py**: Code structure analysis
+- **cache.py**: Analysis result caching
+
+### Features (`features/`)
+- **navigation/**: Navigation feature service
+- **notes/**: Notes feature service
+- **team/**: Team feature models
+
+### Network (`net/`)
+- **web.py**: Web scraping and HTTP utilities
+- **search.py**: Search engine integration
+
+### Capabilities (`capabilities/`)
+- **registry.py**: Capability registry implementation
+
+### Structures (`structures/`)
+- **dag.py**: Directed acyclic graph implementation
+
+### UI (`ui/`)
+- **agent_ui.py**: Agent UI components
 
 ### Provider Layer
 - **factory.py**: Provider selection based on model, frozen ProviderConfig

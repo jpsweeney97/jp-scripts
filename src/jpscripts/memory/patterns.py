@@ -259,7 +259,7 @@ async def _load_successful_traces(trace_dir: Path, limit: int) -> list[dict[str,
     for trace_file in trace_files[: limit * 2]:  # Over-fetch to filter
         try:
             raw = await asyncio.to_thread(trace_file.read_text, encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             continue
 
         for line in raw.strip().split("\n"):
