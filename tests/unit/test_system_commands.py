@@ -21,7 +21,7 @@ from jpscripts.commands.system import (
     tmpserver,
 )
 from jpscripts.core.result import Err, Ok, SystemResourceError
-from jpscripts.core.sys import ProcessInfo
+from jpscripts.system import ProcessInfo
 
 
 class TestUnwrapResult:

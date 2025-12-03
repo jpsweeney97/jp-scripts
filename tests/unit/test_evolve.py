@@ -21,13 +21,13 @@ from jpscripts.commands.evolve import (
     evolve_run,
 )
 from jpscripts.core.config import AppConfig
-from jpscripts.core.evolution import (
+from jpscripts.core.result import Err, Ok
+from jpscripts.evolution import (
     build_optimizer_prompt,
     create_evolution_pr,
     run_evolution,
 )
-from jpscripts.core.evolution.types import VerificationResult
-from jpscripts.core.result import Err, Ok
+from jpscripts.evolution.types import VerificationResult
 from jpscripts.main import AppState
 
 
@@ -160,11 +160,11 @@ def complex_func(x, y, z):
 
         with (
             patch(
-                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+                "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
+                "jpscripts.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok(mock_scores),
             ),
         ):
@@ -194,11 +194,11 @@ def complex_func(x, y, z):
 
         with (
             patch(
-                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+                "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
+                "jpscripts.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok(mock_scores),
             ),
         ):
@@ -220,7 +220,7 @@ class TestEvolveRunErrors:
         mock_repo.status.return_value = Ok(MagicMock(dirty=True))
 
         with patch(
-            "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+            "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
             return_value=Ok(mock_repo),
         ):
             result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
@@ -234,7 +234,7 @@ class TestEvolveRunErrors:
     async def test_fails_on_git_error(self, test_config: AppConfig) -> None:
         """Evolve handles git errors gracefully."""
         with patch(
-            "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+            "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
             return_value=Err("Not a git repository"),
         ):
             # Should return Err
@@ -248,7 +248,7 @@ class TestEvolveRunErrors:
         mock_repo.status.return_value = Err("Status failed")
 
         with patch(
-            "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+            "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
             return_value=Ok(mock_repo),
         ):
             result = await run_evolution(test_config, dry_run=False, model=None, threshold=10.0)
@@ -262,11 +262,11 @@ class TestEvolveRunErrors:
 
         with (
             patch(
-                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+                "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
+                "jpscripts.evolution.orchestrator.calculate_debt_scores",
                 return_value=Err("Analysis failed"),
             ),
         ):
@@ -281,11 +281,11 @@ class TestEvolveRunErrors:
 
         with (
             patch(
-                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+                "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
+                "jpscripts.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok([]),  # Empty list
             ),
         ):
@@ -732,11 +732,11 @@ class TestRunEvolveWithBranchCreation:
 
         with (
             patch(
-                "jpscripts.core.evolution.orchestrator.git_core.AsyncRepo.open",
+                "jpscripts.evolution.orchestrator.git_core.AsyncRepo.open",
                 return_value=Ok(mock_repo),
             ),
             patch(
-                "jpscripts.core.evolution.orchestrator.calculate_debt_scores",
+                "jpscripts.evolution.orchestrator.calculate_debt_scores",
                 return_value=Ok(mock_scores),
             ),
         ):

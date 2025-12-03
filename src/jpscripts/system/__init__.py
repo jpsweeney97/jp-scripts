@@ -8,18 +8,19 @@ Organized submodules:
 - package: Homebrew utilities
 """
 
-from jpscripts.core.sys.audio import get_audio_devices, set_audio_device
-from jpscripts.core.sys.execution import (
+from jpscripts.system.audio import get_audio_devices, set_audio_device
+from jpscripts.system.execution import (
     CommandResult,
     DockerSandbox,
     LocalSandbox,
     SandboxProtocol,
     get_sandbox,
+    run_cpu_bound,
     run_safe_shell,
 )
-from jpscripts.core.sys.network import get_ssh_hosts, run_temp_server
-from jpscripts.core.sys.package import get_brew_info, search_brew
-from jpscripts.core.sys.process import (
+from jpscripts.system.network import get_ssh_hosts, run_temp_server
+from jpscripts.system.package import get_brew_info, search_brew
+from jpscripts.system.process import (
     ProcessInfo,
     find_processes,
     kill_process,
@@ -44,6 +45,7 @@ __all__ = [
     "get_ssh_hosts",
     "kill_process",
     "kill_process_async",
+    "run_cpu_bound",
     "run_safe_shell",
     "run_temp_server",
     "search_brew",

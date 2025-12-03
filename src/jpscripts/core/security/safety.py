@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any, ParamSpec, TypeVar
 
 from jpscripts.core.cost_tracker import TokenUsage
-from jpscripts.core.errors import SecurityError
+from jpscripts.core.result import SecurityError
 from jpscripts.core.runtime import CircuitBreaker, get_runtime
 
 P = ParamSpec("P")

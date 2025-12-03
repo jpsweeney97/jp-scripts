@@ -29,8 +29,8 @@ from jpscripts.analysis.complexity import (
     calculate_debt_scores,
 )
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.evolution import run_evolution
 from jpscripts.core.result import Err, Ok
+from jpscripts.evolution import run_evolution
 from jpscripts.git import client as git_core
 from jpscripts.main import AppState
 

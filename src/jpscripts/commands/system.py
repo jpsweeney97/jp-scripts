@@ -24,8 +24,8 @@ from rich import box
 from rich.panel import Panel
 from rich.table import Table
 
+from jpscripts import system as system_core
 from jpscripts.commands.ui import fzf_select_async
-from jpscripts.core import sys as system_core
 from jpscripts.core.console import console
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result, SystemResourceError
 from jpscripts.git import client as git_core

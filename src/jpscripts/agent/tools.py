@@ -21,8 +21,8 @@ from jpscripts.core.console import get_logger
 from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.safety import estimate_tokens_from_args
-from jpscripts.core.sys import run_safe_shell as core_run_safe_shell
 from jpscripts.core.templates import get_template_environment
+from jpscripts.system import run_safe_shell as core_run_safe_shell
 
 from .circuit import enforce_circuit_breaker
 from .models import ToolCall

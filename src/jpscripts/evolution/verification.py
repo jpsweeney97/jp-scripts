@@ -15,7 +15,7 @@ from jpscripts.analysis.structure import get_import_dependencies
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.result import Err, Ok, Result
-from jpscripts.core.sys import run_safe_shell
+from jpscripts.system import run_safe_shell
 
 from .types import EvolutionError, VerificationResult
 

@@ -192,7 +192,7 @@ class AgentTraceStep(BaseModel):
 
 
 # Re-export from core for backward compatibility
-from jpscripts.core.errors import SecurityError
+from jpscripts.core.result import SecurityError
 
 # Type aliases for async fetchers
 PatchFetcher = Callable[["PreparedPrompt"], Awaitable[str]]

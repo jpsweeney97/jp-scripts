@@ -11,7 +11,7 @@ import pytest
 
 from jpscripts.core.config import AppConfig, UserConfig
 from jpscripts.core.cost_tracker import TokenUsage
-from jpscripts.core.errors import SecurityError
+from jpscripts.core.result import SecurityError
 from jpscripts.core.runtime import runtime_context
 from jpscripts.core.safety import wrap_mcp_tool
 

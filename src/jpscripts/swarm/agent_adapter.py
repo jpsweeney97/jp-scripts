@@ -19,10 +19,10 @@ from jpscripts.agent.prompting import prepare_agent_prompt
 from jpscripts.core.config import AppConfig
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.result import Err, Ok
-from jpscripts.core.sys import run_safe_shell
 from jpscripts.git import AsyncRepo
 from jpscripts.structures.dag import DAGTask, TaskStatus, WorktreeContext
 from jpscripts.swarm.types import TaskResult
+from jpscripts.system import run_safe_shell
 
 
 class TaskExecutor(Protocol):

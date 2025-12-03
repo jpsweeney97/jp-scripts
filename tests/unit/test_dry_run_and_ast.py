@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+from jpscripts import system
 from jpscripts.analysis import structure
-from jpscripts.core import sys as system
 from jpscripts.core.config import AppConfig, UserConfig
 
 
@@ -27,7 +27,7 @@ def test_kill_process_dry_run(tmp_path: Path) -> None:
     mock_runtime = MagicMock()
     mock_runtime.config = config
     with (
-        patch("jpscripts.core.sys.process.get_runtime", return_value=mock_runtime),
+        patch("jpscripts.system.process.get_runtime", return_value=mock_runtime),
         patch("psutil.Process") as mock_process,
     ):
         result = system.kill_process(1234, force=True)

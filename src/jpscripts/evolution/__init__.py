@@ -12,21 +12,21 @@ Public API:
     - run_verification: Execute verification tests
 """
 
-from jpscripts.core.evolution.orchestrator import (
+from jpscripts.evolution.orchestrator import (
     abort_evolution,
     cleanup_branch,
     get_debt_scores,
     run_evolution,
 )
-from jpscripts.core.evolution.pr import create_evolution_pr
-from jpscripts.core.evolution.prompting import build_optimizer_prompt
-from jpscripts.core.evolution.types import (
+from jpscripts.evolution.pr import create_evolution_pr
+from jpscripts.evolution.prompting import build_optimizer_prompt
+from jpscripts.evolution.types import (
     EvolutionError,
     EvolutionResult,
     PRCreationResult,
     VerificationResult,
 )
-from jpscripts.core.evolution.verification import (
+from jpscripts.evolution.verification import (
     collect_dependent_tests,
     run_verification,
 )

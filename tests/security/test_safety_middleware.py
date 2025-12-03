@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 
 from jpscripts.core.cost_tracker import TokenUsage
-from jpscripts.core.errors import SecurityError
+from jpscripts.core.result import SecurityError
 from jpscripts.core.runtime import CircuitBreaker, runtime_context
 from jpscripts.core.safety import (
     check_circuit_breaker,
