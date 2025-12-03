@@ -218,7 +218,7 @@ def _cached_import_dependencies(path_str: str, root_str: str) -> tuple[str, ...]
     root = Path(root_str)
     try:
         source = path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return ()
 
     try:

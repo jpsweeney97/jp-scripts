@@ -95,7 +95,7 @@ def _resolve_store(config: AppConfig | None = None, store_path: Path | None = No
     """Resolve the store path from config or defaults."""
     if store_path:
         return Path(store_path).expanduser()
-    if config and getattr(config, "memory_store", None):
+    if config and hasattr(config, "user") and getattr(config.user, "memory_store", None):
         return Path(config.user.memory_store).expanduser()
     return DEFAULT_STORE
 
