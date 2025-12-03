@@ -116,15 +116,16 @@ graph TB
 |--------|---------|
 | **main.py** | CLI entry point, dynamic command discovery |
 | **commands/** | CLI command implementations (nav, agent, evolve, etc.) |
-| **core/agent/** | Agent orchestration, prompting, execution loop |
-| **core/engine/** | LLM interaction, response parsing, governance |
-| **core/memory/** | Persistent memory storage, embeddings, retrieval |
-| **core/governance.py** | Constitutional AI safety checks |
+| **agent/** | Agent engine, middleware, parsing, execution loop |
+| **memory/** | Persistent memory storage, embeddings, retrieval |
+| **governance/** | AST checker, secret scanner, constitutional compliance |
 | **core/security.py** | Path validation, TOCTOU-safe file operations |
-| **core/shell.py** | Safe subprocess execution |
+| **core/command_validation.py** | Shell command allowlist/blocklist |
+| **core/safety.py** | Safe shell execution policies |
 | **git/** | Git operations via subprocess |
 | **mcp/** | Model Context Protocol server and tools |
 | **providers/** | LLM provider implementations |
+| **swarm/** | Parallel execution with git worktree isolation |
 
 ---
 
@@ -241,30 +242,31 @@ flowchart LR
 - **main.py**: Entry point, dynamic command discovery, help generation
 - **commands/**: Individual CLI commands using Typer
 
-### Core Layer
-
-#### Agent Subsystem
+### Agent Subsystem (`agent/`)
+- **engine.py**: AgentEngine class, main orchestration
+- **middleware.py**: Middleware pipeline (tracing, governance, circuit breaker)
+- **parsing.py**: LLM response parsing, JSON extraction
+- **circuit.py**: Circuit breaker, cost velocity tracking
+- **governance.py**: Governance enforcement for agent responses
 - **execution.py**: Main agent loop, repair strategies
 - **prompting.py**: Prompt construction, context assembly
-- **repair_strategies.py**: Error recovery patterns
 
-#### Engine Subsystem
-- **__init__.py**: AgentEngine class, main orchestration
-- **response_handler.py**: LLM response parsing
-- **governance_enforcer.py**: Safety policy enforcement
-- **safety_monitor.py**: Circuit breaker, rate limiting
-- **tool_executor.py**: Tool invocation, result handling
-
-#### Memory Subsystem
-- **store.py**: JSONL archival, LanceDB vector store
+### Memory Subsystem (`memory/`)
+- **store.py**: JSONL archival, LanceDB vector store, RRF fusion
 - **embedding.py**: Sentence transformer embeddings
 - **retrieval.py**: Semantic search, clustering
 - **patterns.py**: Pattern extraction and synthesis
 
-### Safety Layer
-- **governance.py**: Constitutional AI checks, AST analysis
+### Governance Subsystem (`governance/`)
+- **ast_checker.py**: Constitutional AI checks, AST analysis
+- **secret_scanner.py**: API key detection in code
+
+### Core (`core/`)
 - **security.py**: Path traversal prevention, atomic operations
 - **command_validation.py**: Shell command allowlist/blocklist
+- **safety.py**: Safe shell execution policies
+- **rate_limit.py**: Token bucket rate limiter
+- **runtime.py**: Context variables, circuit breaker state
 
 ### Provider Layer
 - **factory.py**: Provider selection based on model

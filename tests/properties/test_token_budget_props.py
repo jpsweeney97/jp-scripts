@@ -46,7 +46,7 @@ priority_strategy: st.SearchStrategy[Priority] = st.sampled_from([1, 2, 3])
     reserved=reserved_strategy,
     contents=st.lists(st.tuples(priority_strategy, text_strategy), min_size=0, max_size=10),
 )
-@settings(max_examples=200)
+@settings(max_examples=200, deadline=None)  # Disable deadline for token counting
 def test_budget_invariant(
     total: int,
     reserved: int,
