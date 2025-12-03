@@ -354,7 +354,11 @@ def _build_memory_record_model(base: type[LanceModelBase]) -> type[LanceModelBas
 
 
 class LanceDBStore(MemoryStore):
-    """Vector store implementation using LanceDB."""
+    """Vector store implementation using LanceDB.
+
+    This class caches both the database connection and table to avoid
+    reconnection overhead on every operation.
+    """
 
     def __init__(
         self,
@@ -366,8 +370,15 @@ class LanceDBStore(MemoryStore):
         self._db_path.mkdir(parents=True, exist_ok=True)
         self._lancedb: LanceDBModuleProtocol = lancedb_module
         self._model_cls: type[LanceModelBase] = _build_memory_record_model(lance_model_base)
+        self._connection: LanceDBConnectionProtocol | None = None
         self._table: LanceTable | None = None
         self._embedding_dim: int | None = None
+
+    def _get_connection(self) -> LanceDBConnectionProtocol:
+        """Get or create a cached database connection."""
+        if self._connection is None:
+            self._connection = self._lancedb.connect(str(self._db_path))
+        return self._connection
 
     def _ensure_table(self, embedding_dim: int) -> LanceTable:
         if embedding_dim <= 0:
@@ -378,7 +389,7 @@ class LanceDBStore(MemoryStore):
             )
 
         if self._table is None or self._embedding_dim is None:
-            db: LanceDBConnectionProtocol = self._lancedb.connect(str(self._db_path))
+            db = self._get_connection()
             model = self._model_cls
             if "memory" not in db.table_names():
                 self._table = db.create_table("memory", schema=model, exist_ok=True)
