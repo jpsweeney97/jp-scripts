@@ -513,10 +513,8 @@ When all phases are complete:
 
 ### Active roadmap
 
-No active roadmap. Previously completed:
-- `docs/CODE_QUALITY_ROADMAP_COMPLETED.md` - Code quality improvements (6 phases, completed 2025-12-02)
+**File:** `docs/ARCHITECTURE_HARDENING_ROADMAP.md`
+**Purpose:** Harden security, decouple architecture, optimize async I/O, and improve memory store performance.
 
-<!-- When a roadmap is active, update this section:
-**File:** `docs/[NAME]_ROADMAP.md`
-**Purpose:** [One-sentence description]
--->
+Previously completed:
+- `docs/CODE_QUALITY_ROADMAP_COMPLETED.md` - Code quality improvements (6 phases, completed 2025-12-02)

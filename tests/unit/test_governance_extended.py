@@ -449,6 +449,103 @@ async def ok():
         assert not any(v.type == ViolationType.SYNC_SUBPROCESS for v in violations)
 
 
+class TestSecurityBypassDetection:
+    """Tests for detecting agent attempts to add safety overrides."""
+
+    def test_detects_added_safety_override(self, tmp_path: Path) -> None:
+        """Adding # safety: checked in a patch triggers SECURITY_BYPASS."""
+        diff = """\
+--- /dev/null
++++ b/dangerous.py
+@@ -0,0 +1,3 @@
++import os
++def bad():
++    os.system('ls')  # safety: checked
+"""
+        violations = check_compliance(diff, tmp_path)
+        bypass_violations = [v for v in violations if v.type == ViolationType.SECURITY_BYPASS]
+        assert len(bypass_violations) >= 1
+        assert bypass_violations[0].fatal is True
+        assert "safety: checked" in bypass_violations[0].message.lower() or "safety" in bypass_violations[0].message.lower()
+
+    def test_detects_safety_override_on_destructive_fs(self, tmp_path: Path) -> None:
+        """Adding safety override to destructive FS calls is blocked."""
+        diff = """\
+--- /dev/null
++++ b/rm.py
+@@ -0,0 +1,3 @@
++import shutil
++def cleanup():
++    shutil.rmtree('/tmp/x')  # safety: checked
+"""
+        violations = check_compliance(diff, tmp_path)
+        assert any(v.type == ViolationType.SECURITY_BYPASS for v in violations)
+
+    def test_detects_safety_override_on_subprocess(self, tmp_path: Path) -> None:
+        """Adding safety override to subprocess.run is blocked."""
+        diff = """\
+--- /dev/null
++++ b/cmd.py
+@@ -0,0 +1,4 @@
++import subprocess
++async def run_cmd():
++    subprocess.run(['ls'])  # safety: checked
++    return True
+"""
+        violations = check_compliance(diff, tmp_path)
+        assert any(v.type == ViolationType.SECURITY_BYPASS for v in violations)
+
+    def test_existing_safety_override_in_context_ok(self, tmp_path: Path) -> None:
+        """Context lines (existing code) with safety override are allowed."""
+        # Create a file with existing safety override
+        (tmp_path / "existing.py").write_text(
+            "import os\ndef ok():\n    os.remove('/tmp/x')  # safety: checked\n"
+        )
+        # Patch that modifies the file but doesn't ADD the safety comment
+        diff = """\
+--- a/existing.py
++++ b/existing.py
+@@ -1,3 +1,4 @@
+ import os
+ def ok():
+     os.remove('/tmp/x')  # safety: checked
++    return True
+"""
+        violations = check_compliance(diff, tmp_path)
+        # Context lines (starting with space) should NOT trigger bypass detection
+        bypass_violations = [v for v in violations if v.type == ViolationType.SECURITY_BYPASS]
+        assert len(bypass_violations) == 0
+
+    def test_multiple_safety_overrides_all_detected(self, tmp_path: Path) -> None:
+        """Multiple added safety overrides are all detected."""
+        diff = """\
+--- /dev/null
++++ b/multi.py
+@@ -0,0 +1,5 @@
++import os
++import shutil
++os.system('ls')  # safety: checked
++shutil.rmtree('/x')  # safety: checked
++os.remove('/y')  # safety: checked
+"""
+        violations = check_compliance(diff, tmp_path)
+        bypass_violations = [v for v in violations if v.type == ViolationType.SECURITY_BYPASS]
+        assert len(bypass_violations) == 3
+
+    def test_bypass_is_fatal(self, tmp_path: Path) -> None:
+        """SECURITY_BYPASS violations are marked fatal."""
+        diff = """\
+--- /dev/null
++++ b/bypass.py
+@@ -0,0 +1,2 @@
++import os
++os.system('x')  # safety: checked
+"""
+        violations = check_compliance(diff, tmp_path)
+        bypass_violations = [v for v in violations if v.type == ViolationType.SECURITY_BYPASS]
+        assert all(v.fatal for v in bypass_violations)
+
+
 class TestWildcardImport:
     """Tests for wildcard import handling."""
 

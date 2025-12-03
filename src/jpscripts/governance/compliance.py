@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import re
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -13,6 +14,70 @@ from jpscripts.governance.secret_scanner import check_for_secrets
 from jpscripts.governance.types import Violation, ViolationType
 
 logger = get_logger(__name__)
+
+
+def _detect_safety_bypass_additions(diff: str, root: Path) -> list[Violation]:
+    """Detect attempts to add '# safety: checked' overrides in a patch.
+
+    Agents are not allowed to self-approve violations by adding safety
+    override comments. This function scans added lines (those starting with '+')
+    for the safety override pattern and flags them as SECURITY_BYPASS violations.
+
+    Args:
+        diff: Unified diff text
+        root: Workspace root for resolving paths
+
+    Returns:
+        List of SECURITY_BYPASS violations for any added safety overrides
+    """
+    violations: list[Violation] = []
+    current_file: Path | None = None
+    current_line = 0
+
+    for line in diff.splitlines():
+        # Track current file
+        if line.startswith("+++ b/"):
+            path_str = line[6:].strip()
+            current_file = root / path_str
+        elif line.startswith("+++ "):
+            path_str = line[4:].strip()
+            if path_str.startswith("b/"):
+                path_str = path_str[2:]
+            current_file = root / path_str
+
+        # Track line numbers from hunk headers
+        elif line.startswith("@@ "):
+            match = re.search(r"\+(\d+)", line)
+            if match:
+                current_line = int(match.group(1))
+
+        # Check added lines for safety override
+        elif line.startswith("+") and not line.startswith("+++"):
+            if current_file is not None and "# safety: checked" in line:
+                violations.append(
+                    Violation(
+                        type=ViolationType.SECURITY_BYPASS,
+                        file=current_file,
+                        line=current_line,
+                        column=line.find("# safety: checked"),
+                        message="Agent attempted to add '# safety: checked' override",
+                        suggestion=(
+                            "Safety overrides must be pre-existing in the codebase. "
+                            "Agents cannot self-approve violations by adding this comment."
+                        ),
+                        severity="error",
+                        fatal=True,
+                    )
+                )
+            current_line += 1
+
+        # Context and deleted lines
+        elif line.startswith("-") and not line.startswith("---"):
+            pass  # Deleted lines don't increment
+        else:
+            current_line += 1
+
+    return violations
 
 
 def check_compliance(diff: str, root: Path) -> list[Violation]:
@@ -31,6 +96,10 @@ def check_compliance(diff: str, root: Path) -> list[Violation]:
         List of violations found in the patched code
     """
     violations: list[Violation] = []
+
+    # SECURITY: Check for attempts to add safety overrides in the patch
+    # This must happen BEFORE AST checking, as it catches bypass attempts
+    violations.extend(_detect_safety_bypass_additions(diff, root))
 
     # Apply patch in memory to get post-patch content
     patched_files = apply_patch_in_memory(diff, root)

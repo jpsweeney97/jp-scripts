@@ -22,6 +22,7 @@ class ViolationType(Enum):
     PROCESS_EXIT = auto()  # sys.exit(), quit(), exit()
     DEBUG_LEFTOVER = auto()  # breakpoint(), pdb.set_trace(), ipdb.set_trace()
     SYNTAX_ERROR = auto()  # Python syntax error prevents AST analysis
+    SECURITY_BYPASS = auto()  # Agent attempted to add # safety: checked override
 
 
 @dataclass(frozen=True)
