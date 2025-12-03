@@ -1,6 +1,7 @@
 """Tool execution and safe shell runner.
 
 This module provides:
+- ToolExecutor Protocol for formal tool execution interface
 - Tool execution from the unified registry
 - Safe shell command execution with validation (str-returning wrapper)
 - Template environment loading
@@ -12,7 +13,9 @@ that converts the Result type to a string for agent/LLM consumption.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Protocol, runtime_checkable
 
 from jinja2 import Environment
 
@@ -26,6 +29,52 @@ from jpscripts.system import run_safe_shell as core_run_safe_shell
 
 from .circuit import enforce_circuit_breaker
 from .models import ToolCall
+
+
+@dataclass(frozen=True, slots=True)
+class ToolSpec:
+    """Specification for an available tool.
+
+    Used by ToolExecutor to describe available tools to the agent.
+    """
+
+    name: str
+    description: str
+    parameters: dict[str, Any]  # JSON Schema for parameters
+
+
+@runtime_checkable
+class ToolExecutor(Protocol):
+    """Protocol defining the interface for tool execution.
+
+    Implementations handle:
+    - Discovering available tools
+    - Executing tool calls
+    - Returning results as strings for LLM consumption
+
+    This protocol enables dependency injection and testing of
+    agent components without requiring real tool implementations.
+    """
+
+    async def execute(self, call: ToolCall) -> str:
+        """Execute a tool call and return the result.
+
+        Args:
+            call: The tool call to execute (name + arguments)
+
+        Returns:
+            Tool output as a string suitable for LLM consumption
+        """
+        ...
+
+    def available_tools(self) -> list[ToolSpec]:
+        """Return list of available tools.
+
+        Returns:
+            List of ToolSpec describing each available tool
+        """
+        ...
+
 
 logger = get_logger(__name__)
 
@@ -142,6 +191,8 @@ async def run_safe_shell(
 
 __all__ = [
     "AUDIT_PREFIX",
+    "ToolExecutor",
+    "ToolSpec",
     "execute_tool",
     "load_template_environment",
     "run_safe_shell",

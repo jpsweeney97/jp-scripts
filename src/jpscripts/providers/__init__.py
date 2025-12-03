@@ -41,6 +41,19 @@ class ProviderType(Enum):
     OPENAI = auto()
 
 
+class ProviderCapability(Enum):
+    """Capabilities that providers may support.
+
+    Used for runtime capability checking and feature negotiation.
+    """
+
+    STREAMING = auto()  # Supports streaming responses
+    TOOLS = auto()  # Supports tool/function calling
+    JSON_MODE = auto()  # Supports native JSON output mode
+    VISION = auto()  # Supports image/vision inputs
+    SYSTEM_PROMPT = auto()  # Supports system role messages
+
+
 @dataclass(frozen=True, slots=True)
 class Message:
     """A message in the conversation history."""
@@ -241,6 +254,10 @@ class LLMProvider(Protocol):
         """Return the context window size for the given model."""
         ...
 
+    def get_capabilities(self, model: str | None = None) -> frozenset[ProviderCapability]:
+        """Return the set of capabilities supported by this provider/model."""
+        ...
+
 
 class BaseLLMProvider(ABC):
     """Abstract base class for LLM providers.
@@ -306,6 +323,22 @@ class BaseLLMProvider(ABC):
     def get_context_limit(self, model: str | None = None) -> int:
         """Return context limit for model."""
         ...
+
+    def get_capabilities(self, model: str | None = None) -> frozenset[ProviderCapability]:
+        """Return capabilities for this provider/model.
+
+        Default implementation derives from individual support methods.
+        """
+        caps: set[ProviderCapability] = set()
+        if self.supports_streaming():
+            caps.add(ProviderCapability.STREAMING)
+        if self.supports_tools():
+            caps.add(ProviderCapability.TOOLS)
+        if self.supports_json_mode():
+            caps.add(ProviderCapability.JSON_MODE)
+        # VISION and SYSTEM_PROMPT can be overridden by subclasses
+        caps.add(ProviderCapability.SYSTEM_PROMPT)  # Most providers support this
+        return frozenset(caps)
 
 
 # Provider registry for self-registration pattern
@@ -407,6 +440,7 @@ __all__ = [
     "LLMProvider",
     "Message",
     "ModelNotFoundError",
+    "ProviderCapability",
     "ProviderError",
     "ProviderFactory",
     "ProviderType",

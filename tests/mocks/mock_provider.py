@@ -13,6 +13,7 @@ from jpscripts.providers import (
     CompletionOptions,
     CompletionResponse,
     Message,
+    ProviderCapability,
     ProviderType,
     StreamChunk,
     TokenUsage,
@@ -221,6 +222,18 @@ class MockProvider:
     def get_context_limit(self, model: str | None = None) -> int:
         """Return mock context limit."""
         return 128_000
+
+    def get_capabilities(self, model: str | None = None) -> frozenset[ProviderCapability]:
+        """Return capabilities for this mock provider."""
+        caps: set[ProviderCapability] = set()
+        if self.supports_streaming():
+            caps.add(ProviderCapability.STREAMING)
+        if self.supports_tools():
+            caps.add(ProviderCapability.TOOLS)
+        if self.supports_json_mode():
+            caps.add(ProviderCapability.JSON_MODE)
+        caps.add(ProviderCapability.SYSTEM_PROMPT)
+        return frozenset(caps)
 
 
 class MockProviderWithCounter(MockProvider):
