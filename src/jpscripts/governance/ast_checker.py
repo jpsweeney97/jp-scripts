@@ -1,10 +1,15 @@
-"""AST-based constitutional compliance checker."""
+"""AST-based constitutional compliance checker.
+
+Rules are loaded from safety_rules.yaml via the config module.
+Falls back to embedded defaults if the YAML is missing.
+"""
 
 from __future__ import annotations
 
 import ast
 from pathlib import Path
 
+from jpscripts.governance.config import SafetyConfig, load_safety_config
 from jpscripts.governance.secret_scanner import check_for_secrets
 from jpscripts.governance.types import Violation, ViolationType
 
@@ -13,15 +18,17 @@ class ConstitutionChecker(ast.NodeVisitor):
     """AST visitor that detects constitutional violations.
 
     Tracks async context to properly identify blocking I/O calls.
+    Rules are loaded from safety_rules.yaml configuration.
     """
 
-    def __init__(self, file_path: Path, source: str) -> None:
+    def __init__(self, file_path: Path, source: str, config: SafetyConfig | None = None) -> None:
         self.file_path = file_path
         self.source = source
         self.lines = source.splitlines()
         self.violations: list[Violation] = []
         self._async_depth: int = 0
         self._imports: dict[str, str] = {}  # Maps alias -> "module" or "module.function"
+        self._config = config or load_safety_config()
 
     @property
     def _in_async_context(self) -> bool:
@@ -71,7 +78,7 @@ class ConstitutionChecker(ast.NodeVisitor):
             return
 
         line_content = self._get_line(node.lineno)
-        if "# safety: checked" in line_content:
+        if self._config.safety_override_pattern in line_content:
             return
 
         if self._in_async_context:
@@ -147,7 +154,7 @@ class ConstitutionChecker(ast.NodeVisitor):
             return
 
         line_content = self._get_line(node.lineno)
-        if "# safety: checked" in line_content:
+        if self._config.safety_override_pattern in line_content:
             return
 
         self.violations.append(
@@ -169,9 +176,9 @@ class ConstitutionChecker(ast.NodeVisitor):
         line_content = self._get_line(node.lineno)
 
         def _has_safety_override() -> bool:
-            return "# safety: checked" in line_content
+            return self._config.safety_override_pattern in line_content
 
-        if isinstance(func, ast.Name) and func.id in {"eval", "exec", "compile", "__import__"}:
+        if isinstance(func, ast.Name) and func.id in self._config.forbidden_dynamic_builtins:
             self.violations.append(
                 Violation(
                     type=ViolationType.DYNAMIC_EXECUTION,
@@ -234,7 +241,7 @@ class ConstitutionChecker(ast.NodeVisitor):
             return
 
         # Check quit() and exit() (direct name calls, not aliased)
-        if isinstance(node.func, ast.Name) and node.func.id in ("quit", "exit"):
+        if isinstance(node.func, ast.Name) and node.func.id in self._config.exit_builtins:
             self.violations.append(
                 Violation(
                     type=ViolationType.PROCESS_EXIT,
@@ -254,7 +261,7 @@ class ConstitutionChecker(ast.NodeVisitor):
         Handles import aliasing (e.g., import pdb as p; p.set_trace()).
         """
         # Check breakpoint() - direct name, no alias possible
-        if isinstance(node.func, ast.Name) and node.func.id == "breakpoint":
+        if isinstance(node.func, ast.Name) and node.func.id in self._config.debug_builtins:
             self.violations.append(
                 Violation(
                     type=ViolationType.DEBUG_LEFTOVER,
@@ -271,7 +278,7 @@ class ConstitutionChecker(ast.NodeVisitor):
 
         # Check pdb.set_trace() and ipdb.set_trace() with alias support
         module, func = self._resolve_call_target(node)
-        if module in ("pdb", "ipdb") and func == "set_trace":
+        if module in self._config.debug_modules and func == "set_trace":
             self.violations.append(
                 Violation(
                     type=ViolationType.DEBUG_LEFTOVER,
@@ -399,27 +406,15 @@ class ConstitutionChecker(ast.NodeVisitor):
 
         return (None, None)
 
-    # Blocking subprocess functions that should be wrapped with asyncio.to_thread
-    _BLOCKING_SUBPROCESS_FUNCS: frozenset[str] = frozenset(
-        {
-            "run",
-            "call",
-            "check_call",
-            "check_output",
-            "Popen",
-            "getoutput",
-            "getstatusoutput",
-        }
-    )
-
     def _get_blocking_subprocess_func(self, node: ast.Call) -> str | None:
         """Check if call is a blocking subprocess function.
 
         Returns the function name if it's a blocking subprocess call, None otherwise.
         Handles import aliasing (e.g., import subprocess as sp).
+        Uses blocking functions list from safety_rules.yaml config.
         """
         module, func = self._resolve_call_target(node)
-        if module == "subprocess" and func in self._BLOCKING_SUBPROCESS_FUNCS:
+        if module == "subprocess" and func in self._config.blocking_subprocess_funcs:
             return func
         return None
 
@@ -439,14 +434,15 @@ class ConstitutionChecker(ast.NodeVisitor):
         """Check if call targets destructive filesystem operations.
 
         Handles import aliasing (e.g., import shutil as sh; sh.rmtree()).
+        Uses destructive functions list from safety_rules.yaml config.
         """
         # Use resolution helper for shutil.rmtree and os.remove/unlink
         module, func_name = self._resolve_call_target(node)
 
-        if module == "shutil" and func_name == "rmtree":
+        if module == "shutil" and func_name in self._config.destructive_shutil_funcs:
             return True
 
-        if module == "os" and func_name in ("remove", "unlink"):
+        if module == "os" and func_name in self._config.destructive_os_funcs:
             return True
 
         # Path.unlink() is a method on Path instances, needs special handling

@@ -1,0 +1,256 @@
+# Constitutional Safety Rules for jpscripts Agent Framework
+# These rules are enforced by governance/ast_checker.py and governance/compliance.py
+#
+# Rule structure:
+#   - type: ViolationType enum value
+#   - severity: "error" | "warning"
+#   - fatal: true | false (fatal violations block patch application)
+#   - message: Human-readable error message
+#   - suggestion: Recommended fix
+#   - safety_override: Whether "# safety: checked" comment allows bypass
+#
+# Schema version for future compatibility
+version: "1.0"
+
+# =============================================================================
+# FORBIDDEN FUNCTION CALLS
+# =============================================================================
+
+forbidden_calls:
+  # -------------------------------------------------------------------------
+  # Subprocess rules - prevent command injection and blocking in async
+  # -------------------------------------------------------------------------
+  - type: SYNC_SUBPROCESS
+    module: subprocess
+    functions:
+      - run
+      - call
+      - check_call
+      - check_output
+      - Popen
+      - getoutput
+      - getstatusoutput
+    context: async_only  # Only flagged inside async functions
+    severity: error
+    fatal: true
+    safety_override: true
+    message: "subprocess.{func} called in async context without asyncio.to_thread"
+    suggestion: "Wrap with asyncio.to_thread(subprocess.{func}, ...) or use asyncio.create_subprocess_exec for true async"
+
+  - type: SHELL_TRUE
+    module: subprocess
+    keyword_arg:
+      name: shell
+      value: true
+    severity: error
+    fatal: true
+    safety_override: false
+    message: "shell=True is forbidden by AGENTS.md constitution"
+    suggestion: "Use shlex.split() to tokenize the command and pass as a list to subprocess without shell=True"
+
+  - type: OS_SYSTEM
+    module: os
+    functions:
+      - system
+    severity: error
+    fatal: true
+    safety_override: false
+    message: "os.system() is forbidden by AGENTS.md constitution"
+    suggestion: "Use asyncio.create_subprocess_exec or core.system.run_safe_shell with proper command validation"
+
+  # -------------------------------------------------------------------------
+  # Destructive filesystem operations
+  # -------------------------------------------------------------------------
+  - type: DESTRUCTIVE_FS
+    rules:
+      - module: shutil
+        functions:
+          - rmtree
+      - module: os
+        functions:
+          - remove
+          - unlink
+      - method: unlink
+        on_type: Path  # Path.unlink()
+    severity: error
+    fatal: true
+    safety_override: true
+    message: "Destructive filesystem call without '# safety: checked' override"
+    suggestion: "Avoid destructive filesystem calls or add '# safety: checked' when explicitly audited"
+
+  # -------------------------------------------------------------------------
+  # Dynamic code execution - eval, exec, compile, dynamic imports
+  # -------------------------------------------------------------------------
+  - type: DYNAMIC_EXECUTION
+    rules:
+      # These are always forbidden, no safety override
+      - builtins:
+          - eval
+          - exec
+          - compile
+          - __import__
+        safety_override: false
+      # importlib.import_module can be overridden with safety comment
+      - module: importlib
+        functions:
+          - import_module
+        safety_override: true
+    severity: error
+    fatal: true
+    message: "Dynamic execution via {func}() is forbidden"
+    suggestion: "Remove dynamic execution or replace with explicit imports and functions"
+
+  # -------------------------------------------------------------------------
+  # Process termination
+  # -------------------------------------------------------------------------
+  - type: PROCESS_EXIT
+    rules:
+      - module: sys
+        functions:
+          - exit
+      - builtins:
+          - quit
+          - exit
+    severity: error
+    fatal: true
+    safety_override: false
+    message: "Direct process exit forbidden. Let the function return normally or raise an exception"
+    suggestion: "Remove the exit call and use return or raise an appropriate exception"
+
+  # -------------------------------------------------------------------------
+  # Debug statements
+  # -------------------------------------------------------------------------
+  - type: DEBUG_LEFTOVER
+    rules:
+      - builtins:
+          - breakpoint
+      - module: pdb
+        functions:
+          - set_trace
+      - module: ipdb
+        functions:
+          - set_trace
+    severity: error
+    fatal: true
+    safety_override: false
+    message: "Debug breakpoints are forbidden in production code"
+    suggestion: "Remove the debugging statement before committing"
+
+  # -------------------------------------------------------------------------
+  # Sync I/O in async context
+  # -------------------------------------------------------------------------
+  - type: SYNC_OPEN
+    functions:
+      - name: open
+        also_check:
+          - builtins.open
+          - io.open
+    context: async_only
+    severity: warning
+    fatal: false
+    safety_override: false
+    allowed_patterns:
+      - "aiofiles"
+      - "to_thread"
+    message: "Synchronous open() in async context"
+    suggestion: "Use aiofiles.open() or wrap with asyncio.to_thread()"
+
+# =============================================================================
+# FORBIDDEN AST PATTERNS
+# =============================================================================
+
+forbidden_patterns:
+  # -------------------------------------------------------------------------
+  # Bare except clauses
+  # -------------------------------------------------------------------------
+  - type: BARE_EXCEPT
+    pattern: ExceptHandler
+    condition: "node.type is None"  # Bare except has no exception type
+    severity: error
+    fatal: true
+    safety_override: false
+    message: "Bare except clause is forbidden by AGENTS.md constitution"
+    suggestion: "Catch specific exceptions and wrap in Result[T, JPScriptsError] or at minimum use 'except Exception:'"
+
+  # -------------------------------------------------------------------------
+  # Untyped Any usage
+  # -------------------------------------------------------------------------
+  - type: UNTYPED_ANY
+    pattern: Name
+    condition: "node.id == 'Any'"
+    context: type_annotation
+    ignore_if_comment: "type: ignore"
+    severity: warning
+    fatal: false
+    safety_override: false
+    message: "Any type used without type: ignore comment"
+    suggestion: "Add '# type: ignore[<code>]' with justification or use a more specific type"
+
+# =============================================================================
+# SECRET DETECTION RULES
+# =============================================================================
+
+secret_detection:
+  - type: SECRET_LEAK
+    severity: error
+    fatal: true
+    safety_override: true
+    message: "Potential secret detected in {name} with high-entropy value"
+    suggestion: "Remove the secret, rotate credentials, and load from environment or secret manager"
+
+    # Variable assignment patterns: API_KEY = "value"
+    variable_patterns:
+      - pattern: "(?P<name>[A-Z0-9_]*(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH)[A-Z0-9_]*)\\s*=\\s*(?P<quote>['\"]?)(?P<value>[A-Za-z0-9+/=_\\-]{16,})(?P=quote)"
+        min_entropy: 4.0
+
+    # Dict-style patterns: config["api_key"] = "value"
+    dict_patterns:
+      - pattern: "(?P<context>\\[|:\\s*)(?P<quote1>['\"])(?P<name>[a-z0-9_]*(key|token|secret|password|credential|auth)[a-z0-9_]*)(?P=quote1)"
+        min_entropy: 4.0
+
+    # Known API key prefixes - no entropy check needed
+    known_prefixes:
+      - prefix: "sk-"
+        description: "OpenAI API key"
+        min_length: 20
+      - prefix: "gsk_"
+        description: "Groq API key"
+        min_length: 20
+      - prefix: "pk_"
+        description: "Stripe public key"
+        min_length: 20
+      - prefix: "sk_"
+        description: "Stripe secret key"
+        min_length: 20
+      - prefix: "xoxb-"
+        description: "Slack bot token"
+        min_length: 20
+      - prefix: "xoxp-"
+        description: "Slack user token"
+        min_length: 20
+      - prefix: "ghp_"
+        description: "GitHub PAT"
+        min_length: 20
+      - prefix: "gho_"
+        description: "GitHub OAuth token"
+        min_length: 20
+      - prefix: "AIza"
+        description: "Google API key"
+        min_length: 20
+      - prefix: "AKIA"
+        description: "AWS access key"
+        min_length: 16
+
+# =============================================================================
+# DIFF-BASED RULES (checked by compliance.py)
+# =============================================================================
+
+diff_rules:
+  - type: SECURITY_BYPASS
+    severity: error
+    fatal: true
+    safety_override: false
+    message: "Agent attempted to add safety override comment"
+    suggestion: "Safety overrides must be added by human reviewers, not by agents"
+    detect_added_patterns:
+      - "# safety: checked"
