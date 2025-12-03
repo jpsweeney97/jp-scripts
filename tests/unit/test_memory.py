@@ -107,9 +107,11 @@ def test_query_memory_prefers_vector_results(monkeypatch: Any, tmp_path: Path) -
         def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
-    # Patch at the module where the import occurs
-    monkeypatch.setattr("jpscripts.memory.store._load_lancedb_dependencies", lambda: ("db", object))
-    monkeypatch.setattr("jpscripts.memory.store.LanceDBStore", FakeStore)
+    # Patch at the module where the import occurs (hybrid.py imports from lance.py)
+    monkeypatch.setattr(
+        "jpscripts.memory.store.hybrid.load_lancedb_dependencies", lambda: ("db", object)
+    )
+    monkeypatch.setattr("jpscripts.memory.store.hybrid.LanceDBStore", FakeStore)
     monkeypatch.setattr("jpscripts.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
@@ -181,9 +183,11 @@ def test_query_memory_rrf_combines_vector_and_keyword(monkeypatch: Any, tmp_path
         def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
-    # Patch at the module where the import occurs
-    monkeypatch.setattr("jpscripts.memory.store._load_lancedb_dependencies", lambda: ("db", object))
-    monkeypatch.setattr("jpscripts.memory.store.LanceDBStore", FakeStore)
+    # Patch at the module where the import occurs (hybrid.py imports from lance.py)
+    monkeypatch.setattr(
+        "jpscripts.memory.store.hybrid.load_lancedb_dependencies", lambda: ("db", object)
+    )
+    monkeypatch.setattr("jpscripts.memory.store.hybrid.LanceDBStore", FakeStore)
     monkeypatch.setattr("jpscripts.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(
@@ -584,8 +588,11 @@ def test_hybrid_search_returns_both_vector_and_keyword_matches(
         def prune(self, _root: Path) -> Ok[int]:
             return Ok(0)
 
-    monkeypatch.setattr("jpscripts.memory.store._load_lancedb_dependencies", lambda: ("db", object))
-    monkeypatch.setattr("jpscripts.memory.store.LanceDBStore", FakeStore)
+    # Patch at hybrid module where imports are resolved
+    monkeypatch.setattr(
+        "jpscripts.memory.store.hybrid.load_lancedb_dependencies", lambda: ("db", object)
+    )
+    monkeypatch.setattr("jpscripts.memory.store.hybrid.LanceDBStore", FakeStore)
     monkeypatch.setattr("jpscripts.memory.api.EmbeddingClient", FakeEmbeddingClient)
 
     results = memory_core.query_memory(

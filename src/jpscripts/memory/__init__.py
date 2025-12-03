@@ -77,6 +77,7 @@ from .store import (
     HybridMemoryStore,
     JsonlArchiver,
     LanceDBStore,
+    StorageMode,
     # Private but needed by some importers/tests
     _compute_file_hash,
     _fallback_path,
@@ -120,6 +121,7 @@ __all__ = [
     "PatternRecordProtocol",
     # Patterns
     "PatternStore",
+    "StorageMode",
     "_GlobalEmbeddingClient",
     "_compose_embedding_text",
     # Store - private (needed for tests/compatibility)
