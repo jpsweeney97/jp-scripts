@@ -27,11 +27,13 @@ class TestStorageMode:
         assert StorageMode.JSONL_ONLY.value == 1
         assert StorageMode.LANCE_ONLY.value == 2
         assert StorageMode.HYBRID.value == 3
+        assert StorageMode.NO_OP.value == 4
 
     def test_storage_mode_by_name(self) -> None:
         """Can access StorageMode by name."""
         assert StorageMode["JSONL_ONLY"] == StorageMode.JSONL_ONLY
         assert StorageMode["HYBRID"] == StorageMode.HYBRID
+        assert StorageMode["NO_OP"] == StorageMode.NO_OP
 
 
 class TestConstants:
@@ -486,3 +488,122 @@ class TestEncodingRobustness:
         entries = list(iter_entries(jsonl_file))
         assert len(entries) == 1
         assert entries[0].id == "1"
+
+
+class TestNoOpMemoryStore:
+    """Tests for NoOpMemoryStore class."""
+
+    def test_add_returns_ok(self) -> None:
+        """NoOpMemoryStore.add returns Ok without persisting."""
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import NoOpMemoryStore
+
+        store = NoOpMemoryStore()
+        entry = MemoryEntry(
+            id="test-1",
+            ts="2024-01-01",
+            content="test",
+            tags=[],
+            tokens=["test"],
+        )
+        result = store.add(entry)
+        assert isinstance(result, Ok)
+        assert result.value == entry
+
+    def test_search_returns_empty(self) -> None:
+        """NoOpMemoryStore.search always returns empty list."""
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import NoOpMemoryStore
+
+        store = NoOpMemoryStore()
+        result = store.search([0.1, 0.2, 0.3], 10)
+        assert isinstance(result, Ok)
+        assert result.value == []
+
+    def test_search_with_tokens_returns_empty(self) -> None:
+        """NoOpMemoryStore.search with tokens returns empty list."""
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import NoOpMemoryStore
+
+        store = NoOpMemoryStore()
+        result = store.search(None, 10, query_tokens=["test"])
+        assert isinstance(result, Ok)
+        assert result.value == []
+
+    def test_prune_returns_zero(self, tmp_path: Path) -> None:
+        """NoOpMemoryStore.prune returns 0 (no entries pruned)."""
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import NoOpMemoryStore
+
+        store = NoOpMemoryStore()
+        result = store.prune(tmp_path)
+        assert isinstance(result, Ok)
+        assert result.value == 0
+
+
+class TestGetMemoryStore:
+    """Tests for get_memory_store factory function."""
+
+    def test_no_op_mode_returns_noop_store(self, tmp_path: Path) -> None:
+        """get_memory_store with NO_OP mode returns NoOpMemoryStore."""
+        from jpscripts.core.config import AppConfig
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import NoOpMemoryStore, get_memory_store
+
+        config = AppConfig()
+        result = get_memory_store(config, store_path=tmp_path, mode=StorageMode.NO_OP)
+        assert isinstance(result, Ok)
+        assert isinstance(result.value, NoOpMemoryStore)
+
+    def test_jsonl_only_mode_returns_archiver(self, tmp_path: Path) -> None:
+        """get_memory_store with JSONL_ONLY mode returns JsonlArchiver."""
+        from jpscripts.core.config import AppConfig
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import JsonlArchiver, get_memory_store
+
+        config = AppConfig()
+        result = get_memory_store(config, store_path=tmp_path, mode=StorageMode.JSONL_ONLY)
+        assert isinstance(result, Ok)
+        assert isinstance(result.value, JsonlArchiver)
+
+    def test_hybrid_mode_returns_hybrid_store(self, tmp_path: Path) -> None:
+        """get_memory_store with HYBRID mode returns HybridMemoryStore."""
+        from jpscripts.core.config import AppConfig
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import HybridMemoryStore, get_memory_store
+
+        config = AppConfig()
+        result = get_memory_store(config, store_path=tmp_path, mode=StorageMode.HYBRID)
+        assert isinstance(result, Ok)
+        assert isinstance(result.value, HybridMemoryStore)
+
+    def test_config_memory_mode_used_when_mode_not_specified(self, tmp_path: Path) -> None:
+        """get_memory_store uses config.user.memory_mode when mode param is None."""
+        from unittest.mock import MagicMock
+
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import NoOpMemoryStore, get_memory_store
+
+        # Mock config with memory_mode set to no_op
+        config = MagicMock()
+        config.user.memory_mode = "no_op"
+        config.user.memory_store = None
+
+        result = get_memory_store(config, store_path=tmp_path, mode=None)
+        assert isinstance(result, Ok)
+        assert isinstance(result.value, NoOpMemoryStore)
+
+    def test_invalid_config_mode_falls_back_to_hybrid(self, tmp_path: Path) -> None:
+        """get_memory_store falls back to HYBRID for invalid config mode."""
+        from unittest.mock import MagicMock
+
+        from jpscripts.core.result import Ok
+        from jpscripts.memory.store import HybridMemoryStore, get_memory_store
+
+        config = MagicMock()
+        config.user.memory_mode = "invalid_mode"
+        config.user.memory_store = None
+
+        result = get_memory_store(config, store_path=tmp_path, mode=None)
+        assert isinstance(result, Ok)
+        assert isinstance(result.value, HybridMemoryStore)

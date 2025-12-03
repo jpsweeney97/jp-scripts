@@ -134,6 +134,10 @@ class UserConfig(BaseModel):
     use_semantic_search: bool = Field(
         default=True, description="Enable semantic search with embeddings."
     )
+    memory_mode: str = Field(
+        default="hybrid",
+        description="Memory storage mode: jsonl_only, lance_only, hybrid, or no_op.",
+    )
 
 
 @dataclass

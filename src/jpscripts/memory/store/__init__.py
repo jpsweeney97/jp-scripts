@@ -82,11 +82,13 @@ class StorageMode(Enum):
         JSONL_ONLY: Use only JSONL file-based storage (keyword search).
         LANCE_ONLY: Use only LanceDB vector storage (semantic search).
         HYBRID: Use both JSONL and LanceDB with RRF fusion (default).
+        NO_OP: No-operation store for testing/disabled memory.
     """
 
     JSONL_ONLY = auto()
     LANCE_ONLY = auto()
     HYBRID = auto()
+    NO_OP = auto()
 
 
 # -----------------------------------------------------------------------------
@@ -346,7 +348,7 @@ _streaming_keyword_search = streaming_keyword_search
 
 
 # Re-export store implementations
-from jpscripts.memory.store.hybrid import HybridMemoryStore, get_memory_store
+from jpscripts.memory.store.hybrid import HybridMemoryStore, NoOpMemoryStore, get_memory_store
 from jpscripts.memory.store.jsonl import JsonlArchiver
 from jpscripts.memory.store.lance import (
     LanceDBStore,
@@ -364,6 +366,7 @@ __all__ = [
     "HybridMemoryStore",
     "JsonlArchiver",
     "LanceDBStore",
+    "NoOpMemoryStore",
     # Enum
     "StorageMode",
     "_compute_file_hash",

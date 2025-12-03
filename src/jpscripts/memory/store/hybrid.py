@@ -10,6 +10,7 @@ from jpscripts.core.result import CapabilityMissingError, Err, JPScriptsError, O
 from jpscripts.memory.models import MemoryEntry, MemoryStore
 
 from . import (
+    StorageMode,
     fallback_path,
     resolve_store_path,
     streaming_keyword_search,
@@ -19,6 +20,31 @@ from .lance import LanceDBStore, load_lancedb_dependencies
 
 if TYPE_CHECKING:
     pass
+
+
+class NoOpMemoryStore(MemoryStore):
+    """No-operation memory store for testing or disabled memory.
+
+    All operations succeed but don't persist anything.
+    """
+
+    def add(self, entry: MemoryEntry) -> Result[MemoryEntry, JPScriptsError]:
+        return Ok(entry)
+
+    def search(
+        self,
+        query_vec: list[float] | None,
+        limit: int,
+        *,
+        query_tokens: list[str] | None = None,
+        tag_filter: set[str] | None = None,
+    ) -> Result[list[MemoryEntry], JPScriptsError]:
+        _ = query_vec, limit, query_tokens, tag_filter
+        return Ok([])
+
+    def prune(self, root: Path) -> Result[int, JPScriptsError]:
+        _ = root
+        return Ok(0)
 
 
 class HybridMemoryStore(MemoryStore):
@@ -122,40 +148,99 @@ class HybridMemoryStore(MemoryStore):
 def get_memory_store(
     config: AppConfig,
     store_path: Path | None = None,
+    *,
+    mode: StorageMode | None = None,
 ) -> Result[MemoryStore, ConfigError | CapabilityMissingError]:
     """Get a memory store for the given configuration.
 
-    Returns a HybridMemoryStore combining JSONL archiving with LanceDB vector search.
+    Args:
+        config: Application configuration.
+        store_path: Optional explicit store path override.
+        mode: Storage mode. If None, uses config.user.memory_mode or defaults to HYBRID.
+
+    Returns:
+        A MemoryStore implementation based on the selected mode.
+
+    Raises:
+        CapabilityMissingError: If LanceDB is required but not available.
+        ConfigError: If store initialization fails.
     """
-    from jpscripts.memory.embedding import _embedding_settings
+    # Resolve storage mode from parameter, config, or default
+    if mode is None:
+        user_config = getattr(config, "user", None)
+        config_mode_str = getattr(user_config, "memory_mode", None) if user_config else None
+        if config_mode_str:
+            try:
+                mode = StorageMode[config_mode_str.upper()]
+            except (KeyError, AttributeError):
+                mode = StorageMode.HYBRID
+        else:
+            mode = StorageMode.HYBRID
+
+    # Handle NO_OP mode (for testing/disabled memory)
+    if mode == StorageMode.NO_OP:
+        return Ok(NoOpMemoryStore())
 
     resolved_store = resolve_store_path(config, store_path)
     archiver = JsonlArchiver(fallback_path(resolved_store))
 
+    # Handle JSONL_ONLY mode
+    if mode == StorageMode.JSONL_ONLY:
+        return Ok(archiver)
+
+    # For LANCE_ONLY and HYBRID, try to load LanceDB
+    from jpscripts.memory.embedding import _embedding_settings
+
     use_semantic, _model_name, _server_url = _embedding_settings(config)
     vector_store: LanceDBStore | None = None
-    if use_semantic:
+
+    # LANCE_ONLY always requires LanceDB
+    # HYBRID uses LanceDB if semantic is enabled and available
+    lance_required = mode == StorageMode.LANCE_ONLY
+    lance_wanted = mode == StorageMode.HYBRID and use_semantic
+
+    if lance_required or lance_wanted:
         deps = load_lancedb_dependencies()
         if deps is None:
+            if lance_required:
+                return Err(
+                    CapabilityMissingError(
+                        "LanceDB is required for LANCE_ONLY mode. "
+                        'Install with `pip install "jpscripts[ai]"`.',
+                        context={"path": str(resolved_store), "mode": mode.name},
+                    )
+                )
+            # For HYBRID, continue without vector store (fallback to keyword-only)
+        else:
+            lancedb_module, lance_model_base = deps
+            try:
+                vector_store = LanceDBStore(resolved_store, lancedb_module, lance_model_base)
+            except Exception as exc:  # pragma: no cover - defensive
+                if lance_required:
+                    return Err(
+                        ConfigError(
+                            f"Failed to initialize LanceDB store at {resolved_store}: {exc}"
+                        )
+                    )
+                # For HYBRID, continue without vector store
+
+    # LANCE_ONLY returns just the vector store
+    if mode == StorageMode.LANCE_ONLY:
+        if vector_store is None:  # pragma: no cover - should not happen
             return Err(
                 CapabilityMissingError(
-                    "LanceDB is required for semantic memory. "
-                    'Install with `pip install "jpscripts[ai]"`.',
+                    "Failed to create LanceDB store",
                     context={"path": str(resolved_store)},
                 )
             )
-        lancedb_module, lance_model_base = deps
-        try:
-            vector_store = LanceDBStore(resolved_store, lancedb_module, lance_model_base)
-        except Exception as exc:  # pragma: no cover - defensive
-            return Err(
-                ConfigError(f"Failed to initialize LanceDB store at {resolved_store}: {exc}")
-            )
+        return Ok(vector_store)
 
+    # HYBRID returns the hybrid store
     return Ok(HybridMemoryStore(archiver, vector_store))
 
 
 __all__ = [
     "HybridMemoryStore",
+    "NoOpMemoryStore",
     "get_memory_store",
 ]
