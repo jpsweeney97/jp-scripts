@@ -13,7 +13,7 @@
 
 | Phase | Status | Commit |
 |-------|--------|--------|
-| Phase 1: Dissolve Core Monolith | `NOT STARTED` | - |
+| Phase 1: Dissolve Core Monolith | `COMPLETED` | 3556839 |
 | Phase 2: Declarative Governance | `NOT STARTED` | - |
 | Phase 3: Provider Contracts | `NOT STARTED` | - |
 | Phase 4: Async Isolation | `NOT STARTED` | - |
@@ -24,17 +24,17 @@
 
 ### Current Position
 
-**Active phase:** None yet
-**Active step:** None yet
-**Last updated:** 2025-12-02 00:00
+**Active phase:** Phase 2: Declarative Governance
+**Active step:** None (Phase 2 not started)
+**Last updated:** 2025-12-02
 **Blockers:** None
 
 ### Quick Stats
 
 - **Total phases:** 8
-- **Completed phases:** 0
+- **Completed phases:** 1
 - **Total steps:** 24
-- **Completed steps:** 0
+- **Completed steps:** 4
 
 ---
 
@@ -42,9 +42,9 @@
 
 ### Before Starting
 
-- [ ] All tests passing on main branch (`pytest`)
-- [ ] No pending PRs that touch affected files
-- [ ] Read existing completed roadmaps for context
+- [x] All tests passing on main branch (`pytest`)
+- [x] No pending PRs that touch affected files
+- [x] Read existing completed roadmaps for context
 
 ### Constraints
 
@@ -62,9 +62,9 @@
 
 ## Phase 1: Dissolve Core Monolith
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETED`
 **Estimated steps:** 4
-**Commit:** -
+**Commit:** 3556839
 
 ### Phase 1 Overview
 
@@ -87,126 +87,133 @@ rm -rf src/jpscripts/features/
 
 ### Step 1.1: Create Features Directory Structure
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETED`
 
 **Action:**
 Create the `src/jpscripts/features/` directory with subdirectories for each feature domain.
 
 **Sub-tasks:**
-- [ ] Create `src/jpscripts/features/__init__.py`
-- [ ] Create `src/jpscripts/features/team/__init__.py`
-- [ ] Create `src/jpscripts/features/notes/__init__.py`
-- [ ] Create `src/jpscripts/features/navigation/__init__.py`
+- [x] Create `src/jpscripts/features/__init__.py`
+- [x] Create `src/jpscripts/features/team/__init__.py`
+- [x] Create `src/jpscripts/features/notes/__init__.py`
+- [x] Create `src/jpscripts/features/navigation/__init__.py`
 
 **Verification:**
-- [ ] Directory structure exists
-- [ ] `python -c "from jpscripts.features import team, notes, navigation"` succeeds
+- [x] Directory structure exists
+- [x] `python -c "from jpscripts.features import team, notes, navigation"` succeeds
 
 **Files affected:**
 - `src/jpscripts/features/` - New directory tree
 
 **Notes:**
-[Empty]
+Lazy imports used in features/__init__.py to prevent circular import with agent/ modules.
 
 ---
 
 ### Step 1.2: Migrate Team Domain Logic
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETED`
 
 **Action:**
 Move `src/jpscripts/core/team.py` to `src/jpscripts/features/team/model.py` and update all imports.
 
 **Sub-tasks:**
-- [ ] Copy `core/team.py` to `features/team/model.py`
-- [ ] Update imports in `features/team/__init__.py` to re-export public API
-- [ ] Find all imports of `jpscripts.core.team` using grep
-- [ ] Update each import to use `jpscripts.features.team`
-- [ ] Delete `core/team.py`
+- [x] Copy `core/team.py` to `features/team/model.py`
+- [x] Update imports in `features/team/__init__.py` to re-export public API
+- [x] Find all imports of `jpscripts.core.team` using grep
+- [x] Update each import to use `jpscripts.features.team`
+- [x] Delete `core/team.py`
 
 **Verification:**
-- [ ] `pytest tests/unit/` passes
-- [ ] `mypy src` shows no import errors
-- [ ] `ruff check src` passes
+- [x] `pytest tests/unit/` passes
+- [x] `mypy src` shows no import errors
+- [x] `ruff check src` passes
 
 **Files affected:**
 - `src/jpscripts/core/team.py` - Deleted
 - `src/jpscripts/features/team/model.py` - New (moved)
 - `src/jpscripts/commands/team.py` - Import update
-- Any other files importing from `core.team`
+- `tests/unit/test_team.py` - Import update
+- `tests/unit/test_team_persona.py` - Import update
 
 **Notes:**
-[Empty]
+Fixed _resolve_template_root() path: changed parent.parent to parent.parent.parent to account for deeper nesting.
 
 ---
 
 ### Step 1.3: Migrate Notes Domain Logic
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETED`
 
 **Action:**
 Move `src/jpscripts/core/notes_impl.py` to `src/jpscripts/features/notes/service.py` and update all imports.
 
 **Sub-tasks:**
-- [ ] Copy `core/notes_impl.py` to `features/notes/service.py`
-- [ ] Update imports in `features/notes/__init__.py`
-- [ ] Find all imports of `jpscripts.core.notes_impl` using grep
-- [ ] Update each import to use `jpscripts.features.notes`
-- [ ] Delete `core/notes_impl.py`
+- [x] Copy `core/notes_impl.py` to `features/notes/service.py`
+- [x] Update imports in `features/notes/__init__.py`
+- [x] Find all imports of `jpscripts.core.notes_impl` using grep
+- [x] Update each import to use `jpscripts.features.notes`
+- [x] Delete `core/notes_impl.py`
 
 **Verification:**
-- [ ] `pytest tests/unit/` passes
-- [ ] `mypy src` shows no import errors
+- [x] `pytest tests/unit/` passes
+- [x] `mypy src` shows no import errors
 
 **Files affected:**
 - `src/jpscripts/core/notes_impl.py` - Deleted
 - `src/jpscripts/features/notes/service.py` - New (moved)
 - `src/jpscripts/commands/notes.py` - Import update
+- `src/jpscripts/mcp/tools/notes.py` - Import update
+- `tests/unit/test_notes_core.py` - Import update (patch path fixed)
 
 **Notes:**
-[Empty]
+Test patch path updated from "jpscripts.core.notes_impl.dt" to "jpscripts.features.notes.service.dt".
 
 ---
 
 ### Step 1.4: Migrate Navigation Logic
 
-**Status:** `NOT STARTED`
+**Status:** `COMPLETED`
 
 **Action:**
 Move `src/jpscripts/core/nav.py` to `src/jpscripts/features/navigation/service.py` and update all imports.
 
 **Sub-tasks:**
-- [ ] Copy `core/nav.py` to `features/navigation/service.py`
-- [ ] Update imports in `features/navigation/__init__.py`
-- [ ] Find all imports of `jpscripts.core.nav` using grep
-- [ ] Update each import to use `jpscripts.features.navigation`
-- [ ] Delete `core/nav.py`
+- [x] Copy `core/nav.py` to `features/navigation/service.py`
+- [x] Update imports in `features/navigation/__init__.py`
+- [x] Find all imports of `jpscripts.core.nav` using grep
+- [x] Update each import to use `jpscripts.features.navigation`
+- [x] Delete `core/nav.py`
 
 **Verification:**
-- [ ] `pytest tests/unit/` passes
-- [ ] `mypy src` shows no import errors
-- [ ] `jp nav` command still works
+- [x] `pytest tests/unit/` passes
+- [x] `mypy src` shows no import errors
+- [x] `jp nav` command still works
 
 **Files affected:**
 - `src/jpscripts/core/nav.py` - Deleted
 - `src/jpscripts/features/navigation/service.py` - New (moved)
 - `src/jpscripts/commands/nav.py` - Import update
+- `src/jpscripts/mcp/tools/navigation.py` - Import update
+- `src/jpscripts/agent/context.py` - Import update
+- `src/jpscripts/agent/prompting.py` - Import update
+- `tests/unit/test_nav.py` - Import update
 
 **Notes:**
-[Empty]
+Navigation module had the most imports across the codebase. Fixed circular import in features/__init__.py by using lazy imports.
 
 ---
 
 ### Phase 1 Completion Checklist
 
-- [ ] All steps marked `COMPLETED`
-- [ ] All verification checks passing
-- [ ] Tests pass: `pytest`
-- [ ] Linting passes: `ruff check src`
-- [ ] Type checking passes: `mypy src`
-- [ ] Changes committed with message: `refactor: dissolve core monolith - create features/`
-- [ ] Commit hash recorded in Progress Tracker
-- [ ] Phase status updated to `COMPLETED`
+- [x] All steps marked `COMPLETED`
+- [x] All verification checks passing
+- [x] Tests pass: `pytest`
+- [x] Linting passes: `ruff check src`
+- [x] Type checking passes: `mypy src`
+- [x] Changes committed with message: `refactor: dissolve core monolith - create features/`
+- [x] Commit hash recorded in Progress Tracker
+- [x] Phase status updated to `COMPLETED`
 
 ---
 
