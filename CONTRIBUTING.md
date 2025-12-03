@@ -136,8 +136,9 @@ Run without slow tests: `pytest -m "not slow"`
 
 ### Coverage Expectations
 
-- **Target**: 70%+ overall coverage
-- **Critical modules**: 80%+ coverage required for:
+- **Enforced minimum**: 62% (CI will fail below this)
+- **Aspirational goal**: 70%+ overall coverage
+- **Critical modules**: Aim for 80%+ coverage for:
   - `core/error_middleware.py`
   - `core/rate_limit.py`
   - `core/security.py`
