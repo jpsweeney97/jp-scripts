@@ -65,6 +65,7 @@ include = ["src/jpscripts/templates/**"]
 packages = ["src/jpscripts"]
 
 [tool.pytest.ini_options]
+asyncio_mode = "auto"
 markers = ["slow: mark tests that take longer or hit external boundaries"]
 
 [tool.mypy]

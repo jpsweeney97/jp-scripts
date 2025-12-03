@@ -11,7 +11,6 @@ from typer.testing import CliRunner
 import jpscripts.commands.handbook as handbook_cmd
 import jpscripts.core.diagnostics as diagnostics
 from jpscripts import __version__
-from jpscripts.core.security import validate_path
 from jpscripts.main import app
 
 runner = CliRunner()
@@ -73,14 +72,8 @@ def test_handbook_semantic_query(monkeypatch: Any) -> None:
     store_path = cache_root / "lance"
 
     def _fake_cache_paths() -> tuple[Path, Path, Path, Path]:
-        base_root = Path.cwd()
-        # Must unwrap Result[Path, str] to Path, matching the real function
-        return (
-            validate_path(cache_root, base_root).unwrap_or(cache_root),
-            validate_path(meta_path, base_root).unwrap_or(meta_path),
-            validate_path(entries_path, base_root).unwrap_or(entries_path),
-            validate_path(store_path, base_root).unwrap_or(store_path),
-        )
+        # Return raw Path objects - no need to validate test paths
+        return cache_root, meta_path, entries_path, store_path
 
     monkeypatch.setattr(handbook_cmd, "_cache_paths", _fake_cache_paths)
     try:

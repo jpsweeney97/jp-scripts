@@ -23,7 +23,7 @@ Usage:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import TYPE_CHECKING
 
@@ -39,6 +39,9 @@ from jpscripts.providers import (
 
 if TYPE_CHECKING:
     from jpscripts.core.config import AppConfig
+
+# Module-level provider cache - avoids mutable state in ProviderConfig
+_provider_cache: dict[ProviderType, BaseLLMProvider] = {}
 
 
 def parse_provider_type(provider_str: str) -> ProviderType:
@@ -67,18 +70,21 @@ def parse_provider_type(provider_str: str) -> ProviderType:
     return ptype
 
 
-@dataclass
+@dataclass(frozen=True)
 class ProviderConfig:
     """Configuration for provider instantiation.
 
     Attributes:
         fallback_enabled: If True, fall back to other providers on failure
         web_enabled: Enable web search capability
+
+    Note:
+        This is a frozen dataclass to ensure configuration immutability.
+        Provider caching is handled at module level, not per-config.
     """
 
     fallback_enabled: bool = True
     web_enabled: bool = False
-    _provider_cache: dict[ProviderType, BaseLLMProvider] = field(default_factory=dict, repr=False)
 
 
 def _ensure_providers_registered() -> None:
@@ -151,9 +157,9 @@ def _instantiate_provider(
     pconfig: ProviderConfig,
 ) -> BaseLLMProvider:
     """Create a provider instance for the given type using the registry."""
-    # Check cache first
-    if ptype in pconfig._provider_cache:
-        return pconfig._provider_cache[ptype]
+    # Check module-level cache first
+    if ptype in _provider_cache:
+        return _provider_cache[ptype]
 
     # Ensure provider modules are imported so registry is populated
     _ensure_providers_registered()
@@ -163,9 +169,9 @@ def _instantiate_provider(
     if factory is None:
         raise ProviderError(f"Unknown provider type: {ptype}")
 
-    # Create and cache the provider
+    # Create and cache the provider at module level
     provider = factory(config)
-    pconfig._provider_cache[ptype] = provider
+    _provider_cache[ptype] = provider
     return provider
 
 
@@ -248,8 +254,17 @@ def get_model_context_limit(model_id: str) -> int:
     raise ModelNotFoundError(f"Unknown model: {model_id}")
 
 
+def clear_provider_cache() -> None:
+    """Clear the module-level provider cache.
+
+    Useful for testing or when configuration changes require fresh providers.
+    """
+    _provider_cache.clear()
+
+
 __all__ = [
     "ProviderConfig",
+    "clear_provider_cache",
     "get_default_provider",
     "get_model_context_limit",
     "get_provider",

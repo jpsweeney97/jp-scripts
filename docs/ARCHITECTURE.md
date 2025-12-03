@@ -54,7 +54,6 @@ graph TB
     subgraph Providers["Provider Layer"]
         anthropic[providers/anthropic.py]
         openai[providers/openai.py]
-        codex[providers/codex.py]
         factory[providers/factory.py]
     end
 
@@ -69,7 +68,6 @@ graph TB
     agent_engine --> factory
     factory --> anthropic
     factory --> openai
-    factory --> codex
 
     %% Security connections
     agent_exec --> security
@@ -261,10 +259,9 @@ flowchart LR
 - **console.py**: Logging and output utilities
 
 ### Provider Layer
-- **factory.py**: Provider selection based on model
+- **factory.py**: Provider selection based on model, frozen ProviderConfig
 - **anthropic.py**: Claude API integration
 - **openai.py**: OpenAI/Azure integration
-- **codex.py**: Codex CLI integration
 
 ---
 

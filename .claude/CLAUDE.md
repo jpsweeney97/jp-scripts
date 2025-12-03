@@ -244,3 +244,7 @@ Completed roadmaps:
 - No rewrites of git history or CI/CD configs
 - Treat `.env` and `secrets/**` as highly sensitive
 - If a file is unseen, say "Not Found" — don't hallucinate
+
+## Prompt Engineering
+
+@.claude/PROMPT_TEMPLATE.md

@@ -62,6 +62,34 @@ class TestProviderTypes:
             infer_provider_type("unknown-model-xyz")
 
 
+class TestParseProviderType:
+    """Test parse_provider_type function."""
+
+    def test_parse_anthropic(self) -> None:
+        from jpscripts.providers.factory import parse_provider_type
+
+        assert parse_provider_type("anthropic") == ProviderType.ANTHROPIC
+        assert parse_provider_type("ANTHROPIC") == ProviderType.ANTHROPIC
+
+    def test_parse_openai(self) -> None:
+        from jpscripts.providers.factory import parse_provider_type
+
+        assert parse_provider_type("openai") == ProviderType.OPENAI
+        assert parse_provider_type("OpenAI") == ProviderType.OPENAI
+
+    def test_parse_unknown(self) -> None:
+        from jpscripts.providers.factory import parse_provider_type
+
+        with pytest.raises(ValueError, match="Unknown provider"):
+            parse_provider_type("unknown")
+
+    def test_parse_codex_removed(self) -> None:
+        from jpscripts.providers.factory import parse_provider_type
+
+        with pytest.raises(ValueError, match="Codex provider has been removed"):
+            parse_provider_type("codex")
+
+
 class TestMessageType:
     """Test Message dataclass."""
 
