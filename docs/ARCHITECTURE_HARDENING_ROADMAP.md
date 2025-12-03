@@ -14,7 +14,7 @@
 | Phase | Status | Commit |
 |-------|--------|--------|
 | Phase 1: Security & Governance Hardening | `COMPLETED` | 69c7475 |
-| Phase 2: Architecture Decoupling | `COMPLETED` | 80f50ca |
+| Phase 2: Architecture Decoupling | `COMPLETED` | 1f8d6f4 |
 | Phase 3: Async I/O Optimization | `NOT STARTED` | - |
 | Phase 4: Memory Store Optimization | `NOT STARTED` | - |
 
@@ -144,7 +144,7 @@ Review `run_safe_shell` to ensure the allowlist cannot be bypassed by command ch
 
 **Status:** `COMPLETED`
 **Estimated steps:** 3
-**Commit:** 80f50ca
+**Commit:** 1f8d6f4
 
 ### Phase 2 Overview
 
