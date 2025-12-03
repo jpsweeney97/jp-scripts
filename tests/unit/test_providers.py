@@ -7,7 +7,13 @@ and error handling without making actual API calls.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
+
+if TYPE_CHECKING:
+    from jpscripts.providers.anthropic import AnthropicProvider
+    from jpscripts.providers.openai import OpenAIProvider
 
 from jpscripts.providers import (
     CompletionOptions,
@@ -441,3 +447,247 @@ class TestOpenAIErrorHandling:
         except ImportError:
             with pytest.raises(ProviderError, match="openai package not installed"):
                 provider._get_client()
+
+
+class TestAnthropicHandleApiError:
+    """Test Anthropic provider _handle_api_error method."""
+
+    @pytest.fixture
+    def provider(self) -> AnthropicProvider:
+        from jpscripts.core.config import AppConfig
+        from jpscripts.providers.anthropic import AnthropicProvider
+
+        return AnthropicProvider(AppConfig())
+
+    def test_handle_authentication_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts AuthenticationError correctly."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import AuthenticationError
+
+        exc = anthropic.AuthenticationError("Invalid API key")
+        with pytest.raises(AuthenticationError, match="Invalid API key"):
+            provider._handle_api_error(exc)
+
+    def test_handle_rate_limit_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts RateLimitError correctly."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import RateLimitError
+
+        exc = anthropic.RateLimitError("Rate limit exceeded")
+        with pytest.raises(RateLimitError, match="Rate limit exceeded"):
+            provider._handle_api_error(exc)
+
+    def test_handle_not_found_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts NotFoundError to ModelNotFoundError."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import ModelNotFoundError
+
+        exc = anthropic.NotFoundError("Model not found")
+        with pytest.raises(ModelNotFoundError, match="Model not found"):
+            provider._handle_api_error(exc)
+
+    def test_handle_bad_request_context_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts context-related BadRequestError to ContextLengthError."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import ContextLengthError
+
+        exc = anthropic.BadRequestError("context length exceeded maximum token limit")
+        with pytest.raises(ContextLengthError):
+            provider._handle_api_error(exc)
+
+    def test_handle_bad_request_content_filter_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts content-related BadRequestError to ContentFilterError."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import ContentFilterError
+
+        exc = anthropic.BadRequestError("content blocked by safety filter")
+        with pytest.raises(ContentFilterError):
+            provider._handle_api_error(exc)
+
+    def test_handle_bad_request_generic_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts generic BadRequestError to ProviderError."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import ProviderError
+
+        exc = anthropic.BadRequestError("invalid request format")
+        with pytest.raises(ProviderError, match="invalid request format"):
+            provider._handle_api_error(exc)
+
+    def test_handle_generic_api_error(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts generic APIError to ProviderError."""
+        try:
+            import anthropic
+        except ImportError:
+            pytest.skip("anthropic package not installed")
+
+        from jpscripts.providers import ProviderError
+
+        exc = anthropic.APIError("server error")
+        with pytest.raises(ProviderError, match="server error"):
+            provider._handle_api_error(exc)
+
+    def test_handle_unknown_exception(self, provider: AnthropicProvider) -> None:
+        """_handle_api_error converts unknown exceptions to ProviderError."""
+        from jpscripts.providers import ProviderError
+
+        exc = ValueError("unexpected error")
+        with pytest.raises(ProviderError, match="unexpected error"):
+            provider._handle_api_error(exc)
+
+    def test_handle_error_redacts_api_key(
+        self, provider: AnthropicProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_handle_api_error redacts API keys from error messages."""
+        from jpscripts.providers import ProviderError
+
+        fake_key = "sk-ant-api03-secretkey123456789012345678"
+        monkeypatch.setenv("ANTHROPIC_API_KEY", fake_key)
+        exc = ValueError(f"Error authenticating with key {fake_key}")
+
+        with pytest.raises(ProviderError) as exc_info:
+            provider._handle_api_error(exc)
+
+        assert fake_key not in str(exc_info.value)
+
+
+class TestOpenAIHandleApiError:
+    """Test OpenAI provider _handle_api_error method."""
+
+    @pytest.fixture
+    def provider(self) -> OpenAIProvider:
+        from jpscripts.core.config import AppConfig
+        from jpscripts.providers.openai import OpenAIProvider
+
+        return OpenAIProvider(AppConfig())
+
+    def test_handle_authentication_error(self, provider: OpenAIProvider) -> None:
+        """_handle_api_error converts AuthenticationError correctly."""
+        try:
+            import openai
+        except ImportError:
+            pytest.skip("openai package not installed")
+
+        from jpscripts.providers import AuthenticationError
+
+        exc = openai.AuthenticationError(
+            "Invalid API key",
+            response=None,
+            body=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(AuthenticationError):
+            provider._handle_api_error(exc)
+
+    def test_handle_rate_limit_error(self, provider: OpenAIProvider) -> None:
+        """_handle_api_error converts RateLimitError correctly."""
+        try:
+            import openai
+        except ImportError:
+            pytest.skip("openai package not installed")
+
+        from jpscripts.providers import RateLimitError
+
+        exc = openai.RateLimitError(
+            "Rate limit exceeded",
+            response=None,
+            body=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(RateLimitError):
+            provider._handle_api_error(exc)
+
+    def test_handle_not_found_error(self, provider: OpenAIProvider) -> None:
+        """_handle_api_error converts NotFoundError to ModelNotFoundError."""
+        try:
+            import openai
+        except ImportError:
+            pytest.skip("openai package not installed")
+
+        from jpscripts.providers import ModelNotFoundError
+
+        exc = openai.NotFoundError(
+            "Model not found",
+            response=None,
+            body=None,  # type: ignore[arg-type]
+        )
+        with pytest.raises(ModelNotFoundError):
+            provider._handle_api_error(exc)
+
+    def test_handle_bad_request_context_error(self, provider: OpenAIProvider) -> None:
+        """_handle_api_error converts context-related BadRequestError to ContextLengthError."""
+        try:
+            import openai
+        except ImportError:
+            pytest.skip("openai package not installed")
+
+        from jpscripts.providers import ContextLengthError
+
+        exc = openai.BadRequestError(
+            "maximum context length exceeded",
+            response=None,  # type: ignore[arg-type]
+            body=None,
+        )
+        with pytest.raises(ContextLengthError):
+            provider._handle_api_error(exc)
+
+    def test_handle_bad_request_content_filter_error(self, provider: OpenAIProvider) -> None:
+        """_handle_api_error converts content-related BadRequestError to ContentFilterError."""
+        try:
+            import openai
+        except ImportError:
+            pytest.skip("openai package not installed")
+
+        from jpscripts.providers import ContentFilterError
+
+        exc = openai.BadRequestError(
+            "content policy violation",
+            response=None,  # type: ignore[arg-type]
+            body=None,
+        )
+        with pytest.raises(ContentFilterError):
+            provider._handle_api_error(exc)
+
+    def test_handle_unknown_exception(self, provider: OpenAIProvider) -> None:
+        """_handle_api_error converts unknown exceptions to ProviderError."""
+        from jpscripts.providers import ProviderError
+
+        exc = ValueError("unexpected error")
+        with pytest.raises(ProviderError, match="unexpected error"):
+            provider._handle_api_error(exc)
+
+    def test_handle_error_redacts_api_key(
+        self, provider: OpenAIProvider, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_handle_api_error redacts API keys from error messages."""
+        from jpscripts.providers import ProviderError
+
+        fake_key = "sk-proj-secretkey12345678901234567890"
+        monkeypatch.setenv("OPENAI_API_KEY", fake_key)
+        exc = ValueError(f"Error authenticating with key {fake_key}")
+
+        with pytest.raises(ProviderError) as exc_info:
+            provider._handle_api_error(exc)
+
+        assert fake_key not in str(exc_info.value)
