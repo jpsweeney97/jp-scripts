@@ -3,11 +3,19 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
 
+from jpscripts.analysis.cache import (
+    ASTCache,
+    get_default_cache,
+    reset_default_cache,
+)
 from jpscripts.analysis.dependency_walker import (
     DependencyWalker,
     SymbolKind,
@@ -423,3 +431,256 @@ CONFIG: dict[str, int] = {}
 
         names = {s.name for s in symbols}
         assert "MAX_SIZE" in names or symbols == []  # Constants may be optional
+
+
+class TestASTCache:
+    """Test ASTCache functionality."""
+
+    def test_cache_put_and_get(self, tmp_path: Path) -> None:
+        """Test basic put and get operations."""
+        import ast
+
+        cache = ASTCache()
+        test_file = tmp_path / "test.py"
+        source = "def foo(): pass"
+        test_file.write_text(source)
+
+        tree = ast.parse(source)
+        cache.put(test_file, tree, source)
+
+        result = cache.get(test_file)
+        assert result is not None
+        retrieved_tree, retrieved_source = result
+        assert retrieved_source == source
+        assert isinstance(retrieved_tree, ast.Module)
+
+    def test_cache_miss_for_nonexistent_file(self, tmp_path: Path) -> None:
+        """Test that get returns None for uncached files."""
+        cache = ASTCache()
+        nonexistent = tmp_path / "nonexistent.py"
+
+        result = cache.get(nonexistent)
+        assert result is None
+
+    def test_cache_invalidation_on_mtime_change(self, tmp_path: Path) -> None:
+        """Test that cache invalidates when file is modified."""
+        import ast
+
+        cache = ASTCache()
+        test_file = tmp_path / "test.py"
+        original_source = "def foo(): pass"
+        test_file.write_text(original_source)
+
+        tree = ast.parse(original_source)
+        cache.put(test_file, tree, original_source)
+
+        # Verify cached
+        assert cache.get(test_file) is not None
+
+        # Wait a tiny bit to ensure mtime changes
+        time.sleep(0.01)
+
+        # Modify file
+        new_source = "def bar(): pass"
+        test_file.write_text(new_source)
+
+        # Cache should be invalidated
+        result = cache.get(test_file)
+        assert result is None
+
+    def test_cache_invalidate_explicit(self, tmp_path: Path) -> None:
+        """Test explicit invalidation."""
+        import ast
+
+        cache = ASTCache()
+        test_file = tmp_path / "test.py"
+        source = "def foo(): pass"
+        test_file.write_text(source)
+
+        tree = ast.parse(source)
+        cache.put(test_file, tree, source)
+        assert cache.get(test_file) is not None
+
+        cache.invalidate(test_file)
+        assert cache.get(test_file) is None
+
+    def test_cache_lru_eviction(self, tmp_path: Path) -> None:
+        """Test LRU eviction when cache is full."""
+        import ast
+
+        cache = ASTCache(max_entries=3)
+
+        files = []
+        for i in range(4):
+            f = tmp_path / f"test{i}.py"
+            source = f"def func{i}(): pass"
+            f.write_text(source)
+            tree = ast.parse(source)
+            cache.put(f, tree, source)
+            files.append(f)
+
+        # First file should be evicted
+        assert cache.get(files[0]) is None
+        # Others should still be cached
+        assert cache.get(files[1]) is not None
+        assert cache.get(files[2]) is not None
+        assert cache.get(files[3]) is not None
+
+    def test_cache_lru_updates_on_access(self, tmp_path: Path) -> None:
+        """Test that LRU order updates on cache access."""
+        import ast
+
+        cache = ASTCache(max_entries=3)
+
+        files = []
+        for i in range(3):
+            f = tmp_path / f"test{i}.py"
+            source = f"def func{i}(): pass"
+            f.write_text(source)
+            tree = ast.parse(source)
+            cache.put(f, tree, source)
+            files.append(f)
+
+        # Access first file to make it recently used
+        cache.get(files[0])
+
+        # Add fourth file - should evict second (now oldest)
+        f4 = tmp_path / "test3.py"
+        source = "def func3(): pass"
+        f4.write_text(source)
+        cache.put(f4, ast.parse(source), source)
+
+        # First should still be cached (was accessed recently)
+        assert cache.get(files[0]) is not None
+        # Second should be evicted
+        assert cache.get(files[1]) is None
+
+    def test_cache_stats(self, tmp_path: Path) -> None:
+        """Test cache statistics."""
+        import ast
+
+        cache = ASTCache(max_entries=10)
+        stats = cache.stats()
+        assert stats["entries"] == 0
+        assert stats["max_entries"] == 10
+
+        test_file = tmp_path / "test.py"
+        source = "def foo(): pass"
+        test_file.write_text(source)
+        cache.put(test_file, ast.parse(source), source)
+
+        stats = cache.stats()
+        assert stats["entries"] == 1
+
+    def test_cache_clear(self, tmp_path: Path) -> None:
+        """Test clearing the cache."""
+        import ast
+
+        cache = ASTCache()
+        test_file = tmp_path / "test.py"
+        source = "def foo(): pass"
+        test_file.write_text(source)
+        cache.put(test_file, ast.parse(source), source)
+
+        assert cache.stats()["entries"] == 1
+        cache.clear()
+        assert cache.stats()["entries"] == 0
+
+    def test_default_cache(self) -> None:
+        """Test module-level default cache."""
+        reset_default_cache()
+        cache1 = get_default_cache()
+        cache2 = get_default_cache()
+        assert cache1 is cache2
+
+
+class TestDependencyWalkerFromFile:
+    """Test DependencyWalker.from_file classmethod."""
+
+    def test_from_file_basic(self, tmp_path: Path) -> None:
+        """Test creating walker from file."""
+        test_file = tmp_path / "test.py"
+        source = """
+def foo():
+    pass
+
+def bar():
+    foo()
+"""
+        test_file.write_text(source)
+
+        walker = DependencyWalker.from_file(test_file)
+        symbols = walker.get_symbols()
+
+        names = {s.name for s in symbols}
+        assert "foo" in names
+        assert "bar" in names
+
+    def test_from_file_with_cache(self, tmp_path: Path) -> None:
+        """Test creating walker from file with caching."""
+        cache = ASTCache()
+        test_file = tmp_path / "test.py"
+        source = "def cached_func(): pass"
+        test_file.write_text(source)
+
+        # First call - should parse and cache
+        walker1 = DependencyWalker.from_file(test_file, cache=cache)
+        assert cache.stats()["entries"] == 1
+
+        symbols1 = walker1.get_symbols()
+        assert len(symbols1) == 1
+        assert symbols1[0].name == "cached_func"
+
+        # Second call - should use cache
+        walker2 = DependencyWalker.from_file(test_file, cache=cache)
+        symbols2 = walker2.get_symbols()
+        assert len(symbols2) == 1
+        assert symbols2[0].name == "cached_func"
+
+    def test_from_file_cache_invalidation(self, tmp_path: Path) -> None:
+        """Test that cache is invalidated when file changes."""
+        cache = ASTCache()
+        test_file = tmp_path / "test.py"
+        test_file.write_text("def original(): pass")
+
+        walker1 = DependencyWalker.from_file(test_file, cache=cache)
+        assert any(s.name == "original" for s in walker1.get_symbols())
+
+        # Wait and modify
+        time.sleep(0.01)
+        test_file.write_text("def modified(): pass")
+
+        walker2 = DependencyWalker.from_file(test_file, cache=cache)
+        symbols2 = walker2.get_symbols()
+        assert any(s.name == "modified" for s in symbols2)
+        assert not any(s.name == "original" for s in symbols2)
+
+    def test_from_file_syntax_error(self, tmp_path: Path) -> None:
+        """Test handling of syntax errors in file."""
+        test_file = tmp_path / "broken.py"
+        test_file.write_text("def broken(\n# missing close paren")
+
+        walker = DependencyWalker.from_file(test_file)
+        symbols = walker.get_symbols()
+        assert symbols == []
+
+    def test_from_file_syntax_error_with_cache(self, tmp_path: Path) -> None:
+        """Test that syntax errors are handled correctly with cache."""
+        cache = ASTCache()
+        test_file = tmp_path / "broken.py"
+        test_file.write_text("def broken(\n# missing close paren")
+
+        # Should not raise, should return walker with empty symbols
+        walker = DependencyWalker.from_file(test_file, cache=cache)
+        symbols = walker.get_symbols()
+        assert symbols == []
+
+        # Syntax error files should not be cached
+        assert cache.stats()["entries"] == 0
+
+    def test_from_file_nonexistent_raises(self, tmp_path: Path) -> None:
+        """Test that nonexistent files raise OSError."""
+        nonexistent = tmp_path / "nonexistent.py"
+
+        with pytest.raises(OSError):
+            DependencyWalker.from_file(nonexistent)

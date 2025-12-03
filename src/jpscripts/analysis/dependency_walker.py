@@ -19,7 +19,11 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Final
+from pathlib import Path
+from typing import TYPE_CHECKING, Final
+
+if TYPE_CHECKING:
+    from jpscripts.analysis.cache import ASTCache
 
 
 class SymbolKind(Enum):
@@ -117,22 +121,70 @@ class DependencyWalker:
 
     _CHARS_PER_TOKEN: Final[int] = 4
 
-    def __init__(self, source: str) -> None:
+    def __init__(self, source: str, *, _tree: ast.Module | None = None) -> None:
         """Initialize with Python source code.
 
         Args:
             source: Python source code to analyze
+            _tree: Pre-parsed AST (internal use, for from_file with cache)
         """
         self._source = source
         self._lines = source.splitlines()
-        self._tree: ast.Module | None = None
+        self._tree: ast.Module | None = _tree
         self._symbols: list[SymbolNode] | None = None
         self._call_graph: CallGraph | None = None
         self._class_hierarchy: dict[str, list[str]] | None = None
         self._imports: set[str] | None = None
         self._parse_error: bool = False
 
-        self._parse()
+        if _tree is None:
+            self._parse()
+
+    @classmethod
+    def from_file(
+        cls,
+        path: Path,
+        cache: ASTCache | None = None,
+    ) -> DependencyWalker:
+        """Create a DependencyWalker from a file path with optional caching.
+
+        If a cache is provided, the AST will be cached based on file mtime
+        and size, avoiding re-parsing unchanged files.
+
+        Args:
+            path: Path to Python source file
+            cache: Optional ASTCache for mtime-based caching
+
+        Returns:
+            DependencyWalker instance for the file
+
+        Raises:
+            OSError: If file cannot be read
+            SyntaxError: If file has syntax errors (only if not using cache)
+        """
+        # Try cache first
+        if cache is not None:
+            cached = cache.get(path)
+            if cached is not None:
+                tree, source = cached
+                return cls(source, _tree=tree)
+
+        # Read and parse fresh
+        source = path.read_text(encoding="utf-8")
+
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:
+            # Return walker with parse error flag set
+            walker = cls(source)
+            # _parse() already ran and set _parse_error
+            return walker
+
+        # Store in cache if provided
+        if cache is not None:
+            cache.put(path, tree, source)
+
+        return cls(source, _tree=tree)
 
     def _parse(self) -> None:
         """Parse the source code into an AST."""

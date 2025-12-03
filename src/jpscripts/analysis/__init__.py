@@ -1,5 +1,11 @@
 """Static analysis tools for code understanding and complexity metrics."""
 
+from jpscripts.analysis.cache import (
+    MAX_CACHE_ENTRIES,
+    ASTCache,
+    get_default_cache,
+    reset_default_cache,
+)
 from jpscripts.analysis.complexity import (
     ComplexityError,
     FileComplexity,
@@ -27,11 +33,10 @@ from jpscripts.analysis.structure import (
 )
 
 __all__ = [
-    # skeleton
+    "MAX_CACHE_ENTRIES",
     "SYNTAX_WARNING",
-    # dependency_walker
+    "ASTCache",
     "CallGraph",
-    # complexity
     "ComplexityError",
     "DependencyWalker",
     "FileComplexity",
@@ -44,8 +49,9 @@ __all__ = [
     "analyze_file_complexity",
     "calculate_debt_scores",
     "format_complexity_report",
-    # structure
     "generate_map",
+    "get_default_cache",
     "get_file_skeleton",
     "get_import_dependencies",
+    "reset_default_cache",
 ]
