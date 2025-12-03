@@ -20,7 +20,7 @@
 | Phase 5: MCP Sandbox Verification | `COMPLETED` | 58b2354 |
 | Phase 6: CLI Diet | `COMPLETED` | 185dbd7 |
 | Phase 7: AST Caching | `COMPLETED` | 30509e8 |
-| Phase 8: Red Team Suite | `COMPLETED` | TBD |
+| Phase 8: Red Team Suite | `COMPLETED` | 4475510 |
 
 ### Current Position
 
@@ -968,7 +968,7 @@ Implementation details:
 
 **Status:** `COMPLETED`
 **Estimated steps:** 2
-**Commit:** TBD
+**Commit:** 4475510
 
 ### Phase 8 Overview
 
