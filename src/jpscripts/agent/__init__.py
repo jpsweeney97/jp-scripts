@@ -30,6 +30,9 @@ from jpscripts.agent.engine import AgentEngine
 # Export from execution module
 from jpscripts.agent.execution import (
     RepairLoopOrchestrator,
+    SingleShotConfig,
+    SingleShotResult,
+    SingleShotRunner,
     apply_patch_text,
     run_repair_loop,
 )
@@ -108,6 +111,9 @@ __all__ = [
     "ResponseT",
     "SafetyLockdownError",
     "SecurityError",
+    "SingleShotConfig",
+    "SingleShotResult",
+    "SingleShotRunner",
     "StepContext",
     "StrategyConfig",
     "ToolCall",

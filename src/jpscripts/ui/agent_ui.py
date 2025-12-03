@@ -7,16 +7,18 @@ separated from the CLI orchestration in commands/agent.py.
 from __future__ import annotations
 
 import json
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 from rich import box
 from rich.panel import Panel
 
-from jpscripts.agent import EventKind
+from jpscripts.agent import EventKind, PreparedPrompt
 from jpscripts.core.console import console
 
 if TYPE_CHECKING:
-    from jpscripts.agent import RepairLoopOrchestrator
+    from jpscripts.agent import RepairLoopOrchestrator, SingleShotResult
+    from jpscripts.providers import CompletionOptions, LLMProvider
 
 
 async def render_repair_loop_events(orchestrator: RepairLoopOrchestrator) -> bool:
@@ -114,3 +116,94 @@ def display_agent_response(agent_response: Any) -> None:
         console.print(Panel(agent_response.file_patch, title="Proposed patch", box=box.SIMPLE))
     if agent_response.final_message:
         console.print(Panel(agent_response.final_message, title="Final message", box=box.SIMPLE))
+
+
+async def stream_provider_response(
+    provider: LLMProvider,
+    prepared: PreparedPrompt,
+    model: str,
+    options: CompletionOptions,
+) -> str:
+    """Stream a response from the provider with live UI feedback.
+
+    Args:
+        provider: The LLM provider to use.
+        prepared: The prepared prompt.
+        model: Model ID to use.
+        options: Completion options.
+
+    Returns:
+        The complete response text.
+    """
+    from jpscripts.providers import Message
+
+    messages = [Message(role="user", content=prepared.prompt)]
+
+    if provider.supports_streaming():
+        parts: list[str] = []
+        status = console.status("Thinking...", spinner="dots")
+        status.start()
+        try:
+            async for chunk in provider.stream(messages, model=model, options=options):
+                if chunk.content:
+                    parts.append(chunk.content)
+                    preview = "".join(parts)[-50:].replace("\n", " ")
+                    status.update(f"[cyan]Receiving:[/cyan] ...{preview}")
+        finally:
+            status.stop()
+        return "".join(parts)
+    else:
+        with console.status("Consulting LLM...", spinner="dots"):
+            response = await provider.complete(messages, model=model, options=options)
+        return response.content
+
+
+def create_response_fetcher(
+    provider: LLMProvider,
+    model: str,
+    temperature: float | None = None,
+    max_tokens: int = 8192,
+) -> Callable[[PreparedPrompt], Awaitable[str]]:
+    """Create a ResponseFetcher from a provider for use with agent orchestrators.
+
+    Args:
+        provider: The LLM provider instance.
+        model: Model ID to use.
+        temperature: Optional temperature override.
+        max_tokens: Maximum tokens in response.
+
+    Returns:
+        A callable that fetches responses from the provider.
+    """
+    from jpscripts.providers import CompletionOptions
+
+    async def fetcher(prepared: PreparedPrompt) -> str:
+        options = CompletionOptions(
+            temperature=prepared.temperature if temperature is None else temperature,
+            reasoning_effort=prepared.reasoning_effort,
+            max_tokens=max_tokens,
+        )
+        return await stream_provider_response(provider, prepared, model, options)
+
+    return fetcher
+
+
+def display_single_shot_result(result: SingleShotResult) -> None:
+    """Display the result of a single-shot agent run.
+
+    Args:
+        result: The single-shot execution result.
+    """
+    if result.prepared.attached_files:
+        console.print(
+            f"[green]Attached files:[/green] {', '.join(p.name for p in result.prepared.attached_files)}"
+        )
+
+    if result.error:
+        console.print(Panel(result.error, title="Error", box=box.SIMPLE, style="red"))
+        if result.raw_response:
+            console.print(Panel(result.raw_response, title="Raw agent response", box=box.SIMPLE))
+        return
+
+    if result.agent_response:
+        display_agent_response(result.agent_response)

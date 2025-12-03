@@ -1,23 +1,12 @@
-"""
-Agent command for delegating tasks to LLM providers.
-
-This module provides the CLI interface for the jp agent functionality,
-supporting multiple LLM providers (Anthropic, OpenAI).
-
-Usage:
-    jp agent "Fix the failing test" --run "pytest tests/"
-    jp agent "Refactor this function" --model claude-opus-4-5 --provider anthropic
-    jp fix "Debug this error" --run "python main.py"  # alias for agent
-"""
+"""Agent command - thin CLI dispatcher for LLM agent tasks."""
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 import typer
-from pydantic import ValidationError
 from rich import box
 from rich.panel import Panel
 
@@ -25,100 +14,27 @@ from jpscripts.agent import (
     PreparedPrompt,
     RepairLoopConfig,
     RepairLoopOrchestrator,
-    parse_agent_response,
-    prepare_agent_prompt,
+    SingleShotConfig,
+    SingleShotRunner,
 )
 from jpscripts.core.console import console
-from jpscripts.providers import (
-    CompletionOptions,
-    LLMProvider,
-    Message,
-    ProviderError,
-    ProviderType,
-)
+from jpscripts.providers import LLMProvider, ProviderError
 from jpscripts.providers.factory import ProviderConfig, get_provider, parse_provider_type
-from jpscripts.ui.agent_ui import display_agent_response, render_repair_loop_events
-
-# ---------------------------------------------------------------------------
-# Provider-based response fetching
-# ---------------------------------------------------------------------------
-
-
-async def _fetch_response_from_provider(
-    prepared: PreparedPrompt,
-    provider: LLMProvider,
-    model: str,
-    *,
-    stream: bool = True,
-) -> str:
-    """Fetch a response from an LLM provider.
-
-    Args:
-        prepared: The prepared prompt with context
-        provider: The LLM provider to use
-        model: Model ID to use
-        stream: Whether to stream the response (better UX)
-
-    Returns:
-        The complete response text
-    """
-    messages = [Message(role="user", content=prepared.prompt)]
-
-    options = CompletionOptions(
-        temperature=prepared.temperature,
-        reasoning_effort=prepared.reasoning_effort,
-        max_tokens=8192,
-    )
-
-    if stream and provider.supports_streaming():
-        # Stream response for better UX
-        parts: list[str] = []
-        status = console.status("Thinking...", spinner="dots")
-        status.start()
-
-        try:
-            async for chunk in provider.stream(messages, model=model, options=options):
-                if chunk.content:
-                    parts.append(chunk.content)
-                    # Update status to show progress
-                    preview = "".join(parts)[-50:].replace("\n", " ")
-                    status.update(f"[cyan]Receiving:[/cyan] ...{preview}")
-        finally:
-            status.stop()
-
-        return "".join(parts)
-    else:
-        # Non-streaming fallback
-        with console.status("Consulting LLM...", spinner="dots"):
-            response = await provider.complete(messages, model=model, options=options)
-        return response.content
+from jpscripts.ui.agent_ui import (
+    create_response_fetcher,
+    display_single_shot_result,
+    render_repair_loop_events,
+)
 
 
-async def _fetch_agent_response(
-    prepared: PreparedPrompt,
-    config: Any,
+def _get_provider_and_fetcher(
+    state: Any,
     model: str,
     provider_type: str | None,
-    *,
-    web: bool = False,
-) -> str:
-    """Fetch agent response using the appropriate provider.
-
-    This function selects the provider based on model ID and user preference,
-    then fetches the response.
-
-    Args:
-        prepared: The prepared prompt
-        config: Application configuration
-        model: Model ID to use
-        provider_type: Explicit provider type ("anthropic", "openai", or None for auto)
-        web: Enable web search (provider support varies)
-
-    Returns:
-        The response text from the LLM
-    """
-    # Convert string to ProviderType if provided
-    ptype: ProviderType | None = None
+    web: bool,
+) -> tuple[LLMProvider, Callable[[PreparedPrompt], Awaitable[str]]]:
+    """Get provider and create response fetcher. Returns (provider, fetcher) or raises Exit."""
+    ptype = None
     if provider_type:
         try:
             ptype = parse_provider_type(provider_type)
@@ -126,120 +42,53 @@ async def _fetch_agent_response(
             console.print(f"[red]Provider error: {exc}[/red]")
             raise typer.Exit(code=1)
 
-    # Create provider config
-    pconfig = ProviderConfig(
-        web_enabled=web,
-    )
-
     try:
         provider = get_provider(
-            config,
+            state.config,
             model_id=model,
             provider_type=ptype,
-            provider_config=pconfig,
+            provider_config=ProviderConfig(web_enabled=web),
         )
     except ProviderError as exc:
         console.print(f"[red]Provider error:[/red] {exc}")
         raise typer.Exit(code=1)
 
-    # Show which provider we're using
-    provider_name = provider.provider_type.name.lower()
     console.print(
         Panel(
-            f"Using [bold magenta]{provider_name}[/bold magenta] provider with model [cyan]{model}[/cyan]",
+            f"Using [bold magenta]{provider.provider_type.name.lower()}[/bold magenta] "
+            f"provider with model [cyan]{model}[/cyan]",
             box=box.SIMPLE,
         )
     )
-
-    try:
-        return await _fetch_response_from_provider(prepared, provider, model)
-    except ProviderError as exc:
-        console.print(f"[red]Provider error:[/red] {exc}")
-        raise typer.Exit(code=1)
-
-
-# ---------------------------------------------------------------------------
-# Main command
-# ---------------------------------------------------------------------------
+    return provider, create_response_fetcher(provider, model)
 
 
 def codex_exec(
     ctx: typer.Context,
     prompt: str = typer.Argument(..., help="Instruction for the agent."),
-    attach_recent: bool = typer.Option(
-        False, "--recent", "-r", help="Attach top 5 recently modified files to context."
-    ),
-    diff: bool = typer.Option(
-        True, "--diff/--no-diff", help="Include git diff (staged and unstaged) in context."
-    ),
-    run_command: str | None = typer.Option(
-        None,
-        "--run",
-        "-x",
-        help="Run this shell command first and attach referenced files from output (RAG).",
-    ),
-    model: str | None = typer.Option(
-        None, "--model", "-m", help="Model to use. Defaults to config."
-    ),
-    provider: str | None = typer.Option(
-        None,
-        "--provider",
-        "-p",
-        help="LLM provider: 'anthropic' or 'openai'. Auto-detected from model if not specified.",
-    ),
-    loop: bool | None = typer.Option(
-        None,
-        "--loop/--no-loop",
-        help="Run an autonomous repair loop. Defaults to on when --run is provided.",
-    ),
-    max_retries: int = typer.Option(
-        3, "--max-retries", help="Maximum repair attempts when looping."
-    ),
-    keep_failed: bool = typer.Option(
-        False, "--keep-failed", help="Keep changes even if the loop fails."
-    ),
-    archive: bool = typer.Option(
-        True,
-        "--archive/--no-archive",
-        help="Save a summary of successful fixes to memory.",
-    ),
-    web: bool = typer.Option(
-        False, "--web/--no-web", help="Enable web search tool for the agent (provider support varies)."
-    ),
+    attach_recent: bool = typer.Option(False, "--recent", "-r", help="Attach recent files."),
+    diff: bool = typer.Option(True, "--diff/--no-diff", help="Include git diff."),
+    run_command: str | None = typer.Option(None, "--run", "-x", help="Run command for context."),
+    model: str | None = typer.Option(None, "--model", "-m", help="Model to use."),
+    provider: str | None = typer.Option(None, "--provider", "-p", help="Provider: anthropic/openai."),
+    loop: bool | None = typer.Option(None, "--loop/--no-loop", help="Run repair loop."),
+    max_retries: int = typer.Option(3, "--max-retries", help="Max repair attempts."),
+    keep_failed: bool = typer.Option(False, "--keep-failed", help="Keep changes on failure."),
+    archive: bool = typer.Option(True, "--archive/--no-archive", help="Archive fixes to memory."),
+    web: bool = typer.Option(False, "--web/--no-web", help="Enable web search."),
 ) -> None:
-    """Delegate a task to an LLM agent.
-
-    Supports multiple providers:
-    - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.)
-    - OpenAI GPT/o1 (gpt-4o, o1, etc.)
-
-    Examples:
-        jp agent "Fix the failing test" --run "pytest tests/"
-        jp agent "Explain this code" --model claude-opus-4-5 --provider anthropic
-        jp fix "Debug the error" --run "python main.py" --loop
-    """
+    """Delegate a task to an LLM agent."""
     state = ctx.obj
     target_model = model or state.config.ai.default_model
-
     loop_enabled = bool(run_command) if loop is None else loop
+
     if loop_enabled and run_command is None:
         console.print("[red]--loop requires --run to know which command to verify.[/red]")
         raise typer.Exit(code=1)
 
-    effective_retries = max(1, max_retries)
+    _, fetcher = _get_provider_and_fetcher(state, target_model, provider, web)
 
-    # Repair loop mode
     if loop_enabled and run_command:
-
-        def fetcher(prepared: PreparedPrompt) -> Awaitable[str]:
-            return _fetch_agent_response(
-                prepared,
-                state.config,
-                target_model,
-                provider,
-                web=web,
-            )
-
         orchestrator = RepairLoopOrchestrator(
             base_prompt=prompt,
             command=run_command,
@@ -249,7 +98,7 @@ def codex_exec(
                 attach_recent=attach_recent,
                 include_diff=diff,
                 auto_archive=archive,
-                max_retries=effective_retries,
+                max_retries=max(1, max_retries),
                 keep_failed=keep_failed,
                 web_access=web,
             ),
@@ -261,65 +110,12 @@ def codex_exec(
             console.print("[red]Repair loop exhausted without a clean run.[/red]")
         return
 
-    # Single-shot mode
-    status_msg = None
-    if run_command:
-        status_msg = f"Diagnosing with `{run_command}`..."
-    elif attach_recent:
-        status_msg = "Scanning for recent context..."
-
-    async def _prepare() -> PreparedPrompt:
-        return await prepare_agent_prompt(
-            base_prompt=prompt,
-            model=target_model,
-            run_command=run_command,
-            attach_recent=attach_recent,
-            include_diff=diff,
-            web_access=web,
-        )
-
-    if status_msg:
-        with console.status(status_msg, spinner="dots"):
-            prepared: PreparedPrompt = asyncio.run(_prepare())
-    else:
-        prepared = asyncio.run(_prepare())
-
-    if prepared.attached_files:
-        console.print(
-            f"[green]Attached files:[/green] {', '.join(p.name for p in prepared.attached_files)}"
-        )
-    elif run_command:
-        console.print(
-            "[yellow]No files detected in command output. Proceeding without file context.[/yellow]"
-        )
-
-    # Fetch response via unified provider path
-    raw_response = asyncio.run(
-        _fetch_agent_response(
-            prepared,
-            state.config,
-            target_model,
-            provider,
-            web=web,
-        )
+    runner = SingleShotRunner(
+        prompt=prompt,
+        model=target_model,
+        fetch_response=fetcher,
+        config=SingleShotConfig(attach_recent=attach_recent, include_diff=diff, web_access=web),
+        run_command=run_command,
     )
-
-    if not raw_response:
-        console.print("[yellow]No response received from agent.[/yellow]")
-        return
-
-    # Parse and display response
-    try:
-        agent_response = parse_agent_response(raw_response)
-    except ValidationError as exc:
-        console.print(
-            Panel(
-                f"[red]Agent response validation failed:[/red]\n{exc}",
-                title="Parse error",
-                box=box.SIMPLE,
-            )
-        )
-        console.print(Panel(raw_response, title="Raw agent response", box=box.SIMPLE))
-        return
-
-    display_agent_response(agent_response)
+    result = asyncio.run(runner.run())
+    display_single_shot_result(result)

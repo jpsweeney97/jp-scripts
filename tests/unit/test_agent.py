@@ -74,25 +74,27 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
     """Verify jp fix invokes the provider correctly."""
     captured: list[str] = []
 
-    async def fake_fetch_response(
-        prepared: PreparedPrompt,
-        config: Any,
-        model: str,
-        provider_type: Any,
-        web: bool = False,
-    ) -> str:
-        captured.append(prepared.prompt)
-        return json.dumps(
-            {
-                "thought_process": "done",
-                "criticism": None,
-                "tool_call": None,
-                "file_patch": None,
-                "final_message": "Completed",
-            }
-        )
+    def mock_create_fetcher(provider: Any, model: str) -> Any:
+        async def fetcher(prepared: PreparedPrompt) -> str:
+            captured.append(prepared.prompt)
+            return json.dumps(
+                {
+                    "thought_process": "done",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": None,
+                    "final_message": "Completed",
+                }
+            )
+        return fetcher
 
-    with patch("jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response):
+    mock_provider = MagicMock()
+    mock_provider.provider_type.name = "mock"
+
+    with (
+        patch("jpscripts.commands.agent.get_provider", return_value=mock_provider),
+        patch("jpscripts.commands.agent.create_response_fetcher", side_effect=mock_create_fetcher),
+    ):
         result = runner.invoke(agent_app, ["fix", "Fix the bug"])
 
         assert result.exit_code == 0
@@ -117,29 +119,26 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
         async def fake_scan_recent(*_args: Any, **_kwargs: Any) -> Any:
             return Ok([mock_entry])
 
-        async def fake_fetch_response(
-            prepared: PreparedPrompt,
-            config: Any,
-            model: str,
-            provider_type: Any,
-            full_auto: bool = False,
-            web: bool = False,
-        ) -> str:
-            captured.append(prepared.prompt)
-            return json.dumps(
-                {
-                    "thought_process": "done",
-                    "criticism": None,
-                    "tool_call": None,
-                    "file_patch": None,
-                    "final_message": "Completed",
-                }
-            )
+        def mock_create_fetcher(provider: Any, model: str) -> Any:
+            async def fetcher(prepared: PreparedPrompt) -> str:
+                captured.append(prepared.prompt)
+                return json.dumps(
+                    {
+                        "thought_process": "done",
+                        "criticism": None,
+                        "tool_call": None,
+                        "file_patch": None,
+                        "final_message": "Completed",
+                    }
+                )
+            return fetcher
+
+        mock_provider = MagicMock()
+        mock_provider.provider_type.name = "mock"
 
         with (
-            patch(
-                "jpscripts.commands.agent._fetch_agent_response", side_effect=fake_fetch_response
-            ),
+            patch("jpscripts.commands.agent.get_provider", return_value=mock_provider),
+            patch("jpscripts.commands.agent.create_response_fetcher", side_effect=mock_create_fetcher),
             patch("jpscripts.agent.prompting.scan_recent", side_effect=fake_scan_recent),
         ):
             result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])
