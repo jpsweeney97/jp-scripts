@@ -160,7 +160,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
 
     agent_core = import_module("jpscripts.agent")
     agent_ops = import_module("jpscripts.agent.ops")
-    agent_execution = import_module("jpscripts.agent.execution")
+    agent_archive = import_module("jpscripts.agent.archive")
     config_mod = import_module("jpscripts.core.config")
     AppConfig = cast(Any, config_mod).AppConfig
     UserConfig = cast(Any, config_mod).UserConfig
@@ -195,7 +195,7 @@ def test_run_repair_loop_auto_archives(monkeypatch: Any, tmp_path: Path) -> None
         return MagicMock()
 
     monkeypatch.setattr(agent_ops, "run_agent_command", fake_run_command)
-    monkeypatch.setattr(agent_execution, "save_memory", fake_save_memory)
+    monkeypatch.setattr(agent_archive, "save_memory", fake_save_memory)
 
     with runtime_context(config, workspace=tmp_path):
         success = asyncio.run(

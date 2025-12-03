@@ -2,6 +2,10 @@
 
 This module provides the core repair loop functionality, including
 command execution, patch application, and strategy management.
+
+Decomposed modules:
+- archive.py: Session archiving to memory store
+- single_shot.py: Single-shot execution without repair loop
 """
 
 from __future__ import annotations
@@ -14,6 +18,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from jpscripts.agent import ops
+from jpscripts.agent.archive import archive_session_summary as _archive_session_summary
 from jpscripts.agent.context import expand_context_paths
 from jpscripts.agent.engine import AgentEngine
 from jpscripts.agent.factory import build_default_middleware
@@ -33,6 +38,11 @@ from jpscripts.agent.ops import verify_syntax  # Re-export for backward compatib
 from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.agent.prompting import prepare_agent_prompt
+from jpscripts.agent.single_shot import (
+    SingleShotConfig,
+    SingleShotResult,
+    SingleShotRunner,
+)
 from jpscripts.agent.strategies import (
     STRATEGY_OVERRIDE_TEXT,
     AttemptContext,
@@ -47,7 +57,6 @@ from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.core.result import Err, Ok
-from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)
 
@@ -281,51 +290,6 @@ class _TurnLoopResult:
     applied_paths: list[Path]
     current_error: str
 
-
-async def _archive_session_summary(
-    fetch_response: ResponseFetcher,
-    config: AppConfig,
-    *,
-    base_prompt: str,
-    command: str,
-    last_error: str | None,
-    model: str | None,
-    web_access: bool = False,
-) -> None:
-    summary_prompt = (
-        "Summarize the error fixed and the solution applied in one sentence for a knowledge base.\n"
-        f"Command: {command}\n"
-        f"Task: {base_prompt}\n"
-        f"Last error before success: {last_error or 'N/A'}"
-    )
-    prepared = PreparedPrompt(prompt=summary_prompt, attached_files=[])
-    try:
-        raw_summary = await fetch_response(prepared)
-    except Exception as exc:
-        logger.debug("Summary fetch failed: %s", exc)
-        return
-
-    if not raw_summary.strip():
-        return
-
-    summary_text = raw_summary.strip()
-    try:
-        parsed = parse_agent_response(summary_text)
-        summary_text = parsed.final_message or parsed.thought_process or summary_text
-    except ValidationError:
-        pass
-
-    try:
-        archive_config = (
-            config.model_copy(update={"use_semantic_search": False})
-            if hasattr(config, "model_copy")
-            else config
-        )
-        await asyncio.to_thread(
-            save_memory, summary_text, ["auto-fix", "agent"], config=archive_config
-        )
-    except Exception as exc:
-        logger.debug("Failed to archive repair summary: %s", exc)
 
 
 class RepairLoopOrchestrator:
@@ -794,108 +758,8 @@ class RepairLoopOrchestrator:
         )
 
 
-@dataclass
-class SingleShotConfig:
-    """Configuration for single-shot agent execution."""
-
-    attach_recent: bool = False
-    include_diff: bool = True
-    web_access: bool = False
-
-
-@dataclass
-class SingleShotResult:
-    """Result of single-shot agent execution."""
-
-    raw_response: str
-    prepared: PreparedPrompt
-    agent_response: AgentResponse | None = None
-    error: str | None = None
-
-
-class SingleShotRunner:
-    """Runs a single-shot agent prompt without a repair loop.
-
-    This class encapsulates the logic for preparing a prompt, fetching
-    a response from an LLM, and parsing the result. It enables programmatic
-    invocation of the agent without CLI dependencies.
-
-    Example:
-        runner = SingleShotRunner(
-            prompt="Explain this code",
-            model="claude-sonnet-4",
-            fetch_response=my_fetcher,
-            config=SingleShotConfig(attach_recent=True),
-        )
-        result = await runner.run()
-        if result.agent_response:
-            print(result.agent_response.thought_process)
-    """
-
-    def __init__(
-        self,
-        *,
-        prompt: str,
-        model: str,
-        fetch_response: ResponseFetcher,
-        config: SingleShotConfig | None = None,
-        run_command: str | None = None,
-    ) -> None:
-        """Initialize the single-shot runner.
-
-        Args:
-            prompt: The user's instruction/prompt.
-            model: LLM model ID to use.
-            fetch_response: Async function to fetch LLM responses.
-            config: Configuration options.
-            run_command: Optional command to run for context gathering.
-        """
-        self.prompt = prompt
-        self.model = model
-        self.fetch_response = fetch_response
-        self.config = config or SingleShotConfig()
-        self.run_command = run_command
-
-    async def prepare(self) -> PreparedPrompt:
-        """Prepare the prompt with context."""
-        return await prepare_agent_prompt(
-            base_prompt=self.prompt,
-            model=self.model,
-            run_command=self.run_command,
-            attach_recent=self.config.attach_recent,
-            include_diff=self.config.include_diff,
-            web_access=self.config.web_access,
-        )
-
-    async def run(self) -> SingleShotResult:
-        """Execute the single-shot agent call.
-
-        Returns:
-            SingleShotResult with the response and parsed agent response.
-        """
-        prepared = await self.prepare()
-        raw_response = await self.fetch_response(prepared)
-
-        if not raw_response:
-            return SingleShotResult(
-                raw_response="",
-                prepared=prepared,
-                error="No response received from agent.",
-            )
-
-        try:
-            agent_response = parse_agent_response(raw_response)
-            return SingleShotResult(
-                raw_response=raw_response,
-                prepared=prepared,
-                agent_response=agent_response,
-            )
-        except ValidationError as exc:
-            return SingleShotResult(
-                raw_response=raw_response,
-                prepared=prepared,
-                error=f"Agent response validation failed: {exc}",
-            )
+# SingleShotConfig, SingleShotResult, SingleShotRunner are now in single_shot.py
+# Re-exported above for backward compatibility
 
 
 async def run_repair_loop(
