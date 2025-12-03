@@ -32,9 +32,9 @@ except ImportError:  # pragma: no cover - optional dependency
 from jpscripts.agent import AgentEngine, Message, PreparedPrompt
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
-from jpscripts.core.result import Err
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
+from jpscripts.core.result import Err
 from jpscripts.providers import (
     CompletionOptions,
     LLMProvider,
