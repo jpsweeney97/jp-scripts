@@ -1,4 +1,10 @@
-"""High-level compliance checking functions."""
+"""High-level compliance checking functions.
+
+Provides both sync and async versions of compliance checking:
+- check_compliance / check_compliance_async
+- check_source_compliance / check_source_compliance_async
+- scan_codebase_compliance / scan_codebase_compliance_async
+"""
 
 from __future__ import annotations
 
@@ -8,6 +14,7 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from jpscripts.core.console import get_logger
+from jpscripts.core.sys.execution import run_cpu_bound
 from jpscripts.governance.ast_checker import ConstitutionChecker
 from jpscripts.governance.diff_parser import apply_patch_in_memory, parse_diff_files
 from jpscripts.governance.secret_scanner import check_for_secrets
@@ -180,6 +187,53 @@ def check_source_compliance(source: str, file_path: Path) -> list[Violation]:
     return checker.violations + secret_violations
 
 
+async def check_compliance_async(diff: str, root: Path) -> list[Violation]:
+    """Async version of check_compliance.
+
+    Parse a diff and check PATCHED code for constitutional violations,
+    without blocking the asyncio event loop.
+
+    Args:
+        diff: Unified diff text
+        root: Workspace root for resolving paths
+
+    Returns:
+        List of violations found in the patched code
+    """
+    return await run_cpu_bound(check_compliance, diff, root)
+
+
+async def check_source_compliance_async(source: str, file_path: Path) -> list[Violation]:
+    """Async version of check_source_compliance.
+
+    Check a source string directly for constitutional violations,
+    without blocking the asyncio event loop.
+
+    Args:
+        source: Python source code
+        file_path: Path for error reporting
+
+    Returns:
+        List of violations found
+    """
+    return await run_cpu_bound(check_source_compliance, source, file_path)
+
+
+async def scan_codebase_compliance_async(root: Path) -> tuple[list[Violation], int]:
+    """Async version of scan_codebase_compliance.
+
+    Scan all Python files in a directory tree for constitutional violations,
+    without blocking the asyncio event loop.
+
+    Args:
+        root: Root directory to scan (e.g., src/)
+
+    Returns:
+        Tuple of (violations_list, files_scanned_count)
+    """
+    return await run_cpu_bound(scan_codebase_compliance, root)
+
+
 def format_violations_for_agent(violations: Sequence[Violation]) -> str:
     """Format violations as structured feedback for the agent to fix.
 
@@ -265,9 +319,12 @@ def scan_codebase_compliance(root: Path) -> tuple[list[Violation], int]:
 
 __all__ = [
     "check_compliance",
+    "check_compliance_async",
     "check_source_compliance",
+    "check_source_compliance_async",
     "count_violations_by_severity",
     "format_violations_for_agent",
     "has_fatal_violations",
     "scan_codebase_compliance",
+    "scan_codebase_compliance_async",
 ]

@@ -18,11 +18,14 @@ See governance/config.py for the configuration schema.
 from jpscripts.governance.ast_checker import ConstitutionChecker
 from jpscripts.governance.compliance import (
     check_compliance,
+    check_compliance_async,
     check_source_compliance,
+    check_source_compliance_async,
     count_violations_by_severity,
     format_violations_for_agent,
     has_fatal_violations,
     scan_codebase_compliance,
+    scan_codebase_compliance_async,
 )
 from jpscripts.governance.config import SafetyConfig, load_safety_config
 from jpscripts.governance.diff_parser import apply_patch_in_memory
@@ -36,11 +39,14 @@ __all__ = [
     "ViolationType",
     "apply_patch_in_memory",
     "check_compliance",
+    "check_compliance_async",
     "check_for_secrets",
     "check_source_compliance",
+    "check_source_compliance_async",
     "count_violations_by_severity",
     "format_violations_for_agent",
     "has_fatal_violations",
     "load_safety_config",
     "scan_codebase_compliance",
+    "scan_codebase_compliance_async",
 ]

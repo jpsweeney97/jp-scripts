@@ -4,17 +4,20 @@ Provides:
 - SandboxProtocol for command isolation
 - LocalSandbox and DockerSandbox implementations
 - run_safe_shell for validated command execution
+- run_cpu_bound for async-safe CPU-intensive operations
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import shlex
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.config import AppConfig
@@ -22,6 +25,9 @@ from jpscripts.core.console import get_logger
 from jpscripts.core.result import Err, Ok, Result, SystemResourceError
 
 logger = get_logger(__name__)
+
+# Type variable for run_cpu_bound
+R = TypeVar("R")
 
 
 @dataclass(slots=True)
@@ -164,6 +170,48 @@ def get_sandbox(config: AppConfig | None) -> SandboxProtocol:
     return LocalSandbox()
 
 
+async def run_cpu_bound(
+    func: Callable[..., R],
+    *args: object,
+    **kwargs: object,
+) -> R:
+    """Run a CPU-bound function without blocking the asyncio event loop.
+
+    This utility offloads CPU-intensive synchronous functions to a thread pool,
+    allowing other async tasks to continue while the work executes. Use this
+    for operations like AST parsing, diff calculations, or other CPU-bound work.
+
+    Args:
+        func: A synchronous callable to execute
+        *args: Positional arguments to pass to func
+        **kwargs: Keyword arguments to pass to func
+
+    Returns:
+        The return value of func(*args, **kwargs)
+
+    Example:
+        # Offload AST parsing
+        violations = await run_cpu_bound(check_compliance, diff, root)
+
+        # Offload heavy computation
+        result = await run_cpu_bound(process_data, large_dataset)
+
+    Note:
+        This uses asyncio.to_thread (ThreadPoolExecutor) rather than
+        ProcessPoolExecutor because many CPU-bound operations in this
+        codebase involve non-picklable objects (AST nodes, Path objects
+        with callbacks, etc.). While ThreadPoolExecutor doesn't bypass
+        the GIL for true CPU parallelism, it prevents event loop blocking
+        which is the primary goal.
+
+        For truly parallel CPU work with picklable data, consider using
+        concurrent.futures.ProcessPoolExecutor directly with run_in_executor.
+    """
+    if kwargs:
+        return await asyncio.to_thread(functools.partial(func, **kwargs), *args)
+    return await asyncio.to_thread(func, *args)
+
+
 async def run_safe_shell(
     command: str,
     root: Path,
@@ -218,5 +266,6 @@ __all__ = [
     "LocalSandbox",
     "SandboxProtocol",
     "get_sandbox",
+    "run_cpu_bound",
     "run_safe_shell",
 ]
