@@ -63,9 +63,7 @@ def _estimate_value_tokens(value: Any) -> int:
         return sum(_estimate_value_tokens(v) for v in value) or 1
     if isinstance(value, dict):
         return (
-            sum(
-                _estimate_value_tokens(k) + _estimate_value_tokens(v) for k, v in value.items()
-            )
+            sum(_estimate_value_tokens(k) + _estimate_value_tokens(v) for k, v in value.items())
             or 1
         )
     return 1  # Default for primitives (int, float, bool, None)

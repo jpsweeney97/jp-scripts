@@ -145,9 +145,7 @@ class TracingMiddleware(BaseMiddleware[R]):
             step = AgentTraceStep(
                 timestamp=datetime.now(UTC).isoformat(),
                 agent_persona=self._persona,
-                input_history=[
-                    {"role": msg.role, "content": msg.content} for msg in ctx.history
-                ],
+                input_history=[{"role": msg.role, "content": msg.content} for msg in ctx.history],
                 response=ctx.response.model_dump(),
                 tool_output=ctx.metadata.get("tool_output"),
             )
@@ -174,9 +172,7 @@ class TracingMiddleware(BaseMiddleware[R]):
 
             if ctx.usage_snapshot is not None:
                 span.set_attribute("usage.prompt_tokens", ctx.usage_snapshot.prompt_tokens)
-                span.set_attribute(
-                    "usage.completion_tokens", ctx.usage_snapshot.completion_tokens
-                )
+                span.set_attribute("usage.completion_tokens", ctx.usage_snapshot.completion_tokens)
                 span.set_attribute("usage.total_tokens", ctx.usage_snapshot.total_tokens)
 
             if ctx.response is not None:

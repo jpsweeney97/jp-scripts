@@ -1,6 +1,6 @@
 # jpscripts
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![Code Style: Black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![mypy: strict](https://img.shields.io/badge/mypy-strict-blue.svg)](https://mypy.readthedocs.io/)
 
@@ -27,7 +27,7 @@ For detailed diagrams and module descriptions, see [docs/ARCHITECTURE.md](docs/A
 
 ### Prerequisites
 
-- Python 3.12+ (uses `asyncio.TaskGroup` and modern type syntax)
+- Python 3.11+ (uses `asyncio.TaskGroup` and modern type syntax)
 - `brew install fzf ripgrep git`
 - `brew install gh` (for PR helpers)
 - `brew install zoxide` (for navigation)

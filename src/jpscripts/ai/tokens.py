@@ -280,7 +280,7 @@ class TokenBudgetManager:
 
         # Try to use DependencyWalker for semantic slicing
         try:
-            from jpscripts.core.dependency_walker import DependencyWalker
+            from jpscripts.analysis.dependency_walker import DependencyWalker
 
             walker = DependencyWalker(content)
             sliced = walker.slice_to_budget(target_symbol, token_budget)
@@ -336,10 +336,11 @@ class SemanticSlicer:
             Sliced code within budget
         """
         try:
-            from jpscripts.core.dependency_walker import DependencyWalker
+            from jpscripts.analysis.dependency_walker import DependencyWalker
 
             walker = DependencyWalker(source)
-            return walker.slice_to_budget(target_symbol, max_tokens)
+            result: str = walker.slice_to_budget(target_symbol, max_tokens)
+            return result
         except ImportError:
             # Fall back to simple truncation
             max_chars = max_tokens * 4

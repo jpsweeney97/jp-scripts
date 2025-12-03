@@ -60,7 +60,9 @@ def parse_provider_type(provider_str: str) -> ProviderType:
     ptype = ptype_map.get(provider_str.lower())
     if ptype is None:
         if provider_str.lower() == "codex":
-            raise ValueError("Codex provider has been removed. Use 'anthropic' or 'openai' instead.")
+            raise ValueError(
+                "Codex provider has been removed. Use 'anthropic' or 'openai' instead."
+            )
         raise ValueError(f"Unknown provider: {provider_str}")
     return ptype
 

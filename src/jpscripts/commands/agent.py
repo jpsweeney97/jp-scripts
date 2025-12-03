@@ -70,7 +70,9 @@ def codex_exec(
     diff: bool = typer.Option(True, "--diff/--no-diff", help="Include git diff."),
     run_command: str | None = typer.Option(None, "--run", "-x", help="Run command for context."),
     model: str | None = typer.Option(None, "--model", "-m", help="Model to use."),
-    provider: str | None = typer.Option(None, "--provider", "-p", help="Provider: anthropic/openai."),
+    provider: str | None = typer.Option(
+        None, "--provider", "-p", help="Provider: anthropic/openai."
+    ),
     loop: bool | None = typer.Option(None, "--loop/--no-loop", help="Run repair loop."),
     max_retries: int = typer.Option(3, "--max-retries", help="Max repair attempts."),
     keep_failed: bool = typer.Option(False, "--keep-failed", help="Keep changes on failure."),

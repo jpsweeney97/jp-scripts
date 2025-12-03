@@ -197,9 +197,7 @@ async def run_evolution(
                     config,
                     reset_hard=True,
                 )
-                return Err(
-                    EvolutionError(f"Verification failed (exit {verification.exit_code}).")
-                )
+                return Err(EvolutionError(f"Verification failed (exit {verification.exit_code})."))
 
     # Step 7: Create PR
     pr_result = await create_evolution_pr(

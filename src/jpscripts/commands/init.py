@@ -64,7 +64,9 @@ def init(
     worktree_root = Path(worktree_root_input).expanduser() if worktree_root_input else None
     editor = Prompt.ask("Editor command", default=defaults.user.editor)
     log_level = Prompt.ask("Log level", default=defaults.user.log_level)
-    snapshots_dir = Path(Prompt.ask("Snapshots directory", default=str(defaults.user.snapshots_dir)))
+    snapshots_dir = Path(
+        Prompt.ask("Snapshots directory", default=str(defaults.user.snapshots_dir))
+    )
     focus_audio_device = (
         Prompt.ask(
             "Preferred audio device (optional)", default=defaults.user.focus_audio_device or ""

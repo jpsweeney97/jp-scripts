@@ -286,7 +286,9 @@ class TestMcpPathTraversalAttacks:
         assert "symlink escape secret" not in result
 
     @pytest.mark.asyncio
-    async def test_write_path_traversal_blocked(self, test_config: AppConfig, tmp_path: Path) -> None:
+    async def test_write_path_traversal_blocked(
+        self, test_config: AppConfig, tmp_path: Path
+    ) -> None:
         """write_file should block path traversal attempts."""
         from jpscripts.mcp.tools.filesystem import write_file
 
@@ -302,7 +304,9 @@ class TestMcpPathTraversalAttacks:
         assert not (outside_dir / "evil.txt").exists()
 
     @pytest.mark.asyncio
-    async def test_write_no_mkdir_outside_workspace(self, test_config: AppConfig, tmp_path: Path) -> None:
+    async def test_write_no_mkdir_outside_workspace(
+        self, test_config: AppConfig, tmp_path: Path
+    ) -> None:
         """write_file should not create directories outside workspace."""
         from jpscripts.mcp.tools.filesystem import write_file
 

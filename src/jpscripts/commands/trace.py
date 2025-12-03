@@ -375,7 +375,7 @@ def replay_trace(
             template_root=trace_dir,
             trace_dir=trace_dir,
             workspace_root=None,
-            governance_enabled=False,
+            # Note: Governance is now handled via middleware pipeline, not a constructor arg
         )
 
         final_response: RecordedAgentResponse | None = None

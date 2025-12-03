@@ -38,6 +38,9 @@ venv/
 tmp-repo-test/
 fake_*.py
 *.log
+MagicMock/
+coverage.json
+coverage.xml
 
 # Generated documentation
 docs/api/

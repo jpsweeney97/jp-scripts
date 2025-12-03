@@ -441,5 +441,3 @@ class TestOpenAIErrorHandling:
         except ImportError:
             with pytest.raises(ProviderError, match="openai package not installed"):
                 provider._get_client()
-
-

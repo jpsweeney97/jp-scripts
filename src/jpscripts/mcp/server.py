@@ -96,7 +96,9 @@ def register_tools(mcp: FastMCP) -> None:
         except Exception as exc:
             logger.error("Failed to register tool %s", tool_name, exc_info=exc)
 
-    logger.info("Registered %d MCP tools from unified registry (with safety wrappers)", registered_count)
+    logger.info(
+        "Registered %d MCP tools from unified registry (with safety wrappers)", registered_count
+    )
 
 
 def create_server() -> FastMCP:

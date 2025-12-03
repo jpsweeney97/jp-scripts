@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from jpscripts.agent import PreparedPrompt, run_repair_loop
-from jpscripts.agent import execution as agent_execution
 from jpscripts.agent import ops as agent_ops
 from jpscripts.core.config import AIConfig, AppConfig, UserConfig
 from jpscripts.core.runtime import runtime_context

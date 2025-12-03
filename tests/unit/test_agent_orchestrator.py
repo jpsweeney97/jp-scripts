@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.agent import execution, ops
+from jpscripts.agent import PreparedPrompt, execution, ops
 from jpscripts.agent.execution import (
     AgentEvent,
     EventKind,
@@ -21,7 +21,6 @@ from jpscripts.agent.execution import (
 )
 from jpscripts.core.config import AppConfig
 from jpscripts.core.runtime import RuntimeContext, runtime_context
-from jpscripts.agent import PreparedPrompt
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -131,13 +130,15 @@ async def test_repair_loop_success(
 
     async def mock_fetch(prepared: PreparedPrompt) -> str:
         captured_prompts.append(prepared.prompt)
-        return json.dumps({
-            "thought_process": "Fixing the error by updating test.py",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new",
-            "final_message": None,
-        })
+        return json.dumps(
+            {
+                "thought_process": "Fixing the error by updating test.py",
+                "criticism": None,
+                "tool_call": None,
+                "file_patch": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new",
+                "final_message": None,
+            }
+        )
 
     async def mock_apply_patch(patch_text: str, root: Path) -> list[Path]:
         return [tmp_path / "test.py"]
@@ -197,13 +198,15 @@ async def test_max_retries_exhausted(
         return (1, "", "persistent failure")
 
     async def mock_fetch(prepared: PreparedPrompt) -> str:
-        return json.dumps({
-            "thought_process": "Cannot fix this issue",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": None,
-            "final_message": "Unable to resolve the error",
-        })
+        return json.dumps(
+            {
+                "thought_process": "Cannot fix this issue",
+                "criticism": None,
+                "tool_call": None,
+                "file_patch": None,
+                "final_message": "Unable to resolve the error",
+            }
+        )
 
     monkeypatch.setattr(ops, "run_agent_command", mock_run_command)
 
@@ -257,13 +260,15 @@ async def test_duplicate_patch_detection(
     same_patch = "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new"
 
     async def mock_fetch(prepared: PreparedPrompt) -> str:
-        return json.dumps({
-            "thought_process": "Trying to fix",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": same_patch,
-            "final_message": None,
-        })
+        return json.dumps(
+            {
+                "thought_process": "Trying to fix",
+                "criticism": None,
+                "tool_call": None,
+                "file_patch": same_patch,
+                "final_message": None,
+            }
+        )
 
     async def mock_apply_patch(patch_text: str, root: Path) -> list[Path]:
         return [tmp_path / "test.py"]
@@ -321,20 +326,24 @@ async def test_syntax_error_handling(
         patch_count += 1
         # First patch has syntax error, second is valid
         if patch_count == 1:
-            return json.dumps({
-                "thought_process": "First attempt",
+            return json.dumps(
+                {
+                    "thought_process": "First attempt",
+                    "criticism": None,
+                    "tool_call": None,
+                    "file_patch": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+invalid syntax (",
+                    "final_message": None,
+                }
+            )
+        return json.dumps(
+            {
+                "thought_process": "Fixed syntax",
                 "criticism": None,
                 "tool_call": None,
-                "file_patch": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+invalid syntax (",
+                "file_patch": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new",
                 "final_message": None,
-            })
-        return json.dumps({
-            "thought_process": "Fixed syntax",
-            "criticism": None,
-            "tool_call": None,
-            "file_patch": "--- a/test.py\n+++ b/test.py\n@@ -1 +1 @@\n-old\n+new",
-            "final_message": None,
-        })
+            }
+        )
 
     async def mock_apply_patch(patch_text: str, root: Path) -> list[Path]:
         return [tmp_path / "test.py"]

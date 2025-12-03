@@ -86,6 +86,7 @@ def test_codex_exec_invokes_provider(runner: CliRunner) -> None:
                     "final_message": "Completed",
                 }
             )
+
         return fetcher
 
     mock_provider = MagicMock()
@@ -131,6 +132,7 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
                         "final_message": "Completed",
                     }
                 )
+
             return fetcher
 
         mock_provider = MagicMock()
@@ -138,7 +140,9 @@ def test_codex_exec_attaches_recent_files(runner: CliRunner) -> None:
 
         with (
             patch("jpscripts.commands.agent.get_provider", return_value=mock_provider),
-            patch("jpscripts.commands.agent.create_response_fetcher", side_effect=mock_create_fetcher),
+            patch(
+                "jpscripts.commands.agent.create_response_fetcher", side_effect=mock_create_fetcher
+            ),
             patch("jpscripts.agent.prompting.scan_recent", side_effect=fake_scan_recent),
         ):
             result = runner.invoke(agent_app, ["fix", "Refactor", "--recent"])

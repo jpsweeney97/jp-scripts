@@ -6,8 +6,8 @@ Provides tools for note operations:
 
 from __future__ import annotations
 
-from jpscripts.features.notes import append_to_daily_note
 from jpscripts.core.runtime import get_runtime
+from jpscripts.features.notes import append_to_daily_note
 from jpscripts.mcp import tool, tool_error_handler
 
 

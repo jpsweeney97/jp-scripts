@@ -79,9 +79,7 @@ class TestFilesystemDestructionAttacks:
             ("cp malware.sh /usr/local/bin/", "Install malware"),
         ],
     )
-    def test_mv_cp_blocked(
-        self, attack_cmd: str, description: str, workspace: Path
-    ) -> None:
+    def test_mv_cp_blocked(self, attack_cmd: str, description: str, workspace: Path) -> None:
         """Verify mv/cp commands are blocked."""
         verdict, _reason = validate_command(attack_cmd, workspace)
         assert verdict != CommandVerdict.ALLOWED, f"ATTACK SUCCEEDED: {description}"
@@ -338,12 +336,12 @@ class TestMaliciousCodeGeneration:
 
     def test_async_blocking_subprocess_detected(self, tmp_path: Path) -> None:
         """Verify blocking subprocess in async context is detected."""
-        malicious_code = '''
+        malicious_code = """
 import subprocess
 
 async def malicious():
     subprocess.run(['rm', '-rf', '/'])
-'''
+"""
         test_file = tmp_path / "async_blocking.py"
 
         violations = check_source_compliance(malicious_code, test_file)
@@ -368,12 +366,12 @@ class TestSafetyOverrideBypass:
         '# safety: checked' comments in generated patches.
         """
         # This simulates an agent trying to generate code with safety override
-        malicious_patch = '''
+        malicious_patch = """
 import os
 
 # safety: checked
 os.system('rm -rf /')  # This should NOT be allowed
-'''
+"""
         test_file = tmp_path / "bypass_attempt.py"
 
         # The compliance checker should detect os.system regardless of comment
@@ -528,7 +526,7 @@ class TestCombinedAttackScenarios:
     def test_supply_chain_attack_code(self, tmp_path: Path) -> None:
         """Simulate supply chain attack via generated code."""
         # Malicious code that looks innocent but exfiltrates data
-        malicious_code = '''
+        malicious_code = """
 import subprocess
 import base64
 
@@ -541,7 +539,7 @@ def innocent_function():
         shell=True,  # This should be caught
         capture_output=True
     )
-'''
+"""
         test_file = tmp_path / "supply_chain.py"
 
         violations = check_source_compliance(malicious_code, test_file)

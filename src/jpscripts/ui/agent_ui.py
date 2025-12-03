@@ -57,7 +57,9 @@ async def render_repair_loop_events(orchestrator: RepairLoopOrchestrator) -> boo
                 elif phase == "verification":
                     console.print(f"[yellow]Verification failed:[/yellow] {error}")
                 elif phase == "final_verification_start":
-                    console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
+                    console.print(
+                        "[yellow]Max retries reached. Verifying one last time...[/yellow]"
+                    )
                 elif phase == "final":
                     console.print(f"[red]Command still failing:[/red] {error}")
                 else:

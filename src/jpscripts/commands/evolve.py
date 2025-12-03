@@ -162,7 +162,7 @@ def evolve_run(
                 console.print(f"[red]{error}[/red]")
             case Ok(None):
                 pass  # Already displayed appropriate message above
-            case Ok(result):
+            case Ok(result) if result is not None:
                 console.print("[green]Optimization successful![/green]")
                 console.print("[green]Verification tests passed.[/green]")
                 console.print("[cyan]Pushing branch and creating PR...[/cyan]")

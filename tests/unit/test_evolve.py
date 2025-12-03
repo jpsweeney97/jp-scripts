@@ -13,20 +13,20 @@ from typer.testing import CliRunner
 # Pattern to strip ANSI escape codes from CLI output
 _ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
 
+from jpscripts.analysis.complexity import TechnicalDebtScore
 from jpscripts.commands.evolve import (
     app,
     evolve_debt,
     evolve_report,
     evolve_run,
 )
-from jpscripts.analysis.complexity import TechnicalDebtScore
+from jpscripts.core.config import AppConfig
 from jpscripts.core.evolution import (
     build_optimizer_prompt,
     create_evolution_pr,
     run_evolution,
 )
 from jpscripts.core.evolution.types import VerificationResult
-from jpscripts.core.config import AppConfig
 from jpscripts.core.result import Err, Ok
 from jpscripts.main import AppState
 
@@ -572,7 +572,7 @@ class TestEvolveRunCLICommand:
                 "jpscripts.commands.evolve.run_evolution",
                 new_callable=AsyncMock,
                 return_value=Ok(None),
-            ) as mock_run,
+            ),
         ):
             evolve_run(mock_ctx, dry_run=True, model="gpt-4o", threshold=15.0)
 

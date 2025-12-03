@@ -28,9 +28,9 @@ from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import gather_context, smart_read_context
-from jpscripts.features.navigation import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
+from jpscripts.features.navigation import scan_recent
 from jpscripts.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory
 
 logger = get_logger(__name__)

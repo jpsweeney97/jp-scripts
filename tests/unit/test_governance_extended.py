@@ -466,7 +466,10 @@ class TestSecurityBypassDetection:
         bypass_violations = [v for v in violations if v.type == ViolationType.SECURITY_BYPASS]
         assert len(bypass_violations) >= 1
         assert bypass_violations[0].fatal is True
-        assert "safety: checked" in bypass_violations[0].message.lower() or "safety" in bypass_violations[0].message.lower()
+        assert (
+            "safety: checked" in bypass_violations[0].message.lower()
+            or "safety" in bypass_violations[0].message.lower()
+        )
 
     def test_detects_safety_override_on_destructive_fs(self, tmp_path: Path) -> None:
         """Adding safety override to destructive FS calls is blocked."""
