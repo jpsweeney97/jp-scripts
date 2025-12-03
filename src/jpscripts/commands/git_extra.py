@@ -137,7 +137,12 @@ def gstage(
 
         target_str = selection.split("\t", 1)[-1] if "\t" in selection else selection
         target_path_str = target_str.split(" -> ", 1)[-1]
-        target_path = security.validate_path(repo.path / target_path_str, repo.path)
+        match security.validate_path(repo.path / target_path_str, repo.path):
+            case Err(err):
+                console.print(f"[red]Invalid path: {err.message}[/red]")
+                return
+            case Ok(target_path):
+                pass
 
         _unwrap_result(await repo.add(paths=[target_path]))
         console.print(f"[green]Staged[/green] {target_path_str}")

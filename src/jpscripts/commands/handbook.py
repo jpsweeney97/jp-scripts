@@ -184,10 +184,13 @@ async def _ensure_dir(path: Path) -> None:
 
 def _cache_paths() -> tuple[Path, Path, Path, Path]:
     base_root = Path.home()
-    cache_dir = validate_path(CACHE_ROOT, base_root)
-    meta_path = validate_path(cache_dir / "meta.json", base_root)
-    entries_path = validate_path(cache_dir / "entries.jsonl", base_root)
-    store_path = validate_path(cache_dir / "lance", base_root)
+    # These are all under ~/.cache, so validation should always succeed
+    cache_dir = validate_path(CACHE_ROOT, base_root).unwrap_or(CACHE_ROOT)
+    meta_path = validate_path(cache_dir / "meta.json", base_root).unwrap_or(cache_dir / "meta.json")
+    entries_path = validate_path(cache_dir / "entries.jsonl", base_root).unwrap_or(
+        cache_dir / "entries.jsonl"
+    )
+    store_path = validate_path(cache_dir / "lance", base_root).unwrap_or(cache_dir / "lance")
     return cache_dir, meta_path, entries_path, store_path
 
 
@@ -268,14 +271,12 @@ async def _write_entries(path: Path, entries: Iterable[MemoryEntry]) -> None:
 
 def _resolve_handbook_path() -> Path | None:
     root = _project_root()
-    try:
-        path = validate_path(root / HANDBOOK_NAME, root)
-    except PermissionError as exc:
-        console.print(f"[red]{exc}[/red]")
-        return None
-    except Exception as exc:
-        console.print(f"[red]Failed to resolve handbook path: {exc}[/red]")
-        return None
+    match validate_path(root / HANDBOOK_NAME, root):
+        case Err(err):
+            console.print(f"[red]Failed to resolve handbook path: {err.message}[/red]")
+            return None
+        case Ok(path):
+            pass
 
     if not path.exists():
         console.print(f"[red]{HANDBOOK_NAME} not found at {path}[/red]")
@@ -730,11 +731,15 @@ def verify_protocol(
             console.print("[red]Configuration unavailable; cannot execute protocols.[/red]")
             return 1
 
-        try:
-            root = await asyncio.to_thread(validate_workspace_root, config.user.workspace_root)
-        except Exception as exc:
-            console.print(f"[red]Workspace validation failed: {exc}[/red]")
-            return 1
+        workspace_result = await asyncio.to_thread(
+            validate_workspace_root, config.user.workspace_root
+        )
+        match workspace_result:
+            case Err(workspace_err):
+                console.print(f"[red]Workspace validation failed: {workspace_err.message}[/red]")
+                return 1
+            case Ok(root):
+                pass  # continue with validated root
 
         for cmd in commands:
             output = await run_safe_shell(
@@ -762,11 +767,12 @@ def internal_update_reference(ctx: typer.Context) -> None:
 
         targets: list[Path] = []
         for name in ("README.md", HANDBOOK_NAME):
-            try:
-                targets.append(validate_path(root / name, root))
-            except Exception as exc:
-                console.print(f"[red]Failed to resolve {name}: {exc}[/red]")
-                return 1
+            match validate_path(root / name, root):
+                case Err(err):
+                    console.print(f"[red]Failed to resolve {name}: {err.message}[/red]")
+                    return 1
+                case Ok(path):
+                    targets.append(path)
 
         updates = await asyncio.gather(
             *(_replace_cli_reference(path, cli_table, mcp_table) for path in targets)

@@ -14,11 +14,9 @@ import json
 from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 try:
@@ -30,11 +28,12 @@ except ImportError:  # pragma: no cover - optional dependency
 
 
 from jpscripts.agent import AgentEngine, Message, PreparedPrompt
-from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context import gather_context, read_file_context
-from jpscripts.core.result import Err
+from jpscripts.core.result import Err, Ok
+from jpscripts.core.security import validate_path
+from jpscripts.core.templates import render_template
 from jpscripts.providers import (
     CompletionOptions,
     LLMProvider,
@@ -256,17 +255,6 @@ def _format_file_snippets(files: Sequence[Path], max_files: int = 3, max_chars: 
     return "\n\nContext files:\n" + "\n\n".join(snippets)
 
 
-def _resolve_template_root() -> Path:
-    # Navigate from features/team/model.py -> features -> jpscripts -> templates
-    package_root = Path(__file__).resolve().parent.parent.parent
-    return security.validate_path(package_root / "templates", package_root)
-
-
-@lru_cache(maxsize=1)
-def _get_template_environment(template_root: Path) -> Environment:
-    return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
-
-
 def _render_swarm_prompt(
     persona: Persona,
     objective: str,
@@ -278,13 +266,7 @@ def _render_swarm_prompt(
     context_files: Sequence[Path],
     max_file_context_chars: int,
 ) -> str:
-    template_root = _resolve_template_root()
-    env = _get_template_environment(template_root)
     template_name = f"swarm_{persona.name.lower()}.j2"
-    try:
-        template = env.get_template(template_name)
-    except TemplateNotFound as exc:
-        raise FileNotFoundError(f"Template {template_name} not found in {template_root}") from exc
 
     context_section = (
         f"\n\nRepository context (from git status):\n{context_log.strip()}"
@@ -297,7 +279,7 @@ def _render_swarm_prompt(
         "Use `next_step` only if a single sequential handoff is needed (deprecated)."
     )
 
-    render_context: dict[str, str] = {
+    render_context: dict[str, object] = {
         "persona_label": persona.label,
         "persona_style": persona.style,
         "objective": objective.strip(),
@@ -309,7 +291,7 @@ def _render_swarm_prompt(
         "schema_json": json.dumps(AgentTurnResponse.model_json_schema(), indent=2),
         "handoff_guidance": handoff_guidance,
     }
-    return template.render(**render_context)
+    return render_template(template_name, render_context, with_filters=False)
 
 
 async def _collect_fallback_context(repo_root: Path, timeout: float) -> tuple[str, list[Path]]:
@@ -475,11 +457,11 @@ class SwarmController:
         )
         context_paths: list[Path] = []
         for raw in request.context_files:
-            try:
-                resolved = security.validate_path(self.root / raw, self.root)
-                context_paths.append(resolved)
-            except Exception:
-                continue
+            match validate_path(self.root / raw, self.root):
+                case Ok(resolved):
+                    context_paths.append(resolved)
+                case Err(_):
+                    continue
         controller.extra_context_files = context_paths
         return controller
 

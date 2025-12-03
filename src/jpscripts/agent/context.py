@@ -32,11 +32,16 @@ logger = get_logger(__name__)
 
 async def load_constitution(root: Path) -> dict[str, object]:
     """Load and validate the constitutional JSON from AGENTS.md."""
-    try:
-        candidate = security.validate_path(root / "AGENTS.md", root)
-    except Exception as exc:
-        logger.debug("Unable to resolve AGENTS.md under %s: %s", root, exc)
-        return {"status": "unavailable", "message": "AGENTS.md not accessible", "error": str(exc)}
+    match security.validate_path(root / "AGENTS.md", root):
+        case Err(err):
+            logger.debug("Unable to resolve AGENTS.md under %s: %s", root, err.message)
+            return {
+                "status": "unavailable",
+                "message": "AGENTS.md not accessible",
+                "error": err.message,
+            }
+        case Ok(candidate):
+            pass
 
     exists = await asyncio.to_thread(candidate.exists)
     if not exists:
@@ -280,9 +285,15 @@ async def expand_context_paths(
             case Ok(recents):
                 discovered.update(entry.path for entry in recents[:3])
 
-    return {
-        security.validate_path(path, root) for path in (discovered | dependencies) if path.exists()
-    }
+    validated: set[Path] = set()
+    for path in discovered | dependencies:
+        if path.exists():
+            match security.validate_path(path, root):
+                case Ok(safe_path):
+                    validated.add(safe_path)
+                case Err(_):
+                    pass  # Skip invalid paths silently
+    return validated
 
 
 # Re-export scan_recent for backwards compatibility with test patches

@@ -12,7 +12,7 @@ from pathlib import Path
 
 from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
-from jpscripts.core.security import validate_path_safe_async
+from jpscripts.core.security import validate_path_async
 from jpscripts.mcp import tool, tool_error_handler
 
 
@@ -27,7 +27,7 @@ async def run_tests(target: str = ".", verbose: bool = False) -> str:
     root = ctx.workspace_root
     candidate = Path(target)
     resolved_target = candidate if candidate.is_absolute() else root / candidate
-    path_result = await validate_path_safe_async(resolved_target, root)
+    path_result = await validate_path_async(resolved_target, root)
     if isinstance(path_result, Err):
         return f"Error: {path_result.error.message}"
     safe_target = path_result.value

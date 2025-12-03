@@ -23,8 +23,8 @@ from pydantic import BaseModel, Field
 
 from jpscripts import memory as memory_core
 from jpscripts.core.config import AppConfig
-from jpscripts.core.result import Err
-from jpscripts.core.security import WorkspaceValidationError, validate_workspace_root
+from jpscripts.core.result import Err, Ok
+from jpscripts.core.security import validate_workspace_root
 
 
 class ExternalTool(BaseModel):
@@ -77,11 +77,12 @@ class ConfigCheck(DiagnosticCheck):
             elif not os.access(expanded, os.W_OK):
                 issues.append(f"{label} not writable: {expanded}")
             else:
-                try:
-                    if label == "workspace_root":
-                        validate_workspace_root(expanded)
-                except WorkspaceValidationError as exc:
-                    issues.append(str(exc))
+                if label == "workspace_root":
+                    match validate_workspace_root(expanded):
+                        case Err(err):
+                            issues.append(err.message)
+                        case Ok(_):
+                            pass
 
         if issues:
             return "error", "; ".join(issues)

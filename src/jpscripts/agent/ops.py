@@ -159,7 +159,7 @@ async def revert_files(paths: Sequence[Path], root: Path) -> None:
 
     safe_paths: list[Path] = []
     for path in paths:
-        result = await security.validate_path_safe_async(path, root)
+        result = await security.validate_path_async(path, root)
         if isinstance(result, Err):
             logger.debug("Skipping revert for unsafe path %s: %s", path, result.error.message)
             continue

@@ -28,7 +28,7 @@ from jpscripts.analysis.complexity import analyze_file_complexity
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console, get_logger
-from jpscripts.core.result import JPScriptsError
+from jpscripts.core.result import Err, JPScriptsError, Ok
 from jpscripts.core.security import validate_path, validate_workspace_root
 from jpscripts.memory import save_memory
 
@@ -73,11 +73,12 @@ class _AsyncDispatchHandler(FileSystemEventHandler):
         if event.is_directory:
             return
         path = Path(str(event.src_path))
-        try:
-            safe_path = validate_path(path, self._root)
-        except Exception as exc:
-            logger.debug("Path validation failed for %s: %s", path, exc)
-            return
+        match validate_path(path, self._root):
+            case Err(err):
+                logger.debug("Path validation failed for %s: %s", path, err.message)
+                return
+            case Ok(safe_path):
+                pass
         if self._should_ignore(safe_path):
             return
         try:
@@ -174,13 +175,15 @@ def _render_dashboard(events: deque[WatchEvent]) -> Panel:
 
 
 async def _watch_loop(state: AppState, debounce_seconds: float = 5.0) -> None:
-    try:
-        root = await asyncio.to_thread(
-            validate_workspace_root, state.config.user.workspace_root or state.config.user.notes_dir
-        )
-    except Exception as exc:
-        console.print(f"[red]Workspace validation failed:[/red] {exc}")
-        return
+    workspace_result = await asyncio.to_thread(
+        validate_workspace_root, state.config.user.workspace_root or state.config.user.notes_dir
+    )
+    match workspace_result:
+        case Err(workspace_err):
+            console.print(f"[red]Workspace validation failed:[/red] {workspace_err.message}")
+            return
+        case Ok(root):
+            pass  # continue with validated root
     loop = asyncio.get_running_loop()
     event_queue: queue.Queue[Path] = queue.Queue(maxsize=512)
     events: deque[WatchEvent] = deque(maxlen=50)

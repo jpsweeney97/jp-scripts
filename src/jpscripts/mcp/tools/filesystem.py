@@ -16,13 +16,13 @@ from pathlib import Path
 
 from jpscripts.core.context import smart_read_context
 from jpscripts.core.rate_limit import RateLimiter
-from jpscripts.core.result import Err
+from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.core.security import (
     is_git_workspace,
     validate_and_open,
     validate_path,
-    validate_path_safe_async,
+    validate_path_async,
 )
 from jpscripts.mcp import logger, tool, tool_error_handler
 
@@ -58,7 +58,7 @@ async def read_file(path: str) -> str:
 
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
-    result = await validate_path_safe_async(candidate, root)
+    result = await validate_path_async(candidate, root)
     if isinstance(result, Err):
         return f"Error: {result.error.message}"
     target = result.value
@@ -142,9 +142,9 @@ async def write_file(path: str, content: str, overwrite: bool = False) -> str:
     def _open_and_write() -> int:
         # SECURITY: Validate path BEFORE creating parent directories
         # This prevents directory creation outside workspace via path traversal
-        from jpscripts.core.security import validate_path_safe
+        from jpscripts.core.security import validate_path
 
-        validate_result = validate_path_safe(candidate, root)
+        validate_result = validate_path(candidate, root)
         if isinstance(validate_result, Err):
             raise RuntimeError(validate_result.error.message)
 
@@ -182,7 +182,7 @@ async def list_directory(path: str) -> str:
 
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
-    result = await validate_path_safe_async(candidate, root)
+    result = await validate_path_async(candidate, root)
     if isinstance(result, Err):
         return f"Error: {result.error.message}"
     target = result.value
@@ -230,11 +230,18 @@ def _validate_patch_targets(diff_text: str, target: Path, root: Path) -> None:
     if len(targets) > 1:
         raise ToolExecutionError("Patches for multiple files are not supported.")
 
-    target_rel = validate_path(target, root).relative_to(root).as_posix()
+    match validate_path(target, root):
+        case Ok(safe_target):
+            target_rel = safe_target.relative_to(root).as_posix()
+        case Err(err):
+            raise ToolExecutionError(f"Invalid target path: {err.message}")
     patch_target = next(iter(targets))
     normalized_target = _normalize_patch_path(patch_target)
-    resolved = validate_path(root / normalized_target, root)
-    resolved_rel = resolved.relative_to(root).as_posix()
+    match validate_path(root / normalized_target, root):
+        case Ok(resolved):
+            resolved_rel = resolved.relative_to(root).as_posix()
+        case Err(err):
+            raise ToolExecutionError(f"Invalid patch path: {err.message}")
     if resolved_rel != target_rel:
         raise ToolExecutionError(f"Patch targets {resolved_rel} but requested {target_rel}.")
 
@@ -344,7 +351,7 @@ async def apply_patch(path: str, diff: str) -> str:
     ctx = get_runtime()
     root = ctx.workspace_root
 
-    result = await validate_path_safe_async(Path(path).expanduser(), root)
+    result = await validate_path_async(Path(path).expanduser(), root)
     if isinstance(result, Err):
         raise ToolExecutionError(result.error.message)
     target = result.value

@@ -25,7 +25,7 @@ from ruamel.yaml.scalarstring import LiteralScalarString
 
 from jpscripts.core.console import get_logger
 from jpscripts.core.result import Err, JPScriptsError, Ok, Result
-from jpscripts.core.security import validate_path_safe, validate_workspace_root_safe
+from jpscripts.core.security import validate_path, validate_workspace_root
 
 DEFAULT_EXCLUDES = {
     ".git",
@@ -80,7 +80,7 @@ class AsyncSerializer:
         self._logger = get_logger(__name__)
 
     async def serialize(self, root: Path | str) -> Result[RepoManifest, SerializationError]:
-        root_result = await asyncio.to_thread(validate_workspace_root_safe, root)
+        root_result = await asyncio.to_thread(validate_workspace_root, root)
         if isinstance(root_result, Err):
             workspace_err = root_result.error
             return Err(
@@ -230,7 +230,7 @@ class AsyncSerializer:
             return await asyncio.to_thread(self._read_file_node, path, root)
 
     def _read_file_node(self, path: Path, root: Path) -> Result[FileNode, SerializationError]:
-        safe_path_result = validate_path_safe(path, root)
+        safe_path_result = validate_path(path, root)
         if isinstance(safe_path_result, Err):
             security_error = safe_path_result.error
             return Err(
@@ -319,7 +319,7 @@ async def write_manifest_yaml(
     I/O is dispatched to worker threads to preserve async purity.
     """
     base_root = workspace_root or Path(manifest.root)
-    validated_root = await asyncio.to_thread(validate_workspace_root_safe, base_root)
+    validated_root = await asyncio.to_thread(validate_workspace_root, base_root)
     if isinstance(validated_root, Err):
         workspace_err = validated_root.error
         return Err(
@@ -332,7 +332,7 @@ async def write_manifest_yaml(
     output_parent = (
         output.parent if output.is_absolute() else (Path.cwd() / output.parent).resolve()
     )
-    parent_result = await asyncio.to_thread(validate_workspace_root_safe, output_parent)
+    parent_result = await asyncio.to_thread(validate_workspace_root, output_parent)
     if isinstance(parent_result, Err):
         workspace_err = parent_result.error
         return Err(

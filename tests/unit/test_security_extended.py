@@ -6,19 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.result import Err, Ok
+from jpscripts.core.result import Err, Ok, SecurityError, WorkspaceError
 from jpscripts.core.security import (
     MAX_SYMLINK_DEPTH,
-    PathValidationError,
-    WorkspaceValidationError,
     _is_forbidden_path,
     _resolve_with_limit,
     is_path_safe,
     validate_path,
-    validate_path_safe,
-    validate_path_safe_async,
+    validate_path_async,
     validate_workspace_root,
-    validate_workspace_root_safe,
 )
 
 
@@ -110,7 +106,7 @@ class TestResolveWithLimit:
 
 
 class TestValidatePathSafe:
-    """Tests for validate_path_safe function (Result-based API)."""
+    """Tests for validate_path function (Result-based API)."""
 
     def test_valid_path_in_workspace(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
@@ -118,7 +114,7 @@ class TestValidatePathSafe:
         target = workspace / "file.txt"
         target.write_text("content", encoding="utf-8")
 
-        result = validate_path_safe(target, workspace)
+        result = validate_path(target, workspace)
         assert isinstance(result, Ok)
         assert result.value == target.resolve()
 
@@ -129,14 +125,14 @@ class TestValidatePathSafe:
         target.write_text("content", encoding="utf-8")
 
         # Relative paths are joined with workspace root
-        result = validate_path_safe(workspace / "file.txt", workspace)
+        result = validate_path(workspace / "file.txt", workspace)
         assert isinstance(result, Ok)
 
     def test_traversal_blocked(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        result = validate_path_safe("../../../etc/passwd", workspace)
+        result = validate_path("../../../etc/passwd", workspace)
         assert isinstance(result, Err)
 
     def test_symlink_escape_blocked(self, tmp_path: Path) -> None:
@@ -149,14 +145,14 @@ class TestValidatePathSafe:
         malicious = workspace / "escape.txt"
         malicious.symlink_to(outside)
 
-        result = validate_path_safe(malicious, workspace)
+        result = validate_path(malicious, workspace)
         assert isinstance(result, Err)
 
     def test_absolute_path_outside_workspace_blocked(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        result = validate_path_safe("/etc/passwd", workspace)
+        result = validate_path("/etc/passwd", workspace)
         assert isinstance(result, Err)
 
 
@@ -170,7 +166,7 @@ class TestValidatePathSafeAsync:
         target = workspace / "file.txt"
         target.write_text("content", encoding="utf-8")
 
-        result = await validate_path_safe_async(target, workspace)
+        result = await validate_path_async(target, workspace)
         assert isinstance(result, Ok)
         assert result.value == target.resolve()
 
@@ -179,7 +175,7 @@ class TestValidatePathSafeAsync:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        result = await validate_path_safe_async("../../../etc/passwd", workspace)
+        result = await validate_path_async("../../../etc/passwd", workspace)
         assert isinstance(result, Err)
 
 
@@ -214,51 +210,27 @@ class TestIsPathSafe:
 
 
 class TestValidateWorkspaceRoot:
-    """Tests for workspace root validation."""
+    """Tests for workspace root validation (Result-based API)."""
 
     def test_valid_workspace(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
         result = validate_workspace_root(workspace)
-        assert result == workspace.resolve()
-
-    def test_missing_workspace_raises(self, tmp_path: Path) -> None:
-        missing = tmp_path / "missing"
-
-        with pytest.raises(WorkspaceValidationError):
-            validate_workspace_root(missing)
-
-    def test_file_as_workspace_raises(self, tmp_path: Path) -> None:
-        file_path = tmp_path / "file.txt"
-        file_path.write_text("content", encoding="utf-8")
-
-        with pytest.raises(WorkspaceValidationError):
-            validate_workspace_root(file_path)
-
-
-class TestValidateWorkspaceRootSafe:
-    """Tests for Result-based workspace validation."""
-
-    def test_valid_workspace_returns_ok(self, tmp_path: Path) -> None:
-        workspace = tmp_path / "workspace"
-        workspace.mkdir()
-
-        result = validate_workspace_root_safe(workspace)
         assert isinstance(result, Ok)
         assert result.value == workspace.resolve()
 
     def test_missing_workspace_returns_err(self, tmp_path: Path) -> None:
         missing = tmp_path / "missing"
 
-        result = validate_workspace_root_safe(missing)
+        result = validate_workspace_root(missing)
         assert isinstance(result, Err)
 
     def test_file_as_workspace_returns_err(self, tmp_path: Path) -> None:
         file_path = tmp_path / "file.txt"
         file_path.write_text("content", encoding="utf-8")
 
-        result = validate_workspace_root_safe(file_path)
+        result = validate_workspace_root(file_path)
         assert isinstance(result, Err)
 
 
@@ -271,7 +243,7 @@ class TestEdgeCases:
 
         # Empty string expands to cwd which may not be in workspace
         # This should be blocked if cwd != workspace
-        result = validate_path_safe("", workspace)
+        result = validate_path("", workspace)
         # Empty string resolves to cwd, which is outside workspace in tests
         assert isinstance(result, Err)
 
@@ -280,7 +252,7 @@ class TestEdgeCases:
         workspace.mkdir()
 
         # "." resolves to cwd which is outside workspace in tests
-        result = validate_path_safe(".", workspace)
+        result = validate_path(".", workspace)
         assert isinstance(result, Err)
 
     def test_workspace_itself_is_valid(self, tmp_path: Path) -> None:
@@ -288,14 +260,14 @@ class TestEdgeCases:
         workspace.mkdir()
 
         # The workspace directory itself is valid
-        result = validate_path_safe(workspace, workspace)
+        result = validate_path(workspace, workspace)
         assert isinstance(result, Ok)
 
     def test_double_dot_blocked(self, tmp_path: Path) -> None:
         workspace = tmp_path / "workspace"
         workspace.mkdir()
 
-        result = validate_path_safe("..", workspace)
+        result = validate_path("..", workspace)
         assert isinstance(result, Err)
 
     def test_path_with_null_byte_blocked(self, tmp_path: Path) -> None:
@@ -312,7 +284,7 @@ class TestEdgeCases:
         target = workspace / "файл.txt"  # Russian for "file"
         target.write_text("content", encoding="utf-8")
 
-        result = validate_path_safe(target, workspace)
+        result = validate_path(target, workspace)
         assert isinstance(result, Ok)
 
     def test_path_with_spaces(self, tmp_path: Path) -> None:
@@ -321,7 +293,7 @@ class TestEdgeCases:
         target = workspace / "file with spaces.txt"
         target.write_text("content", encoding="utf-8")
 
-        result = validate_path_safe(target, workspace)
+        result = validate_path(target, workspace)
         assert isinstance(result, Ok)
 
     def test_nested_symlinks_within_workspace(self, tmp_path: Path) -> None:
@@ -338,22 +310,6 @@ class TestEdgeCases:
         link = workspace / "link.txt"
         link.symlink_to(target)
 
-        result = validate_path_safe(link, workspace)
+        result = validate_path(link, workspace)
         assert isinstance(result, Ok)
         assert result.value == target.resolve()
-
-
-class TestExceptionClasses:
-    """Tests for custom exception classes."""
-
-    def test_workspace_validation_error_is_permission_error(self) -> None:
-        exc = WorkspaceValidationError("test message")
-        assert isinstance(exc, PermissionError)
-
-    def test_path_validation_error_is_permission_error(self) -> None:
-        exc = PathValidationError("test message")
-        assert isinstance(exc, PermissionError)
-
-    def test_exception_with_context(self) -> None:
-        exc = WorkspaceValidationError("test", context={"key": "value"})
-        assert exc.context == {"key": "value"}

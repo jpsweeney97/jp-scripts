@@ -36,7 +36,7 @@ class TestSearchCodebase:
         with (
             patch("jpscripts.mcp.tools.search.get_runtime", return_value=mock_runtime),
             patch(
-                "jpscripts.mcp.tools.search.validate_path_safe_async",
+                "jpscripts.mcp.tools.search.validate_path_async",
                 new_callable=AsyncMock,
             ) as mock_validate,
             patch(
@@ -61,7 +61,7 @@ class TestSearchCodebase:
         with (
             patch("jpscripts.mcp.tools.search.get_runtime", return_value=mock_runtime),
             patch(
-                "jpscripts.mcp.tools.search.validate_path_safe_async",
+                "jpscripts.mcp.tools.search.validate_path_async",
                 new_callable=AsyncMock,
             ) as mock_validate,
             patch("jpscripts.mcp.tools.search.search_core.run_ripgrep", return_value=""),
@@ -82,7 +82,7 @@ class TestSearchCodebase:
         with (
             patch("jpscripts.mcp.tools.search.get_runtime", return_value=mock_runtime),
             patch(
-                "jpscripts.mcp.tools.search.validate_path_safe_async",
+                "jpscripts.mcp.tools.search.validate_path_async",
                 new_callable=AsyncMock,
             ) as mock_validate,
         ):
@@ -112,7 +112,7 @@ class TestFindTodos:
         with (
             patch("jpscripts.mcp.tools.search.get_runtime", return_value=mock_runtime),
             patch(
-                "jpscripts.mcp.tools.search.validate_path_safe_async",
+                "jpscripts.mcp.tools.search.validate_path_async",
                 new_callable=AsyncMock,
             ) as mock_validate,
             patch(
@@ -146,7 +146,7 @@ class TestFindTodos:
         with (
             patch("jpscripts.mcp.tools.search.get_runtime", return_value=mock_runtime),
             patch(
-                "jpscripts.mcp.tools.search.validate_path_safe_async",
+                "jpscripts.mcp.tools.search.validate_path_async",
                 new_callable=AsyncMock,
             ) as mock_validate,
             patch(
@@ -171,7 +171,7 @@ class TestFindTodos:
         with (
             patch("jpscripts.mcp.tools.search.get_runtime", return_value=mock_runtime),
             patch(
-                "jpscripts.mcp.tools.search.validate_path_safe_async",
+                "jpscripts.mcp.tools.search.validate_path_async",
                 new_callable=AsyncMock,
             ) as mock_validate,
         ):

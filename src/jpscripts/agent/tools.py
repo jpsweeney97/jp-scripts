@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 
-from jinja2 import Environment, FileSystemLoader
+from jinja2 import Environment
 
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
@@ -22,6 +22,7 @@ from jpscripts.core.cost_tracker import TokenUsage
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.safety import estimate_tokens_from_args
 from jpscripts.core.sys import run_safe_shell as core_run_safe_shell
+from jpscripts.core.templates import get_template_environment
 
 from .circuit import enforce_circuit_breaker
 from .models import ToolCall
@@ -85,8 +86,12 @@ async def execute_tool(
 
 
 def load_template_environment(template_root: Path) -> Environment:
-    """Load a Jinja2 template environment from the given directory."""
-    return Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
+    """Load a Jinja2 template environment from the given directory.
+
+    This is a convenience wrapper around core.templates.get_template_environment
+    that provides backwards compatibility without custom filters.
+    """
+    return get_template_environment(template_root, with_filters=False)
 
 
 async def run_safe_shell(

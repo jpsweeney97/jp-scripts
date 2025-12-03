@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from pathlib import Path
+
+from pydantic import BaseModel
 
 from jpscripts.agent import PreparedPrompt
 from jpscripts.core.config import AppConfig
@@ -21,6 +25,27 @@ from jpscripts.structures.dag import DAGGraph, DAGTask, TaskStatus, WorktreeCont
 from jpscripts.swarm.agent_adapter import SwarmAgentExecutor, TaskExecutor
 from jpscripts.swarm.types import MergeResult, TaskResult
 from jpscripts.swarm.worktree import WorktreeManager
+
+
+class SwarmState(BaseModel):
+    """Persisted swarm execution state for crash recovery.
+
+    Saved to `.jpscripts/swarm_state.json` after each batch to allow
+    resumption after interruption.
+
+    Attributes:
+        swarm_id: Unique identifier for this swarm execution.
+        tasks: Mapping of task_id to status string.
+        worktree_paths: Mapping of task_id to worktree path.
+        started_at: ISO timestamp when execution began.
+        objective: The high-level goal being executed.
+    """
+
+    swarm_id: str
+    tasks: dict[str, str]
+    worktree_paths: dict[str, str]
+    started_at: str
+    objective: str
 
 
 class ParallelSwarmController:
@@ -104,6 +129,67 @@ class ParallelSwarmController:
         self._dag: DAGGraph | None = None
         self._completed_tasks: set[str] = set()
         self._task_results: dict[str, TaskResult] = {}
+        self._swarm_id: str = str(uuid.uuid4())[:8]
+        self._started_at: str = datetime.now(UTC).isoformat()
+
+    @property
+    def _state_path(self) -> Path:
+        """Path to swarm state journal file."""
+        return self.repo_root / ".jpscripts" / "swarm_state.json"
+
+    def _save_state(self) -> None:
+        """Persist current swarm state for crash recovery.
+
+        Writes state to `.jpscripts/swarm_state.json` after each batch.
+        Creates the `.jpscripts` directory if it doesn't exist.
+        """
+        state = SwarmState(
+            swarm_id=self._swarm_id,
+            tasks={
+                task_id: result.status.value
+                for task_id, result in self._task_results.items()
+            },
+            worktree_paths={
+                task_id: result.branch_name
+                for task_id, result in self._task_results.items()
+                if result.branch_name
+            },
+            started_at=self._started_at,
+            objective=self.objective,
+        )
+
+        self._state_path.parent.mkdir(parents=True, exist_ok=True)
+        self._state_path.write_text(state.model_dump_json(indent=2))
+
+    def _load_state(self) -> SwarmState | None:
+        """Load previous swarm state if it exists.
+
+        Returns:
+            SwarmState if journal file exists and is valid, None otherwise.
+        """
+        if not self._state_path.exists():
+            return None
+
+        try:
+            return SwarmState.model_validate_json(self._state_path.read_text())
+        except Exception:
+            return None
+
+    def recover_previous_session(self) -> SwarmState | None:
+        """Check for and return previous session state.
+
+        Use this to detect and potentially resume an interrupted swarm.
+        Caller is responsible for deciding whether to resume or start fresh.
+
+        Returns:
+            SwarmState if a previous session exists, None otherwise.
+        """
+        return self._load_state()
+
+    def _clear_state(self) -> None:
+        """Remove state journal after successful completion."""
+        if self._state_path.exists():
+            self._state_path.unlink()
 
     async def _initialize(self) -> Result[None, GitError]:
         """Initialize the controller and worktree manager."""
@@ -214,6 +300,9 @@ class ParallelSwarmController:
                 self._completed_tasks.add(result.task_id)
             self._task_results[result.task_id] = result
 
+        # Persist state after each batch for crash recovery
+        self._save_state()
+
         return results
 
     async def _merge_branches(
@@ -318,9 +407,13 @@ class ParallelSwarmController:
         if self._worktree_manager:
             await self._worktree_manager.cleanup_all(force=True)
 
+        # Clear state journal on success
+        self._clear_state()
+
         return Ok(merge_result)
 
 
 __all__ = [
     "ParallelSwarmController",
+    "SwarmState",
 ]

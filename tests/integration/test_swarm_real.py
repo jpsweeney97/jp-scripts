@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
-import subprocess
-from collections.abc import Awaitable, Callable, Generator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from pathlib import Path
 
 import pytest
@@ -13,45 +13,50 @@ from jpscripts.agent import PreparedPrompt
 from jpscripts.core.config import AIConfig, AppConfig, InfraConfig, UserConfig
 from jpscripts.core.result import Ok
 from jpscripts.core.runtime import RuntimeContext, reset_runtime_context, set_runtime_context
+from jpscripts.git.client import AsyncRepo
 from jpscripts.structures.dag import DAGGraph, DAGTask
 from jpscripts.swarm import ParallelSwarmController
 
 
 @pytest.fixture
-def temp_git_repo(tmp_path: Path) -> Path:
-    """Create a temporary git repository for testing."""
+async def async_git_repo(tmp_path: Path) -> AsyncGenerator[AsyncRepo, None]:
+    """Create a temporary git repository using AsyncRepo.
+
+    Uses subprocess for git init (no async init method available),
+    then uses AsyncRepo for all subsequent operations.
+    """
     repo_path = tmp_path / "test_repo"
     repo_path.mkdir()
 
-    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "config", "user.email", "test@test.com"],
+    # Initialize repo using subprocess (one-time operation)
+    proc = await asyncio.create_subprocess_exec(
+        "git", "init",
         cwd=repo_path,
-        check=True,
-        capture_output=True,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    subprocess.run(
-        ["git", "config", "user.name", "Test User"],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-    )
+    await proc.communicate()
+    assert proc.returncode == 0, "git init failed"
+
+    # Open repo with AsyncRepo
+    repo_result = await AsyncRepo.open(repo_path)
+    assert isinstance(repo_result, Ok), f"Failed to open repo: {repo_result}"
+    repo = repo_result.value
+
+    # Configure user
+    await repo.run_git("config", "user.email", "test@test.com")
+    await repo.run_git("config", "user.name", "Test User")
 
     # Create initial commit
     (repo_path / "README.md").write_text("# Test Repo\n")
-    subprocess.run(["git", "add", "."], cwd=repo_path, check=True, capture_output=True)
-    subprocess.run(
-        ["git", "commit", "-m", "Initial commit"],
-        cwd=repo_path,
-        check=True,
-        capture_output=True,
-    )
+    await repo.add(all=True)
+    await repo.commit("Initial commit")
 
-    return repo_path
+    yield repo
 
 
 @pytest.fixture
-def swarm_config(tmp_path: Path, temp_git_repo: Path) -> AppConfig:
+def swarm_config(tmp_path: Path, async_git_repo: AsyncRepo) -> AppConfig:
     """Create AppConfig for swarm testing."""
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir(exist_ok=True)
@@ -65,7 +70,7 @@ def swarm_config(tmp_path: Path, temp_git_repo: Path) -> AppConfig:
             worktree_root=tmp_path / "worktrees",
         ),
         user=UserConfig(
-            workspace_root=temp_git_repo,
+            workspace_root=async_git_repo.path,
             notes_dir=notes_dir,
             ignore_dirs=[".git"],
             use_semantic_search=False,
@@ -74,11 +79,13 @@ def swarm_config(tmp_path: Path, temp_git_repo: Path) -> AppConfig:
 
 
 @pytest.fixture
-def runtime_ctx(swarm_config: AppConfig) -> Generator[RuntimeContext, None, None]:
+def runtime_ctx(
+    swarm_config: AppConfig, async_git_repo: AsyncRepo
+) -> Generator[RuntimeContext, None, None]:
     """Set up runtime context for the test."""
     ctx = RuntimeContext(
         config=swarm_config,
-        workspace_root=swarm_config.user.workspace_root,
+        workspace_root=async_git_repo.path,
         trace_id="test-swarm",
         dry_run=False,
     )
@@ -131,7 +138,7 @@ def create_mock_agent(
 @pytest.mark.local_only
 @pytest.mark.asyncio
 async def test_parallel_swarm_creates_files_and_merges(
-    temp_git_repo: Path,
+    async_git_repo: AsyncRepo,
     swarm_config: AppConfig,
     runtime_ctx: RuntimeContext,
 ) -> None:
@@ -167,7 +174,7 @@ async def test_parallel_swarm_creates_files_and_merges(
     controller = ParallelSwarmController(
         objective="Create two files in parallel",
         config=swarm_config,
-        repo_root=temp_git_repo,
+        repo_root=async_git_repo.path,
         fetch_response=create_mock_agent(file_patches),
         max_parallel=2,
     )
@@ -182,18 +189,13 @@ async def test_parallel_swarm_creates_files_and_merges(
     merge_result = result.value
 
     assert merge_result.success, "Merge should succeed"
-    assert (temp_git_repo / "file_a.txt").exists(), "file_a.txt should exist"
-    assert (temp_git_repo / "file_b.txt").exists(), "file_b.txt should exist"
-    assert (temp_git_repo / "file_a.txt").read_text().strip() == "A"
-    assert (temp_git_repo / "file_b.txt").read_text().strip() == "B"
+    assert (async_git_repo.path / "file_a.txt").exists(), "file_a.txt should exist"
+    assert (async_git_repo.path / "file_b.txt").exists(), "file_b.txt should exist"
+    assert (async_git_repo.path / "file_a.txt").read_text().strip() == "A"
+    assert (async_git_repo.path / "file_b.txt").read_text().strip() == "B"
 
-    # Verify git log shows merge commits
-    log_result = subprocess.run(
-        ["git", "log", "--oneline", "-10"],
-        cwd=temp_git_repo,
-        capture_output=True,
-        text=True,
-    )
-    assert log_result.returncode == 0
+    # Verify git log shows merge commits using AsyncRepo
+    log_result = await async_git_repo.run_git("log", "--oneline", "-10")
+    assert isinstance(log_result, Ok), f"Failed to get git log: {log_result}"
     # Should have merge commits from parallel branches
-    assert len(log_result.stdout.strip().split("\n")) > 1
+    assert len(log_result.value.strip().split("\n")) > 1

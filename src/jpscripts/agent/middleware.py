@@ -17,8 +17,20 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Generic, Protocol, TypeVar
+
+
+class MiddlewarePhase(StrEnum):
+    """Phase of middleware execution.
+
+    BEFORE: Executed before the agent step (can modify input)
+    AFTER: Executed after the agent step (can modify output)
+    """
+
+    BEFORE = "before"
+    AFTER = "after"
 
 from pydantic import BaseModel
 
@@ -271,20 +283,20 @@ async def run_middleware_pipeline(
     middlewares: Sequence[AgentMiddleware[R]],
     ctx: StepContext[R],
     *,
-    phase: str,  # "before" or "after"
+    phase: MiddlewarePhase,
 ) -> StepContext[R]:
     """Execute middleware in order for given phase.
 
     Args:
-        middlewares: List of middleware to execute
-        ctx: Current step context
-        phase: "before" or "after"
+        middlewares: List of middleware to execute.
+        ctx: Current step context.
+        phase: BEFORE for pre-step, AFTER for post-step.
 
     Returns:
-        Modified context after all middleware
+        Modified context after all middleware.
     """
     for mw in middlewares:
-        if phase == "before":
+        if phase == MiddlewarePhase.BEFORE:
             ctx = await mw.before_step(ctx)
         else:
             ctx = await mw.after_step(ctx)
@@ -296,6 +308,7 @@ __all__ = [
     "BaseMiddleware",
     "CircuitBreakerMiddleware",
     "GovernanceMiddleware",
+    "MiddlewarePhase",
     "StepContext",
     "TracingMiddleware",
     "run_middleware_pipeline",

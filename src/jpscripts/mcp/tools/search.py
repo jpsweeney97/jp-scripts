@@ -15,7 +15,7 @@ from pathlib import Path
 
 from jpscripts.core.result import Err
 from jpscripts.core.runtime import get_runtime
-from jpscripts.core.security import validate_path_safe_async
+from jpscripts.core.security import validate_path_async
 from jpscripts.mcp import tool, tool_error_handler
 from jpscripts.net import search as search_core
 
@@ -33,7 +33,7 @@ async def search_codebase(pattern: str, path: str = ".") -> str:
     max_chars = getattr(ctx.config, "max_file_context_chars", 50000)
     base = Path(path)
     candidate = base if base.is_absolute() else root / base
-    path_result = await validate_path_safe_async(candidate, root)
+    path_result = await validate_path_async(candidate, root)
     if isinstance(path_result, Err):
         return f"Error: {path_result.error.message}"
     search_root = path_result.value
@@ -64,7 +64,7 @@ async def find_todos(path: str = ".") -> str:
     root = ctx.workspace_root
 
     scan_root = Path.cwd() if path == "." else Path(path).expanduser()
-    path_result = await validate_path_safe_async(scan_root, root)
+    path_result = await validate_path_async(scan_root, root)
     if isinstance(path_result, Err):
         return f"Error: {path_result.error.message}"
     target = path_result.value

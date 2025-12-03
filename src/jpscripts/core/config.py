@@ -26,7 +26,8 @@ from unittest.mock import patch
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
-from jpscripts.core.security import WorkspaceValidationError, validate_workspace_root
+from jpscripts.core.result import Err, Ok
+from jpscripts.core.security import validate_workspace_root
 
 CONFIG_ENV_VAR = "JPSCRIPTS_CONFIG"
 
@@ -294,13 +295,13 @@ def load_config(
         error = str(exc)
         config = AppConfig()
 
-    try:
-        resolved_root = validate_workspace_root(config.user.workspace_root)
-        # Update nested user config with validated workspace_root
-        updated_user = config.user.model_copy(update={"workspace_root": resolved_root})
-        config = config.model_copy(update={"user": updated_user})
-    except WorkspaceValidationError as exc:
-        error = f"{error}; {exc}" if error else str(exc)
+    match validate_workspace_root(config.user.workspace_root):
+        case Ok(resolved_root):
+            # Update nested user config with validated workspace_root
+            updated_user = config.user.model_copy(update={"workspace_root": resolved_root})
+            config = config.model_copy(update={"user": updated_user})
+        case Err(workspace_err):
+            error = f"{error}; {workspace_err.message}" if error else workspace_err.message
 
     load_result = ConfigLoadResult(
         path=resolved_path,

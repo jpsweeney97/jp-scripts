@@ -5,15 +5,16 @@ from pathlib import Path
 import pytest
 
 from jpscripts.core.context import DEFAULT_MODEL_CONTEXT_LIMIT, read_file_context
-from jpscripts.core.security import WorkspaceValidationError, validate_path, validate_workspace_root
+from jpscripts.core.result import Err, Ok
+from jpscripts.core.security import validate_path, validate_workspace_root
 
 
 def test_validate_path_blocks_traversal(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
 
-    with pytest.raises(PermissionError):
-        validate_path("../../../../etc/passwd", workspace)
+    result = validate_path("../../../../etc/passwd", workspace)
+    assert isinstance(result, Err)
 
 
 def test_validate_path_blocks_symlink_escape(tmp_path: Path) -> None:
@@ -26,15 +27,15 @@ def test_validate_path_blocks_symlink_escape(tmp_path: Path) -> None:
     malicious_link = workspace / "link.txt"
     malicious_link.symlink_to(outside_file)
 
-    with pytest.raises(PermissionError):
-        validate_path(malicious_link, workspace)
+    result = validate_path(malicious_link, workspace)
+    assert isinstance(result, Err)
 
 
 def test_cache_workspace_root_requires_existing_dir(tmp_path: Path) -> None:
     missing_root = tmp_path / "missing"
 
-    with pytest.raises(WorkspaceValidationError):
-        validate_workspace_root(missing_root)
+    result = validate_workspace_root(missing_root)
+    assert isinstance(result, Err)
 
 
 def test_validate_path_requires_valid_root(tmp_path: Path) -> None:
@@ -45,13 +46,16 @@ def test_validate_path_requires_valid_root(tmp_path: Path) -> None:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("data", encoding="utf-8")
 
-    assert validate_path(target, workspace) == target.resolve()
+    result = validate_path(target, workspace)
+    assert isinstance(result, Ok)
+    assert result.value == target.resolve()
 
 
-def test_validate_path_raises_on_invalid_root(tmp_path: Path) -> None:
+def test_validate_path_returns_err_on_invalid_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
-    with pytest.raises(WorkspaceValidationError):
-        validate_path("file.txt", workspace)
+    # Workspace doesn't exist, so validation fails
+    result = validate_path("file.txt", workspace)
+    assert isinstance(result, Err)
 
 
 def test_read_file_context_caps_output(tmp_path: Path) -> None:

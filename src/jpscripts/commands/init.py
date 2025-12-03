@@ -22,6 +22,7 @@ from rich.prompt import Prompt
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import console
+from jpscripts.core.result import Err, Ok
 from jpscripts.providers import CompletionOptions, LLMProvider, Message, ProviderError
 from jpscripts.providers.factory import get_provider
 
@@ -180,11 +181,12 @@ async def _fix_config_with_provider(provider: LLMProvider, prompt: str) -> str:
 
 
 def _install_precommit_hook(workspace_root: Path) -> None:
-    try:
-        root = security.validate_workspace_root(workspace_root)
-    except Exception as exc:
-        console.print(f"[red]Cannot install hooks: {exc}[/red]")
-        return
+    match security.validate_workspace_root(workspace_root):
+        case Err(err):
+            console.print(f"[red]Cannot install hooks: {err.message}[/red]")
+            return
+        case Ok(root):
+            pass
 
     git_dir = root / ".git"
     hooks_dir = git_dir / "hooks"

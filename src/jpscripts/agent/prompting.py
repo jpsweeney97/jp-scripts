@@ -7,12 +7,8 @@ template rendering, context assembly, and token budget management.
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Sequence
-from functools import lru_cache
 from pathlib import Path
-
-from jinja2 import Environment, FileSystemLoader, TemplateNotFound
 
 from jpscripts.agent.context import (
     build_dependency_section,
@@ -24,12 +20,12 @@ from jpscripts.agent.context import (
 from jpscripts.agent.models import AgentResponse, PreparedPrompt
 from jpscripts.ai.tokens import TokenBudgetManager
 from jpscripts.analysis.structure import generate_map
-from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import gather_context, smart_read_context
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
+from jpscripts.core.templates import render_template, resolve_template_root
 from jpscripts.features.navigation import scan_recent
 from jpscripts.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory
 
@@ -43,33 +39,8 @@ GOVERNANCE_ANTI_PATTERNS: list[str] = [
 ]
 
 
-def _resolve_template_root() -> Path:
-    package_root = Path(__file__).resolve().parent.parent
-    return security.validate_path(package_root / "templates", package_root)
-
-
-@lru_cache(maxsize=1)
-def _get_template_environment(template_root: Path) -> Environment:
-    env = Environment(loader=FileSystemLoader(str(template_root)), autoescape=False)
-    env.filters["cdata"] = _safe_cdata
-    env.filters["tojson"] = json.dumps
-    return env
-
-
 def _render_prompt_from_template(context: dict[str, object], template_root: Path) -> str:
-    try:
-        template = _get_template_environment(template_root).get_template(AGENT_TEMPLATE_NAME)
-    except TemplateNotFound as exc:
-        logger.error("Agent template %s missing in %s", AGENT_TEMPLATE_NAME, template_root)
-        raise FileNotFoundError(
-            f"Template {AGENT_TEMPLATE_NAME} not found in {template_root}"
-        ) from exc
-    return template.render(**context)
-
-
-def _safe_cdata(content: str) -> str:
-    """Escape CDATA terminators inside arbitrary content."""
-    return content.replace("]]>", "]]]]><![CDATA[>")
+    return render_template(AGENT_TEMPLATE_NAME, context, template_root=template_root)
 
 
 async def _build_diagnostic_context(
@@ -305,7 +276,7 @@ async def prepare_agent_prompt(
         budget.remaining(),
     )
 
-    template_root = _resolve_template_root()
+    template_root = resolve_template_root()
     response_schema = AgentResponse.model_json_schema()
     context = {
         "workspace_root": str(root),

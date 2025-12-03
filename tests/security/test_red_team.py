@@ -23,8 +23,8 @@ import pytest
 from jpscripts.core.command_validation import CommandVerdict, validate_command
 from jpscripts.core.result import Err
 from jpscripts.core.security import (
-    validate_path_safe,
-    validate_workspace_root_safe,
+    validate_path,
+    validate_workspace_root,
 )
 from jpscripts.governance.compliance import check_source_compliance
 from jpscripts.governance.types import ViolationType
@@ -115,7 +115,7 @@ class TestPathTraversalAttacks:
         self, target_path: str, description: str, workspace: Path
     ) -> None:
         """Verify sensitive file reads are blocked via path validation."""
-        result = validate_path_safe(target_path, workspace)
+        result = validate_path(target_path, workspace)
         assert isinstance(result, Err), f"ATTACK SUCCEEDED: {description}"
 
     @pytest.mark.parametrize(
@@ -154,7 +154,7 @@ class TestSymlinkAttacks:
         except OSError:
             pytest.skip("Cannot create symlinks (permission issue)")
 
-        result = validate_path_safe(symlink_path, workspace)
+        result = validate_path(symlink_path, workspace)
         assert isinstance(result, Err), "ATTACK SUCCEEDED: Symlink escape to /etc/passwd"
 
     def test_deep_symlink_chain(self, workspace: Path) -> None:
@@ -174,7 +174,7 @@ class TestSymlinkAttacks:
         # Traversing 15 symlinks should exceed MAX_SYMLINK_DEPTH (10)
         # Just validate - we don't care about the result
         # The point is no escape, whether it succeeds (within workspace) or fails
-        validate_path_safe(prev, workspace)
+        validate_path(prev, workspace)
 
 
 # =============================================================================
@@ -448,7 +448,7 @@ class TestWorkspaceValidationAttacks:
         if not root_path.exists():
             pytest.skip(f"Path {malicious_root} doesn't exist on this system")
 
-        result = validate_workspace_root_safe(root_path)
+        result = validate_workspace_root(root_path)
         # System directories should fail validation
         assert isinstance(result, Err), f"ATTACK SUCCEEDED: {description}"
 
@@ -498,7 +498,7 @@ class TestCombinedAttackScenarios:
     def test_data_exfiltration_chain(self, workspace: Path) -> None:
         """Simulate multi-step data exfiltration attempt."""
         # Step 1: Try to read sensitive file
-        read_result = validate_path_safe("/etc/passwd", workspace)
+        read_result = validate_path("/etc/passwd", workspace)
         assert isinstance(read_result, Err), "Step 1 failed: passwd readable"
 
         # Step 2: Try command-based read

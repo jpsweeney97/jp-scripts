@@ -46,7 +46,7 @@ from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.mcp_registry import get_tool_registry
-from jpscripts.core.result import Err
+from jpscripts.core.result import Err, Ok
 from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)
@@ -388,9 +388,12 @@ class RepairLoopOrchestrator:
     def _setup(self) -> None:
         """Initialize runtime state from injected configuration."""
         self._runtime_config = self._app_config
-        self._root = security.validate_workspace_root(
-            self._workspace_root or self._app_config.user.notes_dir
-        )
+        workspace = self._workspace_root or self._app_config.user.notes_dir
+        match security.validate_workspace_root(workspace):
+            case Ok(root):
+                self._root = root
+            case Err(err):
+                raise RuntimeError(f"Invalid workspace root: {err.message}")
         self._attempt_cap = max(1, self.loop_config.max_retries)
         self._strategies = build_strategy_plan(self._attempt_cap)
 

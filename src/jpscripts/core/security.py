@@ -2,26 +2,18 @@
 Security utilities for workspace and path validation.
 
 This module provides secure path handling to prevent directory traversal
-and workspace escape attacks. It offers both exception-based and Result-based
-APIs for flexibility in error handling.
+and workspace escape attacks. All validation functions return Result types
+for explicit error handling.
 
 Usage:
-    # Exception-based (backward compatible)
     from jpscripts.core.security import validate_path, validate_workspace_root
+    from jpscripts.core.result import Err, Ok
 
-    try:
-        safe_path = validate_path(user_input, workspace_root)
-    except PermissionError:
-        handle_error()
-
-    # Result-based (recommended for new code)
-    from jpscripts.core.security import validate_path_safe, validate_workspace_root_safe
-
-    result = validate_path_safe(user_input, workspace_root)
-    if result.is_ok():
-        safe_path = result.value
-    else:
-        error = result.error
+    match validate_path(user_input, workspace_root):
+        case Ok(safe_path):
+            # Proceed with safe_path
+        case Err(err):
+            # Handle error: err.message
 """
 
 from __future__ import annotations
@@ -62,38 +54,6 @@ Note: /var is intentionally excluded because macOS temp directories
 resolve to /private/var. The workspace validation already ensures
 paths stay within the workspace root.
 """
-
-# ---------------------------------------------------------------------------
-# Backward-compatible exception (alias)
-# ---------------------------------------------------------------------------
-
-
-class WorkspaceValidationError(PermissionError, WorkspaceError):
-    """Raised when the workspace root fails validation.
-
-    This class inherits from both PermissionError (for backward compatibility)
-    and WorkspaceError (for integration with the new error hierarchy).
-
-    DEPRECATED: New code should catch WorkspaceError or SecurityError instead.
-    """
-
-    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
-        PermissionError.__init__(self, message)
-        WorkspaceError.__init__(self, message, context=context)
-
-
-class PathValidationError(PermissionError, SecurityError):
-    """Raised when path validation fails (escape attempt detected).
-
-    This class inherits from both PermissionError (for backward compatibility)
-    and SecurityError (for integration with the new error hierarchy).
-
-    DEPRECATED: New code should catch SecurityError instead.
-    """
-
-    def __init__(self, message: str, *, context: dict[str, Any] | None = None) -> None:
-        PermissionError.__init__(self, message)
-        SecurityError.__init__(self, message, context=context)
 
 
 # ---------------------------------------------------------------------------
@@ -293,7 +253,7 @@ def _validate_workspace_root_cached(resolved: Path) -> Result[Path, WorkspaceErr
     return Ok(resolved)
 
 
-def validate_workspace_root_safe(root: Path | str) -> Result[Path, WorkspaceError]:
+def validate_workspace_root(root: Path | str) -> Result[Path, WorkspaceError]:
     """Validate and resolve a workspace root path.
 
     A valid workspace root must:
@@ -311,7 +271,7 @@ def validate_workspace_root_safe(root: Path | str) -> Result[Path, WorkspaceErro
     return _validate_workspace_root_cached(resolved)
 
 
-def validate_path_safe(
+def validate_path(
     path: str | Path,
     root: Path | str,
 ) -> Result[Path, SecurityError]:
@@ -334,7 +294,7 @@ def validate_path_safe(
         Ok(resolved_path) if safe, Err(SecurityError) otherwise
     """
     # First validate the workspace root
-    root_result = validate_workspace_root_safe(root)
+    root_result = validate_workspace_root(root)
     if isinstance(root_result, Err):
         # Convert WorkspaceError to SecurityError for consistent typing
         workspace_err = root_result.error
@@ -387,7 +347,7 @@ def validate_path_safe(
 # ---------------------------------------------------------------------------
 
 
-async def validate_workspace_root_safe_async(root: Path | str) -> Result[Path, WorkspaceError]:
+async def validate_workspace_root_async(root: Path | str) -> Result[Path, WorkspaceError]:
     """Async validate and resolve a workspace root path.
 
     A valid workspace root must:
@@ -441,7 +401,7 @@ async def validate_workspace_root_safe_async(root: Path | str) -> Result[Path, W
     return Ok(resolved)
 
 
-async def validate_path_safe_async(
+async def validate_path_async(
     path: str | Path,
     root: Path | str,
 ) -> Result[Path, SecurityError]:
@@ -467,7 +427,7 @@ async def validate_path_safe_async(
         Ok(resolved_path) if safe, Err(SecurityError) otherwise
     """
     # First validate the workspace root (async, non-blocking)
-    root_result = await validate_workspace_root_safe_async(root)
+    root_result = await validate_workspace_root_async(root)
     if isinstance(root_result, Err):
         # Convert WorkspaceError to SecurityError for consistent typing
         workspace_err = root_result.error
@@ -518,65 +478,6 @@ async def validate_path_safe_async(
 
 
 # ---------------------------------------------------------------------------
-# Exception-based API (backward compatible)
-# ---------------------------------------------------------------------------
-
-
-def validate_workspace_root(root: Path | str) -> Path:
-    """Validate and resolve a workspace root path.
-
-    A valid workspace root must:
-    - Exist
-    - Be a directory
-    - Be either a git repository OR owned by the current user
-
-    Args:
-        root: The workspace root path to validate
-
-    Returns:
-        The resolved, validated path
-
-    Raises:
-        WorkspaceValidationError: If validation fails
-    """
-    result = validate_workspace_root_safe(root)
-    if isinstance(result, Err):
-        raise WorkspaceValidationError(
-            result.error.message,
-            context=result.error.context,
-        )
-    return result.value
-
-
-def validate_path(path: str | Path, root: Path | str) -> Path:
-    """Validate that a path stays within the workspace root.
-
-    Resolves the path (following symlinks) and ensures it does not
-    escape the validated workspace root.
-
-    Args:
-        path: The path to validate
-        root: The workspace root to validate against
-
-    Returns:
-        The resolved, validated path
-
-    Raises:
-        PermissionError: If the path escapes the workspace root
-        WorkspaceValidationError: If the workspace root is invalid
-    """
-    result = validate_path_safe(path, root)
-    if isinstance(result, Err):
-        err = result.error
-        # For backward compatibility, raise PermissionError for path escape
-        # and WorkspaceValidationError for workspace issues
-        if "workspace root" in err.message.lower():
-            raise WorkspaceValidationError(err.message, context=err.context)
-        raise PathValidationError(err.message, context=err.context)
-    return result.value
-
-
-# ---------------------------------------------------------------------------
 # Utility functions
 # ---------------------------------------------------------------------------
 
@@ -590,7 +491,7 @@ def is_git_workspace(root: Path | str) -> bool:
     Returns:
         True if the path is a valid workspace and a git repository
     """
-    result = validate_workspace_root_safe(root)
+    result = validate_workspace_root(root)
     if isinstance(result, Err):
         return False
     return _is_git_repo(result.value)
@@ -606,7 +507,7 @@ def is_path_safe(path: str | Path, root: Path | str) -> bool:
     Returns:
         True if the path is safe, False otherwise
     """
-    return validate_path_safe(path, root).is_ok()
+    return validate_path(path, root).is_ok()
 
 
 def validate_and_open(
@@ -636,7 +537,7 @@ def validate_and_open(
             with result.value as f:
                 data = json.load(f)
     """
-    result = validate_path_safe(path, root)
+    result = validate_path(path, root)
     if isinstance(result, Err):
         return result
 
@@ -674,15 +575,11 @@ def validate_and_open(
 __all__ = [
     "FORBIDDEN_ROOTS",
     "MAX_SYMLINK_DEPTH",
-    "PathValidationError",
-    "WorkspaceValidationError",
     "is_git_workspace",
     "is_path_safe",
     "validate_and_open",
     "validate_path",
-    "validate_path_safe",
-    "validate_path_safe_async",
+    "validate_path_async",
     "validate_workspace_root",
-    "validate_workspace_root_safe",
-    "validate_workspace_root_safe_async",
+    "validate_workspace_root_async",
 ]

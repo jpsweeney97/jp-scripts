@@ -48,7 +48,7 @@ async def extract_patch_paths(patch_text: str, root: Path) -> list[Path]:
             continue
         if path_str.startswith(("a/", "b/")):
             path_str = path_str[2:]
-        result = await security.validate_path_safe_async(root / path_str, root)
+        result = await security.validate_path_async(root / path_str, root)
         if isinstance(result, Err):
             logger.debug("Skipped unsafe patch path %s: %s", path_str, result.error.message)
             continue
@@ -63,7 +63,7 @@ async def write_failed_patch(patch_text: str, root: Path) -> None:
         patch_text: The patch content that failed to apply
         root: The workspace root directory
     """
-    result = await security.validate_path_safe_async(root / "agent_failed_patch.diff", root)
+    result = await security.validate_path_async(root / "agent_failed_patch.diff", root)
     if isinstance(result, Err):
         logger.debug("Unable to persist failed patch: %s", result.error.message)
         return

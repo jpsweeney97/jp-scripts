@@ -24,6 +24,7 @@ from jpscripts.core.result import Err, Ok
 from .circuit import _estimate_token_usage
 from .middleware import (
     AgentMiddleware,
+    MiddlewarePhase,
     StepContext,
     run_middleware_pipeline,
 )
@@ -131,7 +132,7 @@ class AgentEngine(Generic[ResponseT]):
             ctx.prepared = await self._render_prompt(history)
 
             # Phase 2: Run before_step middleware
-            ctx = await run_middleware_pipeline(self._middleware, ctx, phase="before")
+            ctx = await run_middleware_pipeline(self._middleware, ctx, phase=MiddlewarePhase.BEFORE)
 
             # Phase 3: Fetch and parse response (prepared is guaranteed set after render)
             if ctx.prepared is None:
@@ -153,7 +154,7 @@ class AgentEngine(Generic[ResponseT]):
             self._last_files_touched = ctx.files_touched
 
             # Phase 5: Run after_step middleware (governance, circuit breaker, tracing)
-            ctx = await run_middleware_pipeline(self._middleware, ctx, phase="after")
+            ctx = await run_middleware_pipeline(self._middleware, ctx, phase=MiddlewarePhase.AFTER)
 
             # Return the (potentially modified) response
             if ctx.response is None:

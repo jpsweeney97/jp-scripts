@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from jpscripts.core.security import validate_path_safe
+from jpscripts.core.security import validate_path
 
 
 def _apply_hunks(original: str, hunks: list[tuple[int, list[str]]]) -> str:
@@ -104,7 +104,7 @@ def apply_patch_in_memory(diff: str, root: Path) -> dict[Path, str]:
 
             # Validate path stays within workspace to prevent path traversal attacks
             candidate = root / path_str
-            validation = validate_path_safe(candidate, root)
+            validation = validate_path(candidate, root)
             if validation.is_err():
                 # Skip files with invalid paths (path traversal attempt)
                 current_file = None
@@ -153,7 +153,7 @@ def parse_diff_files(diff: str, root: Path) -> dict[Path, set[int]]:
         if line.startswith("+++ b/"):
             path_str = line[6:]
             candidate = root / path_str
-            validation = validate_path_safe(candidate, root)
+            validation = validate_path(candidate, root)
             if validation.is_err():
                 current_file = None
                 continue
@@ -165,7 +165,7 @@ def parse_diff_files(diff: str, root: Path) -> dict[Path, set[int]]:
             if path_str.startswith("b/"):
                 path_str = path_str[2:]
             candidate = root / path_str
-            validation = validate_path_safe(candidate, root)
+            validation = validate_path(candidate, root)
             if validation.is_err():
                 current_file = None
                 continue
