@@ -26,16 +26,17 @@ graph TB
         end
 
         subgraph Memory["Memory Subsystem"]
-            memory_store[memory/store.py]
+            memory_store[memory/store/]
             memory_embed[memory/embedding.py]
             memory_retrieve[memory/retrieval.py]
             memory_patterns[memory/patterns.py]
         end
 
         subgraph CoreSecurity["Security"]
-            security[core/security.py]
-            command_val[core/command_validation.py]
-            safety[core/safety.py]
+            security[core/security/]
+            command_val[core/security/command.py]
+            safety[core/security/safety.py]
+            rate_limit[core/security/rate_limit.py]
         end
     end
 
@@ -101,9 +102,11 @@ graph TB
 | **agent/** | Agent engine, middleware, parsing, execution loop |
 | **memory/** | Persistent memory storage, embeddings, retrieval |
 | **governance/** | AST checker, secret scanner, constitutional compliance |
-| **core/security.py** | Path validation, TOCTOU-safe file operations |
-| **core/command_validation.py** | Shell command allowlist/blocklist |
-| **core/safety.py** | Safe shell execution policies |
+| **core/security/** | Security package: path validation, command validation, rate limiting, safety |
+| **core/security/path.py** | Path traversal prevention, TOCTOU-safe file operations |
+| **core/security/command.py** | Shell command allowlist/blocklist |
+| **core/security/safety.py** | Safe shell execution policies |
+| **core/security/rate_limit.py** | Token bucket rate limiter |
 | **git/** | Git operations via subprocess |
 | **mcp/** | Model Context Protocol server and tools |
 | **providers/** | LLM provider implementations |
@@ -235,7 +238,10 @@ flowchart LR
 - **prompting.py**: Prompt construction, context assembly
 
 ### Memory Subsystem (`memory/`)
-- **store.py**: JSONL archival, LanceDB vector store, RRF fusion
+- **store/**: Storage backend package with pluggable implementations
+  - **jsonl.py**: JSONL file-based storage with keyword search
+  - **lance.py**: LanceDB vector store with semantic search
+  - **hybrid.py**: Combined storage with RRF fusion
 - **embedding.py**: Sentence transformer embeddings
 - **retrieval.py**: Semantic search, clustering
 - **patterns.py**: Pattern extraction and synthesis
@@ -245,11 +251,14 @@ flowchart LR
 - **secret_scanner.py**: API key detection in code
 
 ### Core (`core/`)
-- **security.py**: Path traversal prevention, atomic operations
-- **command_validation.py**: Shell command allowlist/blocklist
-- **safety.py**: Safe shell execution policies
-- **rate_limit.py**: Token bucket rate limiter
+- **security/**: Security package (consolidated from individual modules)
+  - **path.py**: Path traversal prevention, atomic operations
+  - **command.py**: Shell command allowlist/blocklist
+  - **safety.py**: Safe shell execution policies
+  - **rate_limit.py**: Token bucket rate limiter
 - **runtime.py**: Context variables, circuit breaker state
+- **config.py**: Application configuration
+- **console.py**: Logging and output utilities
 
 ### Provider Layer
 - **factory.py**: Provider selection based on model
