@@ -26,6 +26,15 @@ from jpscripts.agent.context import (
     scan_recent,
 )
 from jpscripts.agent.engine import AgentEngine
+
+# Export from execution module
+from jpscripts.agent.execution import (
+    RepairLoopOrchestrator,
+    apply_patch_text,
+    run_repair_loop,
+)
+from jpscripts.agent.factory import build_default_middleware, create_agent
+from jpscripts.agent.governance import enforce_governance
 from jpscripts.agent.middleware import (
     AgentMiddleware,
     BaseMiddleware,
@@ -35,14 +44,6 @@ from jpscripts.agent.middleware import (
     TracingMiddleware,
     run_middleware_pipeline,
 )
-
-# Export from execution module
-from jpscripts.agent.execution import (
-    RepairLoopOrchestrator,
-    apply_patch_text,
-    run_repair_loop,
-)
-from jpscripts.agent.governance import enforce_governance
 
 # Export from models module (merged from types and engine)
 from jpscripts.agent.models import (
@@ -83,11 +84,9 @@ from jpscripts.agent.tools import AUDIT_PREFIX, execute_tool, run_safe_shell
 from jpscripts.agent.tracing import TraceRecorder
 
 __all__ = [
-    # Constants
     "AGENT_TEMPLATE_NAME",
     "AUDIT_PREFIX",
     "GOVERNANCE_ANTI_PATTERNS",
-    # Classes
     "AgentEngine",
     "AgentEvent",
     "AgentMiddleware",
@@ -96,11 +95,8 @@ __all__ = [
     "AttemptContext",
     "BaseMiddleware",
     "CircuitBreakerMiddleware",
-    "GovernanceMiddleware",
-    "StepContext",
-    "TracingMiddleware",
-    # Enums and Types
     "EventKind",
+    "GovernanceMiddleware",
     "MemoryProtocol",
     "Message",
     "PatchFetcher",
@@ -112,15 +108,18 @@ __all__ = [
     "ResponseT",
     "SafetyLockdownError",
     "SecurityError",
+    "StepContext",
     "StrategyConfig",
     "ToolCall",
     "TraceRecorder",
-    # Functions
+    "TracingMiddleware",
     "apply_patch_text",
+    "build_default_middleware",
     "build_dependency_section",
     "build_file_context_section",
     "collect_git_context",
     "collect_git_diff",
+    "create_agent",
     "enforce_circuit_breaker",
     "enforce_governance",
     "execute_tool",

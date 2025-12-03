@@ -19,18 +19,14 @@ from typing import Generic
 from pydantic import BaseModel
 
 from jpscripts.core.cost_tracker import TokenUsage
+from jpscripts.core.result import Err, Ok
 
 from .circuit import _estimate_token_usage
 from .middleware import (
     AgentMiddleware,
-    CircuitBreakerMiddleware,
-    GovernanceMiddleware,
     StepContext,
-    TracingMiddleware,
     run_middleware_pipeline,
 )
-from jpscripts.core.result import Err, Ok
-
 from .models import (
     AgentError,
     AgentResult,
@@ -43,21 +39,29 @@ from .models import (
 )
 from .patching import extract_patch_paths
 from .tools import execute_tool
-from .tracing import TraceRecorder
 
 
 class AgentEngine(Generic[ResponseT]):
-    """Main agent execution engine with governance, tracing, and safety.
+    """Main agent execution engine with middleware pipeline.
 
     This class composes the extracted modules to provide:
     - Response fetching and parsing
-    - Governance enforcement via middleware
-    - Safety monitoring (circuit breaker) via middleware
-    - Trace recording via middleware
+    - Extensible middleware pipeline
     - Tool execution
 
-    The engine uses a middleware pipeline for extensibility. Default middleware
-    can be disabled with use_default_middleware=False.
+    The engine uses a middleware pipeline for features like governance,
+    circuit breaker, and tracing. Use build_default_middleware() or
+    create_agent() from the factory module to construct the default stack.
+
+    Example:
+        from jpscripts.agent.factory import build_default_middleware
+
+        middleware = build_default_middleware(
+            persona="Engineer",
+            workspace_root=root,
+            ...
+        )
+        engine = AgentEngine(middleware=middleware, ...)
     """
 
     def __init__(
@@ -73,9 +77,7 @@ class AgentEngine(Generic[ResponseT]):
         template_root: Path | None = None,
         trace_dir: Path | None = None,
         workspace_root: Path | None = None,
-        governance_enabled: bool = True,
         middleware: Sequence[AgentMiddleware[ResponseT]] | None = None,
-        use_default_middleware: bool = True,
     ) -> None:
         self.persona = persona
         self.model = model
@@ -85,46 +87,17 @@ class AgentEngine(Generic[ResponseT]):
         # Tools must be explicitly provided by caller (dependency injection)
         # Pass get_tool_registry() from jpscripts.core.mcp_registry for full tool support
         # Or pass {} for tool-less operation (testing, trace replay)
-        self._tools: Mapping[str, Callable[..., Awaitable[str]]] = tools if tools is not None else {}
+        self._tools: Mapping[str, Callable[..., Awaitable[str]]] = (
+            tools if tools is not None else {}
+        )
         self._memory = memory
         self._template_root = template_root
-        self._trace_recorder = TraceRecorder(trace_dir or Path.home() / ".jpscripts" / "traces")
         self._workspace_root = workspace_root
-        self._governance_enabled = governance_enabled
         self._last_usage_snapshot: TokenUsage | None = None
         self._last_files_touched: list[Path] = []
 
-        # Build middleware pipeline
-        self._middleware: list[AgentMiddleware[ResponseT]] = []
-
-        if use_default_middleware:
-            # Default middleware in execution order:
-            # 1. Governance (validates responses, may retry)
-            if governance_enabled and workspace_root is not None:
-                self._middleware.append(
-                    GovernanceMiddleware(
-                        workspace_root=workspace_root,
-                        render_prompt=self._render_prompt,
-                        fetch_response=self._fetch_response,
-                        parser=parser,
-                        enabled=True,
-                    )
-                )
-
-            # 2. Circuit breaker (enforces safety limits)
-            self._middleware.append(CircuitBreakerMiddleware(persona=persona))
-
-            # 3. Tracing (records execution traces)
-            self._middleware.append(
-                TracingMiddleware(
-                    trace_recorder=self._trace_recorder,
-                    persona=persona,
-                )
-            )
-
-        # Add custom middleware after defaults
-        if middleware:
-            self._middleware.extend(middleware)
+        # Middleware pipeline (caller provides via factory or manually)
+        self._middleware: list[AgentMiddleware[ResponseT]] = list(middleware) if middleware else []
 
     async def _render_prompt(self, history: Sequence[Message]) -> PreparedPrompt:
         return await self._prompt_builder(history)

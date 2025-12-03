@@ -15,11 +15,11 @@ from contextlib import AbstractContextManager
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generic, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from pydantic import BaseModel, Field
 
-from jpscripts.core.result import Err, JPScriptsError, Ok, Result
+from jpscripts.core.result import JPScriptsError, Result
 
 if TYPE_CHECKING:
     from opentelemetry.exporter.otlp.proto.http.trace_exporter import (  # pyright: ignore[reportMissingImports]
@@ -259,10 +259,10 @@ class RepairLoopConfig:
 # -----------------------------------------------------------------------------
 
 __all__ = [
-    # Event types (from agent/types.py)
-    "AgentEvent",
     # Core models
     "AgentError",
+    # Event types (from agent/types.py)
+    "AgentEvent",
     "AgentResponse",
     "AgentResult",
     "AgentTraceStep",

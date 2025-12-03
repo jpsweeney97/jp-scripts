@@ -16,8 +16,8 @@ from pydantic import ValidationError
 from jpscripts.agent import ops
 from jpscripts.agent.context import expand_context_paths
 from jpscripts.agent.engine import AgentEngine
+from jpscripts.agent.factory import build_default_middleware
 from jpscripts.agent.models import (
-    AgentError,
     AgentEvent,
     AgentResponse,
     EventKind,
@@ -29,12 +29,10 @@ from jpscripts.agent.models import (
     SecurityError,
     ToolCall,
 )
-from jpscripts.core.result import Err, Ok
 from jpscripts.agent.ops import verify_syntax  # Re-export for backward compatibility
 from jpscripts.agent.parsing import parse_agent_response
 from jpscripts.agent.patching import apply_patch_text, compute_patch_hash
 from jpscripts.agent.prompting import prepare_agent_prompt
-from jpscripts.core.mcp_registry import get_tool_registry
 from jpscripts.agent.strategies import (
     STRATEGY_OVERRIDE_TEXT,
     AttemptContext,
@@ -47,6 +45,8 @@ from jpscripts.agent.strategies import (
 from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
+from jpscripts.core.mcp_registry import get_tool_registry
+from jpscripts.core.result import Err
 from jpscripts.memory import save_memory
 
 logger = get_logger(__name__)
@@ -152,9 +152,7 @@ async def _process_patch(
     patch_hash = compute_patch_hash(patch_text)
 
     if patch_hash in seen_patch_hashes:
-        events.append(
-            AgentEvent(EventKind.DUPLICATE_PATCH, "Duplicate patch detected - skipping.")
-        )
+        events.append(AgentEvent(EventKind.DUPLICATE_PATCH, "Duplicate patch detected - skipping."))
         _append_history(
             history,
             Message(
@@ -482,24 +480,47 @@ class RepairLoopOrchestrator:
                 strategy=strategy_cfg,
             )
 
-            # Lambda with default args from captured scope; mypy cannot infer types
+            # Capture loop variables via default args for proper binding
             # tools={} disables tools (step_back), get_tool_registry() enables full tools
             # workspace_root enables governance checks for constitutional compliance
+            async def prompt_builder(
+                msgs: Sequence[Message],
+                *,
+                _prompt: str = iteration_prompt,
+                _loop_detected: bool = loop_ctx.loop_detected,
+                _temp: float | None = loop_ctx.temperature_override,
+                _strategy: StrategyConfig = strategy_cfg,
+                _paths: list[Path] = list(dynamic_paths),  # noqa: B006
+            ) -> PreparedPrompt:
+                return await self._build_prompt(
+                    msgs,
+                    _prompt,
+                    _loop_detected,
+                    _temp,
+                    _strategy,
+                    _paths,
+                )
+
+            # Build middleware using factory (dependency injection)
+            middleware = build_default_middleware(
+                persona="Engineer",
+                workspace_root=self._root,
+                governance_enabled=True,
+                render_prompt=prompt_builder,
+                fetch_response=self._fetch,
+                parser=parse_agent_response,
+            )
+
             engine = AgentEngine[AgentResponse](
                 persona="Engineer",
                 model=self.model or config.ai.default_model,  # type: ignore[union-attr]
-                prompt_builder=lambda msgs,  # type: ignore[misc]
-                ip=iteration_prompt,
-                ld=loop_ctx.loop_detected,
-                temp=loop_ctx.temperature_override,
-                strat=strategy_cfg,
-                paths=list(dynamic_paths): self._build_prompt(msgs, ip, ld, temp, strat, paths),
+                prompt_builder=prompt_builder,
                 fetch_response=self._fetch,
                 parser=parse_agent_response,
                 tools={} if strategy_cfg.name == "step_back" else get_tool_registry(),
                 template_root=self._root,
                 workspace_root=self._root,
-                governance_enabled=True,
+                middleware=middleware,
             )
 
             step_result = await engine.step(self.history)
@@ -680,7 +701,9 @@ class RepairLoopOrchestrator:
             return
 
         error_msg = ops.summarize_output(
-            stdout, stderr, config.ai.max_command_output_chars  # type: ignore[union-attr]
+            stdout,
+            stderr,
+            config.ai.max_command_output_chars,  # type: ignore[union-attr]
         )
         yield AgentEvent(
             EventKind.COMMAND_FAILED,
