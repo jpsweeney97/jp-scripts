@@ -8,6 +8,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable, Generator
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
 
 from jpscripts.agent import PreparedPrompt
 from jpscripts.core.config import AIConfig, AppConfig, InfraConfig, UserConfig
@@ -18,7 +19,7 @@ from jpscripts.structures.dag import DAGGraph, DAGTask
 from jpscripts.swarm import ParallelSwarmController
 
 
-@pytest.fixture
+@pytest_asyncio.fixture
 async def async_git_repo(tmp_path: Path) -> AsyncGenerator[AsyncRepo, None]:
     """Create a temporary git repository using AsyncRepo.
 
@@ -30,7 +31,8 @@ async def async_git_repo(tmp_path: Path) -> AsyncGenerator[AsyncRepo, None]:
 
     # Initialize repo using subprocess (one-time operation)
     proc = await asyncio.create_subprocess_exec(
-        "git", "init",
+        "git",
+        "init",
         cwd=repo_path,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -55,8 +57,8 @@ async def async_git_repo(tmp_path: Path) -> AsyncGenerator[AsyncRepo, None]:
     yield repo
 
 
-@pytest.fixture
-def swarm_config(tmp_path: Path, async_git_repo: AsyncRepo) -> AppConfig:
+@pytest_asyncio.fixture
+async def swarm_config(tmp_path: Path, async_git_repo: AsyncRepo) -> AppConfig:
     """Create AppConfig for swarm testing."""
     notes_dir = tmp_path / "notes"
     notes_dir.mkdir(exist_ok=True)
@@ -78,10 +80,10 @@ def swarm_config(tmp_path: Path, async_git_repo: AsyncRepo) -> AppConfig:
     )
 
 
-@pytest.fixture
-def runtime_ctx(
+@pytest_asyncio.fixture
+async def runtime_ctx(
     swarm_config: AppConfig, async_git_repo: AsyncRepo
-) -> Generator[RuntimeContext, None, None]:
+) -> AsyncGenerator[RuntimeContext, None]:
     """Set up runtime context for the test."""
     ctx = RuntimeContext(
         config=swarm_config,

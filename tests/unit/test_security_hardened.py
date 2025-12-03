@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
-
 from jpscripts.core.context import DEFAULT_MODEL_CONTEXT_LIMIT, read_file_context
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.security import validate_path, validate_workspace_root

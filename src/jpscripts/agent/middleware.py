@@ -32,6 +32,7 @@ class MiddlewarePhase(StrEnum):
     BEFORE = "before"
     AFTER = "after"
 
+
 from pydantic import BaseModel
 
 from jpscripts.core.cost_tracker import TokenUsage

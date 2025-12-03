@@ -37,7 +37,8 @@ def test_no_blocking_subprocess_run_in_commands() -> None:
         REPO_ROOT / "src" / "jpscripts" / "core" / "git.py",
         REPO_ROOT / "src" / "jpscripts" / "core" / "system.py",
         REPO_ROOT / "src" / "jpscripts" / "core" / "search.py",
-        REPO_ROOT / "src" / "jpscripts" / "core" / "security.py",
+        # Security package uses subprocess.run for git repo detection (with async alternative)
+        REPO_ROOT / "src" / "jpscripts" / "core" / "security" / "path.py",
         # governance package has subprocess.run() in AST patterns for detecting violations
         REPO_ROOT / "src" / "jpscripts" / "core" / "governance" / "ast_checker.py",
     }

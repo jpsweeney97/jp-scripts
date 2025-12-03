@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from jpscripts.core.result import Err, Ok, SecurityError
+from jpscripts.core.result import Err, Ok
 from jpscripts.core.security import (
     FORBIDDEN_ROOTS,
     MAX_SYMLINK_DEPTH,

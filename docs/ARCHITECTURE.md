@@ -19,17 +19,10 @@ graph TB
         runtime[runtime.py]
 
         subgraph Agent["Agent Subsystem"]
+            agent_engine[agent/engine.py]
             agent_exec[agent/execution.py]
             agent_prompt[agent/prompting.py]
-            agent_repair[agent/repair_strategies.py]
-        end
-
-        subgraph Engine["Engine Subsystem"]
-            engine_main[engine/__init__.py]
-            response[engine/response_handler.py]
-            governance_e[engine/governance_enforcer.py]
-            safety[engine/safety_monitor.py]
-            tools[engine/tool_executor.py]
+            agent_strategies[agent/strategies.py]
         end
 
         subgraph Memory["Memory Subsystem"]
@@ -39,10 +32,11 @@ graph TB
             memory_patterns[memory/patterns.py]
         end
 
-        governance[governance.py]
-        security[security.py]
-        shell[shell.py]
-        tokens[tokens.py]
+        subgraph CoreSecurity["Security"]
+            security[core/security.py]
+            command_val[core/command_validation.py]
+            safety[core/safety.py]
+        end
     end
 
     subgraph Git["Git Layer"]
@@ -70,38 +64,26 @@ graph TB
     commands --> Agent
     commands --> git_client
 
-    %% Agent to Engine
-    Agent --> Engine
-    agent_exec --> engine_main
-
-    %% Engine to Providers
-    engine_main --> factory
+    %% Agent to Providers
+    agent_engine --> factory
     factory --> anthropic
     factory --> openai
     factory --> codex
 
-    %% Engine to Governance
-    governance_e --> governance
-    governance --> security
+    %% Security connections
+    agent_exec --> security
+    agent_exec --> command_val
 
     %% Memory connections
     Agent --> Memory
     memory_store --> memory_embed
     memory_retrieve --> memory_store
 
-    %% Tool execution
-    tools --> shell
-    tools --> mcp_registry
-
     %% MCP connections
     mcp_server --> mcp_registry
     mcp_registry --> mcp_tools
     mcp_tools --> security
     mcp_tools --> git_client
-
-    %% Safety and tokens
-    safety --> tokens
-    engine_main --> tokens
 
     style CLI fill:#e1f5fe
     style Core fill:#fff3e0
@@ -126,6 +108,7 @@ graph TB
 | **mcp/** | Model Context Protocol server and tools |
 | **providers/** | LLM provider implementations |
 | **swarm/** | Parallel execution with git worktree isolation |
+| **ai/** | Token utilities, AI-specific helpers |
 
 ---
 

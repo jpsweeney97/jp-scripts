@@ -74,12 +74,12 @@ def test_handbook_semantic_query(monkeypatch: Any) -> None:
 
     def _fake_cache_paths() -> tuple[Path, Path, Path, Path]:
         base_root = Path.cwd()
-        cache_dir = validate_path(cache_root, base_root)
+        # Must unwrap Result[Path, str] to Path, matching the real function
         return (
-            cache_dir,
-            validate_path(meta_path, base_root),
-            validate_path(entries_path, base_root),
-            validate_path(store_path, base_root),
+            validate_path(cache_root, base_root).unwrap_or(cache_root),
+            validate_path(meta_path, base_root).unwrap_or(meta_path),
+            validate_path(entries_path, base_root).unwrap_or(entries_path),
+            validate_path(store_path, base_root).unwrap_or(store_path),
         )
 
     monkeypatch.setattr(handbook_cmd, "_cache_paths", _fake_cache_paths)

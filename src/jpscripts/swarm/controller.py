@@ -145,10 +145,7 @@ class ParallelSwarmController:
         """
         state = SwarmState(
             swarm_id=self._swarm_id,
-            tasks={
-                task_id: result.status.value
-                for task_id, result in self._task_results.items()
-            },
+            tasks={task_id: result.status.name for task_id, result in self._task_results.items()},
             worktree_paths={
                 task_id: result.branch_name
                 for task_id, result in self._task_results.items()
