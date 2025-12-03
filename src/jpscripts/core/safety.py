@@ -5,6 +5,8 @@ This module re-exports from the new location: jpscripts.core.security.safety
 Deprecated: Import directly from jpscripts.core.security instead.
 """
 
+# Re-export SecurityError from errors (where it was originally exported)
+from jpscripts.core.errors import SecurityError
 from jpscripts.core.security.safety import (
     check_circuit_breaker,
     estimate_tokens_from_args,
@@ -12,9 +14,6 @@ from jpscripts.core.security.safety import (
     wrap_mcp_tool,
     wrap_with_breaker,
 )
-
-# Re-export SecurityError from errors (where it was originally exported)
-from jpscripts.core.errors import SecurityError
 
 __all__ = [
     "SecurityError",

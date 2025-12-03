@@ -83,6 +83,6 @@ async def archive_session_summary(
 _archive_session_summary = archive_session_summary
 
 __all__ = [
-    "archive_session_summary",
     "_archive_session_summary",
+    "archive_session_summary",
 ]

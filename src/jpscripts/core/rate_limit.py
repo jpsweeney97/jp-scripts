@@ -6,8 +6,8 @@ Deprecated: Import directly from jpscripts.core.security instead.
 """
 
 from jpscripts.core.security.rate_limit import (
-    RateLimitExceeded,
     RateLimiter,
+    RateLimitExceeded,
     rate_limited_call,
 )
 

@@ -10,12 +10,9 @@ Decomposed modules:
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-
-from pydantic import ValidationError
 
 from jpscripts.agent import ops
 from jpscripts.agent.archive import archive_session_summary as _archive_session_summary
@@ -289,7 +286,6 @@ class _TurnLoopResult:
 
     applied_paths: list[Path]
     current_error: str
-
 
 
 class RepairLoopOrchestrator:

@@ -70,9 +70,7 @@ class TestParallelSwarmControllerRun:
 class TestParallelSwarmControllerSetDag:
     """Tests for DAG validation."""
 
-    def test_set_dag_rejects_cyclic_graph(
-        self, test_config: AppConfig, tmp_path: Path
-    ) -> None:
+    def test_set_dag_rejects_cyclic_graph(self, test_config: AppConfig, tmp_path: Path) -> None:
         """set_dag() returns ValidationError for cyclic DAGs."""
 
         async def mock_fetch(_: object) -> str:
@@ -158,9 +156,7 @@ class TestSwarmStateRecovery:
 
         assert result is None
 
-    def test_load_state_returns_valid_state(
-        self, test_config: AppConfig, tmp_path: Path
-    ) -> None:
+    def test_load_state_returns_valid_state(self, test_config: AppConfig, tmp_path: Path) -> None:
         """_load_state() returns SwarmState when valid state file exists."""
         from jpscripts.swarm.controller import SwarmState
 
@@ -225,9 +221,7 @@ class TestSwarmStateRecovery:
         assert result is not None
         assert result.swarm_id == "xyz789"
 
-    def test_clear_state_removes_file(
-        self, test_config: AppConfig, tmp_path: Path
-    ) -> None:
+    def test_clear_state_removes_file(self, test_config: AppConfig, tmp_path: Path) -> None:
         """_clear_state() removes the state file when it exists."""
 
         async def mock_fetch(_: object) -> str:
@@ -249,9 +243,7 @@ class TestSwarmStateRecovery:
         controller._clear_state()
         assert not state_path.exists()
 
-    def test_clear_state_noop_when_no_file(
-        self, test_config: AppConfig, tmp_path: Path
-    ) -> None:
+    def test_clear_state_noop_when_no_file(self, test_config: AppConfig, tmp_path: Path) -> None:
         """_clear_state() does nothing when no state file exists."""
 
         async def mock_fetch(_: object) -> str:

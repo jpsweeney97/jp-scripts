@@ -16,6 +16,17 @@ All exports are backward-compatible with the previous module-level imports.
 
 from __future__ import annotations
 
+# Command validation (previously core/command_validation.py)
+from jpscripts.core.security.command import (
+    ALLOWED_BINARIES,
+    ALLOWED_GIT_SUBCOMMANDS,
+    FORBIDDEN_BINARIES,
+    FORBIDDEN_GIT_SUBCOMMANDS,
+    CommandVerdict,
+    is_command_safe,
+    validate_command,
+)
+
 # Path validation (previously core/security.py)
 from jpscripts.core.security.path import (
     FORBIDDEN_ROOTS,
@@ -32,21 +43,10 @@ from jpscripts.core.security.path import (
     validate_workspace_root_async,
 )
 
-# Command validation (previously core/command_validation.py)
-from jpscripts.core.security.command import (
-    ALLOWED_BINARIES,
-    ALLOWED_GIT_SUBCOMMANDS,
-    FORBIDDEN_BINARIES,
-    FORBIDDEN_GIT_SUBCOMMANDS,
-    CommandVerdict,
-    is_command_safe,
-    validate_command,
-)
-
 # Rate limiting (previously core/rate_limit.py)
 from jpscripts.core.security.rate_limit import (
-    RateLimitExceeded,
     RateLimiter,
+    RateLimitExceeded,
     rate_limited_call,
 )
 
@@ -60,35 +60,35 @@ from jpscripts.core.security.safety import (
 )
 
 __all__ = [
-    # Path validation
-    "FORBIDDEN_ROOTS",
-    "MAX_SYMLINK_DEPTH",
-    "_is_forbidden_path",
-    "_resolve_with_limit",
-    "_resolve_with_limit_async",
-    "is_git_workspace",
-    "is_path_safe",
-    "validate_and_open",
-    "validate_path",
-    "validate_path_async",
-    "validate_workspace_root",
-    "validate_workspace_root_async",
     # Command validation
     "ALLOWED_BINARIES",
     "ALLOWED_GIT_SUBCOMMANDS",
-    "CommandVerdict",
     "FORBIDDEN_BINARIES",
     "FORBIDDEN_GIT_SUBCOMMANDS",
-    "is_command_safe",
-    "validate_command",
+    # Path validation
+    "FORBIDDEN_ROOTS",
+    "MAX_SYMLINK_DEPTH",
+    "CommandVerdict",
     # Rate limiting
     "RateLimitExceeded",
     "RateLimiter",
-    "rate_limited_call",
+    "_is_forbidden_path",
+    "_resolve_with_limit",
+    "_resolve_with_limit_async",
     # Safety middleware
     "check_circuit_breaker",
     "estimate_tokens_from_args",
     "guarded_execution",
+    "is_command_safe",
+    "is_git_workspace",
+    "is_path_safe",
+    "rate_limited_call",
+    "validate_and_open",
+    "validate_command",
+    "validate_path",
+    "validate_path_async",
+    "validate_workspace_root",
+    "validate_workspace_root_async",
     "wrap_mcp_tool",
     "wrap_with_breaker",
 ]
