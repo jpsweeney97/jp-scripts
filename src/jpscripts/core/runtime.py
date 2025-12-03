@@ -22,6 +22,7 @@ Usage:
 from __future__ import annotations
 
 import contextvars
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -47,12 +48,16 @@ class WarningState:
 
 @dataclass
 class CircuitBreaker:
-    """Guardrails for runaway cost or churn during a single agent turn."""
+    """Guardrails for runaway cost or churn during a single agent turn.
+
+    Thread-safe via internal lock protecting mutable state.
+    """
 
     max_cost_velocity: Decimal
     max_file_churn: int
     model_id: str = "default"
 
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
     _last_check_timestamp: float | None = field(default=None, init=False, repr=False)
     last_cost_estimate: Decimal = field(default=Decimal("0"), init=False)
     last_cost_velocity: Decimal = field(default=Decimal("0"), init=False)
@@ -60,24 +65,28 @@ class CircuitBreaker:
     last_failure_reason: str | None = field(default=None, init=False)
 
     def check_health(self, usage: TokenUsage, files_touched: list[Path]) -> bool:
-        """Evaluate whether current usage stays within guardrails."""
-        cost = self._estimate_cost(usage)
-        file_churn = self._count_unique_files(files_touched)
-        velocity = self._compute_velocity(cost)
+        """Evaluate whether current usage stays within guardrails.
 
-        self.last_cost_estimate = cost
-        self.last_cost_velocity = velocity
-        self.last_file_churn = file_churn
+        Thread-safe: acquires internal lock before reading/writing state.
+        """
+        with self._lock:
+            cost = self._estimate_cost(usage)
+            file_churn = self._count_unique_files(files_touched)
+            velocity = self._compute_velocity(cost)
 
-        if velocity > self.max_cost_velocity:
-            self.last_failure_reason = "Cost velocity threshold exceeded"
-            return False
-        if file_churn > self.max_file_churn:
-            self.last_failure_reason = "File churn threshold exceeded"
-            return False
+            self.last_cost_estimate = cost
+            self.last_cost_velocity = velocity
+            self.last_file_churn = file_churn
 
-        self.last_failure_reason = None
-        return True
+            if velocity > self.max_cost_velocity:
+                self.last_failure_reason = "Cost velocity threshold exceeded"
+                return False
+            if file_churn > self.max_file_churn:
+                self.last_failure_reason = "File churn threshold exceeded"
+                return False
+
+            self.last_failure_reason = None
+            return True
 
     def _estimate_cost(self, usage: TokenUsage) -> Decimal:
         pricing = get_pricing(self.model_id)

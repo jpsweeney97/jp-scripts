@@ -267,7 +267,17 @@ def validate_workspace_root(root: Path | str) -> Result[Path, WorkspaceError]:
     Returns:
         Ok(resolved_path) if valid, Err(WorkspaceError) otherwise
     """
-    resolved = Path(root).expanduser().resolve()
+    try:
+        resolved = Path(root).expanduser().resolve()
+    except (RuntimeError, OSError) as exc:
+        # RuntimeError: expanduser fails for invalid ~username (e.g., ~0, ~nonexistent)
+        # OSError: various path resolution failures
+        return Err(
+            WorkspaceError(
+                f"Invalid workspace root path: {exc}",
+                context={"path": str(root), "error": str(exc)},
+            )
+        )
     return _validate_workspace_root_cached(resolved)
 
 
@@ -365,7 +375,17 @@ async def validate_workspace_root_async(root: Path | str) -> Result[Path, Worksp
         Ok(resolved_path) if valid, Err(WorkspaceError) otherwise
     """
     # Offload blocking path resolution to thread
-    resolved = await asyncio.to_thread(lambda: Path(root).expanduser().resolve())
+    try:
+        resolved = await asyncio.to_thread(lambda: Path(root).expanduser().resolve())
+    except (RuntimeError, OSError) as exc:
+        # RuntimeError: expanduser fails for invalid ~username (e.g., ~0, ~nonexistent)
+        # OSError: various path resolution failures
+        return Err(
+            WorkspaceError(
+                f"Invalid workspace root path: {exc}",
+                context={"path": str(root), "error": str(exc)},
+            )
+        )
 
     # Offload blocking filesystem checks to thread
     exists = await asyncio.to_thread(resolved.exists)

@@ -16,11 +16,19 @@ Usage:
     # Or block until available:
     await limiter.wait_and_acquire()
     # Execute command
+
+Swarm Mode (shared rate limiting):
+    # Get the shared limiter singleton
+    shared = get_shared_rate_limiter()
+
+    # All RuntimeContext instances share this limiter in swarm mode
+    await shared.acquire()
 """
 
 from __future__ import annotations
 
 import asyncio
+import threading
 from collections import deque
 from collections.abc import Coroutine
 from dataclasses import dataclass, field
@@ -204,8 +212,111 @@ async def rate_limited_call(
     return await coro
 
 
+@dataclass
+class SharedRateLimiter:
+    """Process-global rate limiter for swarm mode.
+
+    In swarm mode, multiple RuntimeContext instances (each with their own
+    rate limiters) run concurrently. This shared limiter provides a global
+    cap to prevent the aggregate from exceeding system limits.
+
+    Thread-safe via internal lock for singleton access.
+
+    Attributes:
+        max_calls: Maximum number of calls allowed per window (shared across all contexts)
+        window_seconds: Duration of the sliding window in seconds
+    """
+
+    max_calls: int = 500
+    window_seconds: float = 60.0
+    _limiter: RateLimiter | None = field(default=None, init=False, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+
+    def _get_or_create_limiter(self) -> RateLimiter:
+        """Thread-safe lazy initialization of the underlying limiter."""
+        if self._limiter is None:
+            with self._lock:
+                if self._limiter is None:
+                    self._limiter = RateLimiter(
+                        max_calls=self.max_calls,
+                        window_seconds=self.window_seconds,
+                    )
+        return self._limiter
+
+    async def acquire(self) -> bool:
+        """Attempt to acquire permission to make a call."""
+        return await self._get_or_create_limiter().acquire()
+
+    async def wait_and_acquire(self, timeout: float | None = None) -> bool:
+        """Wait until a call can be made, then acquire."""
+        return await self._get_or_create_limiter().wait_and_acquire(timeout)
+
+    def current_usage(self) -> tuple[int, int]:
+        """Return current usage as (calls_made, max_calls)."""
+        return self._get_or_create_limiter().current_usage()
+
+    def is_rate_limited(self) -> bool:
+        """Check if currently rate limited."""
+        return self._get_or_create_limiter().is_rate_limited()
+
+    def reset(self) -> None:
+        """Clear all recorded timestamps, resetting the limiter."""
+        if self._limiter is not None:
+            self._limiter.reset()
+
+    def time_until_available(self) -> float:
+        """Return seconds until a slot becomes available."""
+        return self._get_or_create_limiter().time_until_available()
+
+
+# Module-level singleton for swarm mode
+_shared_limiter: SharedRateLimiter | None = None
+_shared_limiter_lock = threading.Lock()
+
+
+def get_shared_rate_limiter(
+    max_calls: int = 500, window_seconds: float = 60.0
+) -> SharedRateLimiter:
+    """Get the process-global shared rate limiter for swarm mode.
+
+    The limiter is lazily created on first call. Configuration parameters
+    are only used during initial creation; subsequent calls return the
+    existing singleton regardless of parameters.
+
+    Args:
+        max_calls: Maximum calls per window (only used on first call)
+        window_seconds: Window duration in seconds (only used on first call)
+
+    Returns:
+        The shared rate limiter singleton
+    """
+    global _shared_limiter
+    if _shared_limiter is None:
+        with _shared_limiter_lock:
+            if _shared_limiter is None:
+                _shared_limiter = SharedRateLimiter(
+                    max_calls=max_calls,
+                    window_seconds=window_seconds,
+                )
+    return _shared_limiter
+
+
+def reset_shared_rate_limiter() -> None:
+    """Reset the shared rate limiter singleton.
+
+    Primarily for testing. Clears the singleton so next call to
+    get_shared_rate_limiter() creates a fresh instance.
+    """
+    global _shared_limiter
+    with _shared_limiter_lock:
+        _shared_limiter = None
+
+
 __all__ = [
     "RateLimitExceeded",
     "RateLimiter",
+    "SharedRateLimiter",
+    "get_shared_rate_limiter",
     "rate_limited_call",
+    "reset_shared_rate_limiter",
 ]
