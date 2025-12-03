@@ -149,3 +149,23 @@ ignore = [
 known-first-party = ["jpscripts"]
 # This makes your imports look cleaner by grouping strict/standard/local
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/jpscripts"]
+omit = [
+    "*/__init__.py",
+    "*/conftest.py",
+]
+
+[tool.coverage.report]
+fail_under = 60
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@abstractmethod",
+    "\\.\\.\\.",  # ellipsis in Protocol/ABC stubs
+]
+show_missing = true
+skip_covered = false
