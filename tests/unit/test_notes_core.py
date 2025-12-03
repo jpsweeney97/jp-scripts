@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from jpscripts.core import notes_impl
+from jpscripts.features import notes as notes_impl
 
 
 def test_ensure_notes_dir_creates_directory(tmp_path: Path) -> None:
@@ -25,7 +25,7 @@ def test_get_today_path_format() -> None:
     fake_root = Path("/tmp/notes")
 
     # FIX: Patch the 'dt' module reference INSIDE notes_impl, not datetime.date globally
-    with patch("jpscripts.core.notes_impl.dt") as mock_dt:
+    with patch("jpscripts.features.notes.service.dt") as mock_dt:
         mock_dt.date.today.return_value = datetime.date(2025, 11, 24)
 
         result = notes_impl.get_today_path(fake_root)

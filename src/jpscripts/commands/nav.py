@@ -20,11 +20,11 @@ from rich.panel import Panel
 from rich.table import Table
 
 from jpscripts.commands.ui import fzf_select_async
-
-# Import core logic
-from jpscripts.core import nav as nav_core
 from jpscripts.core.console import console
 from jpscripts.core.result import Err, NavigationError, Ok, Result
+
+# Import core logic
+from jpscripts.features import navigation as nav_core
 
 
 def _human_time(timestamp: float) -> str:

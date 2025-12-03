@@ -257,7 +257,8 @@ def _format_file_snippets(files: Sequence[Path], max_files: int = 3, max_chars: 
 
 
 def _resolve_template_root() -> Path:
-    package_root = Path(__file__).resolve().parent.parent
+    # Navigate from features/team/model.py -> features -> jpscripts -> templates
+    package_root = Path(__file__).resolve().parent.parent.parent
     return security.validate_path(package_root / "templates", package_root)
 
 

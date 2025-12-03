@@ -5,7 +5,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from jpscripts.core.config import AppConfig
-from jpscripts.core.team import (
+from jpscripts.features.team import (
     AgentTurnResponse,
     Objective,
     PlanStep,

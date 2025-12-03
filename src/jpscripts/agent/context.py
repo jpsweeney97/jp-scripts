@@ -22,7 +22,7 @@ from jpscripts.core.context_gatherer import (
     resolve_files_from_output,
     smart_read_context,
 )
-from jpscripts.core.nav import scan_recent
+from jpscripts.features.navigation import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.git import client as git_core
 from jpscripts.git import ops as git_ops

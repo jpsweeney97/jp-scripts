@@ -20,7 +20,7 @@ from rich.panel import Panel
 from rich.text import Text
 
 from jpscripts.core.console import console
-from jpscripts.core.team import Persona, UpdateKind, get_default_swarm, swarm_chat
+from jpscripts.features.team import Persona, UpdateKind, get_default_swarm, swarm_chat
 
 if TYPE_CHECKING:
     from jpscripts.main import AppState

@@ -28,7 +28,7 @@ from jpscripts.core import security
 from jpscripts.core.config import AppConfig
 from jpscripts.core.console import get_logger
 from jpscripts.core.context_gatherer import gather_context, smart_read_context
-from jpscripts.core.nav import scan_recent
+from jpscripts.features.navigation import scan_recent
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.memory import fetch_relevant_patterns, format_patterns_for_prompt, query_memory

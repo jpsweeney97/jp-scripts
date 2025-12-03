@@ -11,7 +11,7 @@ import asyncio
 from pathlib import Path
 
 from jpscripts import memory as memory_core
-from jpscripts.core import nav as nav_core
+from jpscripts.features import navigation as nav_core
 from jpscripts.core.result import Err, Ok
 from jpscripts.core.runtime import get_runtime
 from jpscripts.mcp import tool, tool_error_handler

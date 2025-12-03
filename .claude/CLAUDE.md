@@ -513,7 +513,7 @@ When all phases are complete:
 
 ### Active roadmap
 
-None currently active.
+`docs/UNIFIED_ARCHITECTURAL_REFACTOR_ROADMAP.md` - Unified architectural refactor (8 phases, started 2025-12-02)
 
 ### Previously completed roadmaps
 

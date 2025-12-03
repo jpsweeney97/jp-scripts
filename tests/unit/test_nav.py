@@ -8,7 +8,7 @@ from pathlib import Path
 from jpscripts.commands.nav import _human_time
 
 # FIX: Import from the new core module location
-from jpscripts.core.nav import scan_recent
+from jpscripts.features.navigation import scan_recent
 
 
 def test_human_time_formats_timestamp() -> None:
