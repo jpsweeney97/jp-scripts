@@ -291,6 +291,117 @@ def _parse_tool_calls(
     return result
 
 
+def _build_completion_params(
+    model_id: str,
+    messages: list[dict[str, object]],
+    opts: CompletionOptions,
+    *,
+    stream: bool = False,
+) -> dict[str, object]:
+    """Build request parameters for OpenAI completion API.
+
+    Consolidates parameter building logic shared between complete() and stream().
+
+    Args:
+        model_id: Resolved model ID (canonical, not alias)
+        messages: Already-converted OpenAI format messages
+        opts: Completion options
+        stream: Whether this is a streaming request
+
+    Returns:
+        Dictionary of parameters ready for API call
+    """
+    params: dict[str, object] = {
+        "model": model_id,
+        "messages": messages,
+    }
+
+    if stream:
+        params["stream"] = True
+        params["stream_options"] = {"include_usage": True}
+
+    # Max tokens parameter differs by model
+    if opts.max_tokens:
+        if model_id.startswith(("o1", "o3")):
+            params["max_completion_tokens"] = opts.max_tokens
+        else:
+            params["max_tokens"] = opts.max_tokens
+
+    # Temperature not supported for o1/o3 models
+    if opts.temperature is not None and model_id not in MODELS_WITHOUT_TEMPERATURE:
+        params["temperature"] = opts.temperature
+
+    if opts.top_p is not None and model_id not in MODELS_WITHOUT_TEMPERATURE:
+        params["top_p"] = opts.top_p
+
+    if opts.stop_sequences:
+        params["stop"] = list(opts.stop_sequences)
+
+    # JSON mode
+    if opts.json_mode:
+        params["response_format"] = {"type": "json_object"}
+
+    # Tools (not supported for o1 series)
+    tools = _convert_tools_to_openai(opts.tools)
+    if tools and not model_id.startswith(("o1", "o3")):
+        params["tools"] = tools
+        # tool_choice only for non-streaming requests
+        if not stream and opts.tool_choice:
+            if opts.tool_choice in ("auto", "none"):
+                params["tool_choice"] = opts.tool_choice
+            else:
+                params["tool_choice"] = {
+                    "type": "function",
+                    "function": {"name": opts.tool_choice},
+                }
+
+    # Reasoning effort for o1/o3 models
+    if opts.reasoning_effort and model_id.startswith(("o1", "o3")):
+        params["reasoning_effort"] = opts.reasoning_effort
+
+    return params
+
+
+def _extract_completion_choice(
+    response: _CompletionResponse,
+) -> tuple[str, list[ToolCall], str | None]:
+    """Extract content, tool calls, and finish reason from first choice.
+
+    Args:
+        response: The completion response object
+
+    Returns:
+        Tuple of (content, tool_calls, finish_reason)
+    """
+    choice = response.choices[0] if response.choices else None
+    if not choice:
+        return "", [], None
+
+    content = choice.message.content or ""
+    tool_calls = _parse_tool_calls(choice.message.tool_calls)
+    finish_reason = choice.finish_reason
+    return content, tool_calls, finish_reason
+
+
+def _parse_stream_chunk(chunk: _StreamChunk) -> tuple[str, str | None]:
+    """Parse content and finish reason from a stream chunk.
+
+    Args:
+        chunk: A single stream chunk with choices
+
+    Returns:
+        Tuple of (content_delta, finish_reason)
+    """
+    choice = chunk.choices[0]
+    delta = choice.delta
+
+    content = ""
+    if delta and delta.content:
+        content = delta.content
+
+    return content, choice.finish_reason
+
+
 @register_provider(ProviderType.OPENAI)
 class OpenAIProvider(BaseLLMProvider):
     """OpenAI provider implementation.
@@ -356,50 +467,7 @@ class OpenAIProvider(BaseLLMProvider):
 
         model_id = _resolve_model_id(model or self.default_model)
         converted_messages = _convert_messages_to_openai(messages, opts.system_prompt, model_id)
-
-        # Build request parameters
-        params: dict[str, object] = {
-            "model": model_id,
-            "messages": converted_messages,
-        }
-
-        # Max tokens parameter differs by model
-        if opts.max_tokens:
-            if model_id.startswith(("o1", "o3")):
-                params["max_completion_tokens"] = opts.max_tokens
-            else:
-                params["max_tokens"] = opts.max_tokens
-
-        # Temperature not supported for o1/o3 models
-        if opts.temperature is not None and model_id not in MODELS_WITHOUT_TEMPERATURE:
-            params["temperature"] = opts.temperature
-
-        if opts.top_p is not None and model_id not in MODELS_WITHOUT_TEMPERATURE:
-            params["top_p"] = opts.top_p
-
-        if opts.stop_sequences:
-            params["stop"] = list(opts.stop_sequences)
-
-        # JSON mode
-        if opts.json_mode:
-            params["response_format"] = {"type": "json_object"}
-
-        # Tools (not supported for o1 series)
-        tools = _convert_tools_to_openai(opts.tools)
-        if tools and not model_id.startswith(("o1", "o3")):
-            params["tools"] = tools
-            if opts.tool_choice:
-                if opts.tool_choice in ("auto", "none"):
-                    params["tool_choice"] = opts.tool_choice
-                else:
-                    params["tool_choice"] = {
-                        "type": "function",
-                        "function": {"name": opts.tool_choice},
-                    }
-
-        # Reasoning effort for o1/o3 models
-        if opts.reasoning_effort and model_id.startswith(("o1", "o3")):
-            params["reasoning_effort"] = opts.reasoning_effort
+        params = _build_completion_params(model_id, converted_messages, opts)
 
         try:
             response_obj = await client.chat.completions.create(**params)
@@ -408,17 +476,7 @@ class OpenAIProvider(BaseLLMProvider):
             raise AssertionError("unreachable")
 
         response = cast(_CompletionResponse, response_obj)
-
-        # Parse response
-        choice = response.choices[0] if response.choices else None
-        content = ""
-        tool_calls: list[ToolCall] = []
-        finish_reason = None
-
-        if choice:
-            content = choice.message.content or ""
-            tool_calls = _parse_tool_calls(choice.message.tool_calls)
-            finish_reason = choice.finish_reason
+        content, tool_calls, finish_reason = _extract_completion_choice(response)
 
         usage = None
         if response.usage:
@@ -448,42 +506,14 @@ class OpenAIProvider(BaseLLMProvider):
 
         model_id = _resolve_model_id(model or self.default_model)
         converted_messages = _convert_messages_to_openai(messages, opts.system_prompt, model_id)
-
-        params: dict[str, object] = {
-            "model": model_id,
-            "messages": converted_messages,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-
-        if opts.max_tokens:
-            if model_id.startswith(("o1", "o3")):
-                params["max_completion_tokens"] = opts.max_tokens
-            else:
-                params["max_tokens"] = opts.max_tokens
-
-        if opts.temperature is not None and model_id not in MODELS_WITHOUT_TEMPERATURE:
-            params["temperature"] = opts.temperature
-
-        if opts.top_p is not None and model_id not in MODELS_WITHOUT_TEMPERATURE:
-            params["top_p"] = opts.top_p
-
-        if opts.stop_sequences:
-            params["stop"] = list(opts.stop_sequences)
-
-        if opts.json_mode:
-            params["response_format"] = {"type": "json_object"}
-
-        tools = _convert_tools_to_openai(opts.tools)
-        if tools and not model_id.startswith(("o1", "o3")):
-            params["tools"] = tools
+        params = _build_completion_params(model_id, converted_messages, opts, stream=True)
 
         try:
             stream_obj = await client.chat.completions.create(**params)
             stream = cast(AsyncIterator[_StreamChunk], stream_obj)
             async for chunk in stream:
                 if not chunk.choices:
-                    # Final chunk with usage
+                    # Final chunk with usage only
                     if chunk.usage:
                         yield StreamChunk(
                             content="",
@@ -494,19 +524,8 @@ class OpenAIProvider(BaseLLMProvider):
                         )
                     continue
 
-                choice = chunk.choices[0]
-                delta = choice.delta
-
-                content = ""
-                if delta and delta.content:
-                    content = delta.content
-
-                finish_reason = choice.finish_reason
-
-                yield StreamChunk(
-                    content=content,
-                    finish_reason=finish_reason,
-                )
+                content, finish_reason = _parse_stream_chunk(chunk)
+                yield StreamChunk(content=content, finish_reason=finish_reason)
         except Exception as exc:
             self._handle_api_error(exc)
 

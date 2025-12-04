@@ -21,6 +21,91 @@ if TYPE_CHECKING:
     from jpscripts.providers import CompletionOptions, LLMProvider
 
 
+# --- Event Handler Functions ---
+
+
+def _handle_attempt_start(data: dict[str, Any], message: str) -> None:
+    console.print(
+        f"[cyan]Attempt {data['attempt']}/{data['max']} "
+        f"({data['strategy']}): running `{data['command']}`[/cyan]"
+    )
+
+
+def _handle_command_success(data: dict[str, Any], message: str) -> None:
+    phase = data.get("phase", "")
+    if phase == "initial":
+        console.print("[green]Command succeeded. Exiting repair loop.[/green]")
+    elif data.get("after_fixes"):
+        console.print("[green]Command succeeded after applying fixes.[/green]")
+    elif phase == "final_verification":
+        console.print("[green]Command succeeded after final verification.[/green]")
+    else:
+        console.print(f"[green]{message}[/green]")
+
+
+def _handle_command_failed(data: dict[str, Any], message: str) -> None:
+    phase = data.get("phase", "")
+    error = data.get("error", "")
+    if phase == "initial":
+        console.print(f"[yellow]{message}:[/yellow] {error}")
+    elif phase == "verification":
+        console.print(f"[yellow]Verification failed:[/yellow] {error}")
+    elif phase == "final_verification_start":
+        console.print("[yellow]Max retries reached. Verifying one last time...[/yellow]")
+    elif phase == "final":
+        console.print(f"[red]Command still failing:[/red] {error}")
+    else:
+        console.print(f"[yellow]{message}:[/yellow] {error}")
+
+
+def _handle_tool_call(data: dict[str, Any], message: str) -> None:
+    console.print(
+        Panel(
+            f"Agent invoking {data['tool_name']} with args {data['arguments']}",
+            title="Tool Call",
+            box=box.SIMPLE,
+        )
+    )
+
+
+def _handle_tool_output(data: dict[str, Any], message: str) -> None:
+    console.print(Panel(data["output"], title="Tool Output", box=box.SIMPLE, style="cyan"))
+
+
+def _handle_syntax_error(data: dict[str, Any], message: str) -> None:
+    console.print(f"[red]Syntax Check Failed (Self-Correction):[/red] {data['error']}")
+
+
+def _handle_no_patch(data: dict[str, Any], message: str) -> None:
+    console.print(f"[yellow]{data.get('message', message)}[/yellow]")
+
+
+# --- Event Dispatch Table ---
+
+_EVENT_HANDLERS: dict[EventKind, Callable[[dict[str, Any], str], None]] = {
+    EventKind.ATTEMPT_START: _handle_attempt_start,
+    EventKind.COMMAND_SUCCESS: _handle_command_success,
+    EventKind.COMMAND_FAILED: _handle_command_failed,
+    EventKind.TOOL_CALL: _handle_tool_call,
+    EventKind.TOOL_OUTPUT: _handle_tool_output,
+    EventKind.PATCH_PROPOSED: lambda d, m: console.print("[green]Agent proposed a fix.[/green]"),
+    EventKind.PATCH_APPLIED: lambda d, m: None,  # Implied by PATCH_PROPOSED
+    EventKind.SYNTAX_ERROR: _handle_syntax_error,
+    EventKind.DUPLICATE_PATCH: lambda d, m: console.print(
+        "[yellow]Duplicate patch detected - skipping.[/yellow]"
+    ),
+    EventKind.LOOP_DETECTED: lambda d, m: console.print(
+        "[yellow]Repeated failure detected; applying strategy override "
+        "and higher reasoning effort.[/yellow]"
+    ),
+    EventKind.VALIDATION_ERROR: lambda d, m: console.print(f"[red]{m}[/red]"),
+    EventKind.NO_PATCH: _handle_no_patch,
+    EventKind.REVERTING: lambda d, m: console.print(
+        "[yellow]Reverting changes from failed attempts.[/yellow]"
+    ),
+}
+
+
 async def render_repair_loop_events(orchestrator: RepairLoopOrchestrator) -> bool:
     """Consume repair loop events and render UI.
 
@@ -33,72 +118,12 @@ async def render_repair_loop_events(orchestrator: RepairLoopOrchestrator) -> boo
     success = False
 
     async for event in orchestrator.run():
-        match event.kind:
-            case EventKind.ATTEMPT_START:
-                console.print(
-                    f"[cyan]Attempt {event.data['attempt']}/{event.data['max']} "
-                    f"({event.data['strategy']}): running `{event.data['command']}`[/cyan]"
-                )
-            case EventKind.COMMAND_SUCCESS:
-                phase = event.data.get("phase", "")
-                if phase == "initial":
-                    console.print("[green]Command succeeded. Exiting repair loop.[/green]")
-                elif event.data.get("after_fixes"):
-                    console.print("[green]Command succeeded after applying fixes.[/green]")
-                elif phase == "final_verification":
-                    console.print("[green]Command succeeded after final verification.[/green]")
-                else:
-                    console.print(f"[green]{event.message}[/green]")
-            case EventKind.COMMAND_FAILED:
-                phase = event.data.get("phase", "")
-                error = event.data.get("error", "")
-                if phase == "initial":
-                    console.print(f"[yellow]{event.message}:[/yellow] {error}")
-                elif phase == "verification":
-                    console.print(f"[yellow]Verification failed:[/yellow] {error}")
-                elif phase == "final_verification_start":
-                    console.print(
-                        "[yellow]Max retries reached. Verifying one last time...[/yellow]"
-                    )
-                elif phase == "final":
-                    console.print(f"[red]Command still failing:[/red] {error}")
-                else:
-                    console.print(f"[yellow]{event.message}:[/yellow] {error}")
-            case EventKind.TOOL_CALL:
-                console.print(
-                    Panel(
-                        f"Agent invoking {event.data['tool_name']} with args {event.data['arguments']}",
-                        title="Tool Call",
-                        box=box.SIMPLE,
-                    )
-                )
-            case EventKind.TOOL_OUTPUT:
-                console.print(
-                    Panel(event.data["output"], title="Tool Output", box=box.SIMPLE, style="cyan")
-                )
-            case EventKind.PATCH_PROPOSED:
-                console.print("[green]Agent proposed a fix.[/green]")
-            case EventKind.PATCH_APPLIED:
-                pass  # Implied by PATCH_PROPOSED
-            case EventKind.SYNTAX_ERROR:
-                console.print(
-                    f"[red]Syntax Check Failed (Self-Correction):[/red] {event.data['error']}"
-                )
-            case EventKind.DUPLICATE_PATCH:
-                console.print("[yellow]Duplicate patch detected - skipping.[/yellow]")
-            case EventKind.LOOP_DETECTED:
-                console.print(
-                    "[yellow]Repeated failure detected; applying strategy override "
-                    "and higher reasoning effort.[/yellow]"
-                )
-            case EventKind.VALIDATION_ERROR:
-                console.print(f"[red]{event.message}[/red]")
-            case EventKind.NO_PATCH:
-                console.print(f"[yellow]{event.data.get('message', event.message)}[/yellow]")
-            case EventKind.REVERTING:
-                console.print("[yellow]Reverting changes from failed attempts.[/yellow]")
-            case EventKind.COMPLETE:
-                success = event.data.get("success", False)
+        if event.kind == EventKind.COMPLETE:
+            success = event.data.get("success", False)
+            continue
+
+        if handler := _EVENT_HANDLERS.get(event.kind):
+            handler(event.data, event.message)
 
     return success
 

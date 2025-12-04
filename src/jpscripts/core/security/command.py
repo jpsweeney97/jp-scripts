@@ -359,6 +359,78 @@ def _check_shell_metachars_in_tokens(tokens: list[str]) -> str | None:
     return None
 
 
+def _validate_binary(binary: str) -> tuple[CommandVerdict, str] | None:
+    """Validate binary against forbidden and allowed lists.
+
+    Returns:
+        Tuple of (verdict, reason) if binary is invalid, None if valid.
+    """
+    if binary in FORBIDDEN_BINARIES:
+        return CommandVerdict.BLOCKED_FORBIDDEN, f"Forbidden binary: {binary}"
+
+    if binary not in ALLOWED_BINARIES:
+        return CommandVerdict.BLOCKED_NOT_ALLOWLISTED, f"Binary not in allowlist: {binary}"
+
+    return None
+
+
+def _validate_git_command(tokens: list[str]) -> tuple[CommandVerdict, str] | None:
+    """Validate git subcommand against forbidden and allowed lists.
+
+    Returns:
+        Tuple of (verdict, reason) if invalid, None if valid.
+    """
+    if len(tokens) < 2:
+        return None  # git with no subcommand is OK
+
+    subcommand = tokens[1].lower().lstrip("-")
+
+    if subcommand in FORBIDDEN_GIT_SUBCOMMANDS:
+        return CommandVerdict.BLOCKED_FORBIDDEN, f"Git subcommand not allowed: {subcommand}"
+
+    if subcommand not in ALLOWED_GIT_SUBCOMMANDS:
+        return (
+            CommandVerdict.BLOCKED_NOT_ALLOWLISTED,
+            f"Git subcommand not in allowlist: {subcommand}",
+        )
+
+    return None
+
+
+def _validate_arguments(
+    tokens: list[str],
+    binary: str,
+    workspace_root: Path,
+) -> tuple[CommandVerdict, str] | None:
+    """Validate command arguments for dangerous flags and path escapes.
+
+    Returns:
+        Tuple of (verdict, reason) if invalid, None if valid.
+    """
+    # Check for dangerous flags (universal)
+    for token in tokens[1:]:
+        if token in DANGEROUS_FLAGS:
+            return CommandVerdict.BLOCKED_DANGEROUS_FLAG, f"Dangerous flag: {token}"
+
+    # Check for context-dependent dangerous flags
+    context_flags = CONTEXT_DANGEROUS_FLAGS.get(binary, frozenset())
+    for token in tokens[1:]:
+        if token in context_flags:
+            return CommandVerdict.BLOCKED_DANGEROUS_FLAG, f"Dangerous flag for {binary}: {token}"
+
+    # Validate all path-like arguments stay within workspace
+    for token in tokens[1:]:
+        if _check_path_escape(token, workspace_root):
+            return CommandVerdict.BLOCKED_PATH_ESCAPE, f"Path escapes workspace: {token}"
+
+    # Final check for command substitution patterns in tokens
+    found_meta = _check_shell_metachars_in_tokens(tokens)
+    if found_meta:
+        return CommandVerdict.BLOCKED_METACHAR, f"Shell metacharacter in token: {found_meta!r}"
+
+    return None
+
+
 def validate_command(
     command: str,
     workspace_root: Path,
@@ -388,12 +460,12 @@ def validate_command(
     if not command:
         return CommandVerdict.BLOCKED_FORBIDDEN, "Empty command"
 
-    # Check for obvious metacharacters before parsing
+    # Quick rejection: shell metacharacters
     for meta in SHELL_METACHARS:
         if meta in command:
             return CommandVerdict.BLOCKED_METACHAR, f"Shell metacharacter detected: {meta!r}"
 
-    # Tokenize using shell parsing rules
+    # Tokenize
     try:
         tokens = shlex.split(command)
     except ValueError as exc:
@@ -402,55 +474,18 @@ def validate_command(
     if not tokens:
         return CommandVerdict.BLOCKED_FORBIDDEN, "Empty command after parsing"
 
-    # Get the binary name (strip any path prefix)
+    # Validate binary → git subcommand → arguments
     binary = _get_binary_name(tokens[0])
 
-    # Check forbidden list first (highest priority)
-    if binary in FORBIDDEN_BINARIES:
-        return CommandVerdict.BLOCKED_FORBIDDEN, f"Forbidden binary: {binary}"
+    if result := _validate_binary(binary):
+        return result
 
-    # Check allowlist
-    if binary not in ALLOWED_BINARIES:
-        return CommandVerdict.BLOCKED_NOT_ALLOWLISTED, f"Binary not in allowlist: {binary}"
-
-    # Special handling for git - validate subcommand
     if binary == "git" and strict_git:
-        if len(tokens) < 2:
-            return CommandVerdict.ALLOWED, "OK (git with no subcommand)"
+        if result := _validate_git_command(tokens):
+            return result
 
-        subcommand = tokens[1].lower().lstrip("-")
-
-        # Check forbidden first
-        if subcommand in FORBIDDEN_GIT_SUBCOMMANDS:
-            return CommandVerdict.BLOCKED_FORBIDDEN, f"Git subcommand not allowed: {subcommand}"
-
-        # Check allowed
-        if subcommand not in ALLOWED_GIT_SUBCOMMANDS:
-            return (
-                CommandVerdict.BLOCKED_NOT_ALLOWLISTED,
-                f"Git subcommand not in allowlist: {subcommand}",
-            )
-
-    # Check for dangerous flags (universal)
-    for token in tokens[1:]:
-        if token in DANGEROUS_FLAGS:
-            return CommandVerdict.BLOCKED_DANGEROUS_FLAG, f"Dangerous flag: {token}"
-
-    # Check for context-dependent dangerous flags
-    context_flags = CONTEXT_DANGEROUS_FLAGS.get(binary, frozenset())
-    for token in tokens[1:]:
-        if token in context_flags:
-            return CommandVerdict.BLOCKED_DANGEROUS_FLAG, f"Dangerous flag for {binary}: {token}"
-
-    # Validate all path-like arguments stay within workspace
-    for token in tokens[1:]:
-        if _check_path_escape(token, workspace_root):
-            return CommandVerdict.BLOCKED_PATH_ESCAPE, f"Path escapes workspace: {token}"
-
-    # Final check for command substitution patterns in tokens
-    found_meta = _check_shell_metachars_in_tokens(tokens)
-    if found_meta:
-        return CommandVerdict.BLOCKED_METACHAR, f"Shell metacharacter in token: {found_meta!r}"
+    if result := _validate_arguments(tokens, binary, workspace_root):
+        return result
 
     return CommandVerdict.ALLOWED, "OK"
 

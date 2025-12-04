@@ -346,6 +346,131 @@ class TestOpenAIProvider:
         assert name_value == "search"
 
 
+class TestOpenAIHelperFunctions:
+    """Test OpenAI provider helper functions for param building and parsing."""
+
+    def test_build_completion_params_basic(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions()
+        params = _build_completion_params(
+            "gpt-4o",
+            [{"role": "user", "content": "Hello"}],
+            opts,
+        )
+        assert params["model"] == "gpt-4o"
+        assert params["messages"] == [{"role": "user", "content": "Hello"}]
+        assert "stream" not in params
+
+    def test_build_completion_params_with_max_tokens(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(max_tokens=100)
+        params = _build_completion_params("gpt-4o", [], opts)
+        assert params["max_tokens"] == 100
+        assert "max_completion_tokens" not in params
+
+    def test_build_completion_params_o1_max_tokens(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(max_tokens=100)
+        params = _build_completion_params("o1-2024-12-17", [], opts)
+        assert params["max_completion_tokens"] == 100
+        assert "max_tokens" not in params
+
+    def test_build_completion_params_temperature(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(temperature=0.7)
+        params = _build_completion_params("gpt-4o", [], opts)
+        assert params["temperature"] == 0.7
+
+    def test_build_completion_params_o1_no_temperature(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(temperature=0.7)
+        params = _build_completion_params("o1", [], opts)
+        assert "temperature" not in params
+
+    def test_build_completion_params_stream_mode(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions()
+        params = _build_completion_params("gpt-4o", [], opts, stream=True)
+        assert params["stream"] is True
+        assert params["stream_options"] == {"include_usage": True}
+
+    def test_build_completion_params_with_tools(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        tools = (
+            ToolDefinition(
+                name="search",
+                description="Search",
+                parameters={"type": "object"},
+            ),
+        )
+        opts = CompletionOptions(tools=tools)
+        params = _build_completion_params("gpt-4o", [], opts)
+        assert "tools" in params
+        tool_list = params["tools"]
+        assert isinstance(tool_list, list)
+        assert len(tool_list) == 1
+
+    def test_build_completion_params_o1_no_tools(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        tools = (
+            ToolDefinition(
+                name="search",
+                description="Search",
+                parameters={"type": "object"},
+            ),
+        )
+        opts = CompletionOptions(tools=tools)
+        params = _build_completion_params("o1", [], opts)
+        # o1 models don't support tools
+        assert "tools" not in params
+
+    def test_build_completion_params_tool_choice(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        tools = (
+            ToolDefinition(
+                name="search",
+                description="Search",
+                parameters={"type": "object"},
+            ),
+        )
+        opts = CompletionOptions(tools=tools, tool_choice="search")
+        params = _build_completion_params("gpt-4o", [], opts)
+        assert "tool_choice" in params
+        tool_choice = params["tool_choice"]
+        assert isinstance(tool_choice, dict)
+        assert tool_choice["type"] == "function"
+
+    def test_build_completion_params_json_mode(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(json_mode=True)
+        params = _build_completion_params("gpt-4o", [], opts)
+        assert params["response_format"] == {"type": "json_object"}
+
+    def test_build_completion_params_reasoning_effort(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(reasoning_effort="high")
+        params = _build_completion_params("o1", [], opts)
+        assert params["reasoning_effort"] == "high"
+
+    def test_build_completion_params_reasoning_effort_ignored_for_gpt(self) -> None:
+        from jpscripts.providers.openai import _build_completion_params
+
+        opts = CompletionOptions(reasoning_effort="high")
+        params = _build_completion_params("gpt-4o", [], opts)
+        assert "reasoning_effort" not in params
+
+
 class TestProviderErrors:
     """Test provider error types."""
 

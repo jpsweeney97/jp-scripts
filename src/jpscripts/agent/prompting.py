@@ -17,7 +17,7 @@ from jpscripts.agent.context import (
     collect_git_diff,
     load_constitution,
 )
-from jpscripts.agent.models import AgentResponse, PreparedPrompt
+from jpscripts.agent.models import PreparedPrompt
 from jpscripts.ai.tokens import TokenBudgetManager
 from jpscripts.analysis.structure import generate_map
 from jpscripts.core.config import AppConfig
@@ -167,6 +167,102 @@ def _summarize_stack_trace(text: str, limit: int) -> str:
     return assembled
 
 
+def _extract_effective_limits(
+    config: AppConfig,
+    model: str | None,
+    max_file_context_chars: int | None,
+    max_command_output_chars: int | None,
+    ignore_dirs: Sequence[str] | None,
+) -> tuple[str, int, int, int, list[str]]:
+    """Extract effective limits from config with optional overrides.
+
+    Returns:
+        Tuple of (active_model, model_limit, file_context_limit, command_output_limit, ignore_dirs)
+    """
+    effective_ignore_dirs = (
+        list(ignore_dirs) if ignore_dirs is not None else list(config.user.ignore_dirs)
+    )
+    file_context_limit = (
+        max_file_context_chars
+        if max_file_context_chars is not None
+        else config.ai.max_file_context_chars
+    )
+    command_output_limit = (
+        max_command_output_chars
+        if max_command_output_chars is not None
+        else config.ai.max_command_output_chars
+    )
+    active_model = model or config.ai.default_model
+    model_limit = config.ai.model_context_limits.get(
+        active_model,
+        config.ai.model_context_limits.get("default", file_context_limit),
+    )
+    return active_model, model_limit, file_context_limit, command_output_limit, effective_ignore_dirs
+
+
+async def _collect_static_context(root: Path) -> tuple[str, str, bool, str, dict[str, object]]:
+    """Collect static context in parallel: git info, repo map, constitution.
+
+    Returns:
+        Tuple of (branch, commit, is_dirty, repository_map, constitution_dict)
+    """
+    git_task = collect_git_context(root)
+    map_task = asyncio.to_thread(generate_map, root, 3)
+    constitution_task = load_constitution(root)
+
+    (branch, commit, is_dirty), repository_map, constitution_dict = await asyncio.gather(
+        git_task, map_task, constitution_task
+    )
+    return branch, commit, is_dirty, repository_map, constitution_dict
+
+
+def _build_template_context(
+    *,
+    root: Path,
+    branch: str,
+    commit: str,
+    is_dirty: bool,
+    repository_map: str,
+    constitution_dict: dict[str, object],
+    diagnostic_section: str,
+    file_context_section: str,
+    dependency_section: str,
+    git_diff_section: str,
+    patterns_section: str,
+    base_prompt: str,
+    tool_history: str | None,
+    relevant_memories: list[str],
+    web_access: bool,
+) -> dict[str, object]:
+    """Build the template context dictionary for prompt rendering."""
+    from jpscripts.agent.models import AgentResponse
+
+    response_schema = AgentResponse.model_json_schema()
+    return {
+        "workspace_root": str(root),
+        "branch": branch,
+        "head": commit,
+        "dirty": is_dirty,
+        "repository_map": repository_map,
+        "constitution": constitution_dict,
+        "diagnostic_section": diagnostic_section,
+        "file_context_section": file_context_section,
+        "dependency_section": dependency_section,
+        "git_diff_section": git_diff_section,
+        "patterns_section": patterns_section,
+        "anti_patterns": GOVERNANCE_ANTI_PATTERNS,
+        "instruction": base_prompt.strip(),
+        "tool_history": tool_history or "",
+        "response_schema": response_schema,
+        "relevant_memories": relevant_memories,
+        "web_tool": (
+            "Web search and page retrieval is available via fetch_page_content(url) returning markdown."
+            if web_access
+            else ""
+        ),
+    }
+
+
 async def prepare_agent_prompt(
     base_prompt: str,
     *,
@@ -195,23 +291,12 @@ async def prepare_agent_prompt(
     runtime = get_runtime()
     config = runtime.config
     root = workspace_override or runtime.workspace_root
-    effective_ignore_dirs = (
-        list(ignore_dirs) if ignore_dirs is not None else list(config.user.ignore_dirs)
-    )
-    file_context_limit = (
-        max_file_context_chars
-        if max_file_context_chars is not None
-        else config.ai.max_file_context_chars
-    )
-    command_output_limit = (
-        max_command_output_chars
-        if max_command_output_chars is not None
-        else config.ai.max_command_output_chars
-    )
-    active_model = model or config.ai.default_model
-    model_limit = config.ai.model_context_limits.get(
-        active_model,
-        config.ai.model_context_limits.get("default", file_context_limit),
+
+    # Extract effective limits from config with overrides
+    active_model, model_limit, _, command_output_limit, effective_ignore_dirs = (
+        _extract_effective_limits(
+            config, model, max_file_context_chars, max_command_output_chars, ignore_dirs
+        )
     )
 
     # Reserve ~10% for template overhead (prompt structure, instructions, etc.)
@@ -224,10 +309,10 @@ async def prepare_agent_prompt(
         truncator=smart_read_context,
     )
 
-    branch, commit, is_dirty = await collect_git_context(root)
-
-    repository_map = await asyncio.to_thread(generate_map, root, 3)
-    constitution_text = await load_constitution(root)
+    # Collect static context in parallel
+    branch, commit, is_dirty, repository_map, constitution_dict = await _collect_static_context(
+        root
+    )
 
     attached: list[Path] = []
     detected_paths: list[Path] = []
@@ -276,31 +361,25 @@ async def prepare_agent_prompt(
         budget.remaining(),
     )
 
+    # Build template context and render
     template_root = resolve_template_root()
-    response_schema = AgentResponse.model_json_schema()
-    context = {
-        "workspace_root": str(root),
-        "branch": branch,
-        "head": commit,
-        "dirty": is_dirty,
-        "repository_map": repository_map,
-        "constitution": constitution_text,
-        "diagnostic_section": diagnostic_section,
-        "file_context_section": file_context_section,
-        "dependency_section": dependency_section,
-        "git_diff_section": git_diff_section,
-        "patterns_section": patterns_section,
-        "anti_patterns": GOVERNANCE_ANTI_PATTERNS,
-        "instruction": base_prompt.strip(),
-        "tool_history": tool_history or "",
-        "response_schema": response_schema,
-        "relevant_memories": relevant_memories,
-        "web_tool": (
-            "Web search and page retrieval is available via fetch_page_content(url) returning markdown."
-            if web_access
-            else ""
-        ),
-    }
+    context = _build_template_context(
+        root=root,
+        branch=branch,
+        commit=commit,
+        is_dirty=is_dirty,
+        repository_map=repository_map,
+        constitution_dict=constitution_dict,
+        diagnostic_section=diagnostic_section,
+        file_context_section=file_context_section,
+        dependency_section=dependency_section,
+        git_diff_section=git_diff_section,
+        patterns_section=patterns_section,
+        base_prompt=base_prompt,
+        tool_history=tool_history,
+        relevant_memories=relevant_memories,
+        web_access=web_access,
+    )
 
     prompt = await asyncio.to_thread(_render_prompt_from_template, context, template_root)  # pyright: ignore[reportArgumentType]
 
