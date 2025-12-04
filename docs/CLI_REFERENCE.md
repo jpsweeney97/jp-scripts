@@ -10,18 +10,18 @@ Complete reference for all `jp` commands and MCP tools.
 
 | Command | Args | Description |
 | :--- | :--- | :--- |
-| `agent` | prompt, --recent/-r, --diff, --run/-x, --full-auto/-y, --model/-m, --provider/-p, --loop, --max-retries, --keep-failed, --archive, --web | Delegate a task to an LLM agent. Supports multiple providers: - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.) - OpenAI GPT/o1 (gpt-4o, o1, etc.) - Codex CLI (default for backward compatibility) Examples: jp agent "Fix the failing test" --run "pytest tests/" jp agent "Explain this code" --model claude-opus-4-5 --provider anthropic jp fix "Debug the error" --run "python main.py" --loop |
+| `agent` | prompt, --recent/-r, --diff, --run/-x, --model/-m, --provider/-p, --loop, --max-retries, --keep-failed, --archive, --web | Delegate a task to an LLM agent. Supports multiple providers: - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.) - OpenAI GPT/o1 (gpt-4o, o1, etc.) Examples: jp agent "Fix the failing test" --run "pytest tests/" jp agent "Explain this code" --model claude-opus-4-5 --provider anthropic jp fix "Debug the error" --run "python main.py" --loop |
 | `audioswap` | --no-fzf | Switch audio output device using SwitchAudioSource. |
 | `brew-explorer` | --query/-q, --no-fzf | Search brew formulas/casks and show info. |
 | `cliphist` | --action/-a, --limit/-l, --no-fzf | Simple clipboard history backed by SQLite. |
 | `com` | — | Display the available jp commands and their descriptions. |
 | `config` | — | Show the active configuration and where it came from. |
-| `config-fix` | — | Attempt to fix a broken configuration file using Codex. |
+| `config-fix` | — | Attempt to fix a broken configuration file using the default LLM provider. |
 | `doctor` | --tool/-t | Inspect external dependencies in parallel. |
 | `evolve run` | --dry-run, --model/-m, --threshold/-t | Autonomous code evolution: identify highest technical debt file, optimize via LLM, and create PR. Uses McCabe complexity × fix frequency scoring. |
 | `evolve report` | --limit/-n | Show complexity report for the codebase (most complex files and functions). |
-| `evolve debt` | --limit/-n | Show technical debt scores combining complexity and fix frequency. |
-| `fix` | prompt, --recent/-r, --diff, --run/-x, --full-auto/-y, --model/-m, --provider/-p, --loop, --max-retries, --keep-failed, --archive, --web | Delegate a task to an LLM agent. Supports multiple providers: - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.) - OpenAI GPT/o1 (gpt-4o, o1, etc.) - Codex CLI (default for backward compatibility) Examples: jp agent "Fix the failing test" --run "pytest tests/" jp agent "Explain this code" --model claude-opus-4-5 --provider anthropic jp fix "Debug the error" --run "python main.py" --loop |
+| `evolve debt` | --limit/-n | Show technical debt scores combining complexity, fix frequency, and git churn. |
+| `fix` | prompt, --recent/-r, --diff, --run/-x, --model/-m, --provider/-p, --loop, --max-retries, --keep-failed, --archive, --web | Delegate a task to an LLM agent. Supports multiple providers: - Anthropic Claude (claude-opus-4-5, claude-sonnet-4-5, etc.) - OpenAI GPT/o1 (gpt-4o, o1, etc.) Examples: jp agent "Fix the failing test" --run "pytest tests/" jp agent "Explain this code" --model claude-opus-4-5 --provider anthropic jp fix "Debug the error" --run "python main.py" --loop |
 | `gbrowse` | --repo/-r, --target | Open the current repo/branch/commit on GitHub. |
 | `git-branchcheck` | --repo/-r | List branches with upstream and ahead/behind counts. |
 | `gpr` | --action/-a, --limit, --no-fzf | Interact with GitHub PRs via gh (Typed & Robust). |
@@ -38,6 +38,7 @@ Complete reference for all `jp` commands and MCP tools.
 | `memory vacuum` | — | Remove memory entries related to deleted files to maintain vector store hygiene. |
 | `note` | --message/-m | Append to today's note or open it in the configured editor. |
 | `note-search` | query, --no-fzf | Search notes with ripgrep and optionally fzf. |
+| `panic` | --hard | Emergency kill switch for runaway agent processes. Use --hard to also reset git to HEAD. |
 | `port-kill` | port, --force/-f, --no-fzf | Find processes bound to a port and kill one. |
 | `process-kill` | --name/-n, --port/-p, --force/-f, --no-fzf | Interactively select and kill a process. |
 | `proj` | --no-fzf | Fuzzy-pick a project using zoxide + fzf and print the path. |
@@ -55,6 +56,7 @@ Complete reference for all `jp` commands and MCP tools.
 | `tmpserver` | --dir/-d, --port/-p | Start a simple HTTP server. |
 | `todo-scan` | --path/-p, --types | Scan for TODO items and display a structured table. |
 | `trace list` | --limit/-n | List recent execution traces. |
+| `trace replay` | trace_id | Replay a recorded trace deterministically without external API calls. |
 | `trace show` | trace_id, --watch/-w | Display detailed trace for a specific execution. |
 | `update` | — | Update jpscripts in editable installs, or guide pipx users. |
 | `version` | — | Print the jpscripts version. |

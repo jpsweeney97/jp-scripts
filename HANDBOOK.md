@@ -2,7 +2,7 @@
 
 Concise rules for operating `jp` with precision. No fluff, no drift.
 
-> **Version:** 2.0 | **Python:** 3.12+ | **Typing:** mypy --strict
+> **Version:** 2.0 | **Python:** 3.11+ | **Typing:** mypy --strict
 
 ---
 
@@ -340,8 +340,7 @@ The governance check runs automatically in `AgentEngine.step()`:
 
 ## Field Notes (Daily Discipline)
 
-- Keep `jp watch` running; let it block on syntax before you git-add.  
-- [Protocol: pre-commit] -> run "jp handbook internal-update-reference"  
+- Keep `jp watch` running; let it block on syntax before you git-add.
 - [Protocol: pre-commit] -> run "jp status-all"  
 - Capture lessons with `jp memory add ... --tag <area>`; this feeds immediate recall.  
 - When handing off, run `jp serialize snapshot` to produce a lossless manifest for teammates or agents.
