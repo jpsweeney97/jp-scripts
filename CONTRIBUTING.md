@@ -516,57 +516,67 @@ except Exception as exc:
 
 ## Release Process
 
+Releases are **automated** via [release-please](https://github.com/googleapis/release-please).
+
+### How It Works
+
+1. **Commit with conventional prefixes** (see [Commit Messages](#commit-messages) above)
+2. **Push to `main`** — release-please analyzes commits
+3. **Release PR is created** automatically with:
+   - Version bump in `pyproject.toml`
+   - Updated `CHANGELOG.md`
+   - Release notes from commit messages
+4. **Merge the Release PR** — this triggers:
+   - Git tag creation (`v0.9.2`)
+   - GitHub Release with artifacts
+   - Package build and validation
+
 ### Versioning
 
 We follow [Semantic Versioning](https://semver.org/):
 
-- **MAJOR** (1.0.0): Breaking API changes
-- **MINOR** (0.1.0): New features, backwards compatible
-- **PATCH** (0.0.1): Bug fixes, backwards compatible
+| Commit Type | Version Bump | Example |
+|-------------|--------------|---------|
+| `fix:` | PATCH (0.0.x) | Bug fixes |
+| `feat:` | MINOR (0.x.0) | New features |
+| `feat!:` or `BREAKING CHANGE:` | MAJOR (x.0.0) | Breaking changes |
 
-Current version is in `pyproject.toml`:
-```toml
-[project]
-version = "0.9.0"
+**Note:** While pre-1.0, breaking changes bump MINOR instead of MAJOR.
+
+### Commit Message Impact on Changelog
+
+```
+feat(memory): add semantic search        → Features section
+fix(security): prevent path traversal    → Bug Fixes section
+perf(agent): reduce token usage          → Performance section
+refactor(core): split config module      → Refactoring section
+docs: update API reference               → Documentation section
+test: add integration tests              → Tests section
+ci: add release automation               → CI/CD section
+chore: update dependencies               → (hidden from changelog)
 ```
 
-### Release Checklist
+### Manual Release (Emergency Only)
 
-1. **Ensure all tests pass**:
-   ```bash
-   make test
-   ```
+If automation fails, you can release manually:
 
-2. **Update version** in `pyproject.toml`
-
-3. **Update CHANGELOG** (if maintained)
-
-4. **Create release commit**:
-   ```bash
-   git add pyproject.toml CHANGELOG.md
-   git commit -m "chore: release v0.9.1"
-   ```
-
-5. **Tag the release**:
-   ```bash
-   git tag v0.9.1
-   git push origin main --tags
-   ```
-
-6. **Build and publish** (if applicable):
-   ```bash
-   pip install build twine
-   python -m build
-   twine upload dist/*
-   ```
+```bash
+# 1. Update version in pyproject.toml
+# 2. Update CHANGELOG.md
+# 3. Commit and tag
+git add pyproject.toml CHANGELOG.md
+git commit -m "chore: release v0.9.2"
+git tag v0.9.2
+git push origin main --tags
+```
 
 ### Breaking Changes
 
 When making breaking changes:
 
-1. **Document** in PR description and CHANGELOG
-2. **Bump MAJOR version** (or MINOR if pre-1.0)
-3. **Provide migration guide** if the change affects users
+1. Use `feat!:` prefix or add `BREAKING CHANGE:` footer
+2. Document migration steps in the commit body
+3. The release PR will highlight breaking changes prominently
 
 ---
 
