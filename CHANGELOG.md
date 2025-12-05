@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.9.2](https://github.com/jpsweeney97/jp-scripts/compare/v0.9.1...v0.9.2) (2025-12-05)
+
+
+### Features
+
+* add NO_OP storage mode and memory_mode config ([d9e54cc](https://github.com/jpsweeney97/jp-scripts/commit/d9e54cca2e97e390165cd03d13ffca57930d3a31))
+* Phase 3 - Provider & Agent Interface Formalization ([062e96e](https://github.com/jpsweeney97/jp-scripts/commit/062e96e2c9f1ddcf7283545caf01bae4f7dad7f5))
+* Phase 4 - Safety & Concurrency Hardening ([519b6eb](https://github.com/jpsweeney97/jp-scripts/commit/519b6ebe7c803eb5dfcd407b4c443ff33a800766))
+
+
+### Bug Fixes
+
+* resolve audit roadmap P0-P3 items ([1f6debc](https://github.com/jpsweeney97/jp-scripts/commit/1f6debc06b4d67027a23db4e00910e871963747c))
+
+
+### Refactoring
+
+* consolidate security into core/security/ package (Phase 1+2) ([9dd5a9b](https://github.com/jpsweeney97/jp-scripts/commit/9dd5a9bd40377f38b16cef895e9697170c7fbf80))
+* decompose agent/execution.py into focused modules (Phase 3) ([c837b0b](https://github.com/jpsweeney97/jp-scripts/commit/c837b0bacdc80b6754aaed2f40110e5dadec2a5b))
+* extract turn processing helpers from execution.py (Phase 5) ([f87c71a](https://github.com/jpsweeney97/jp-scripts/commit/f87c71a8c843c75b918ece478f0ead6985fdb678))
+* Phase 2 - extract evolution/ and system/ to top-level packages ([67e4b91](https://github.com/jpsweeney97/jp-scripts/commit/67e4b9189a3f14e736aa77d917de726bded79195))
+* reduce cyclomatic complexity in 4 high-CC modules ([a265790](https://github.com/jpsweeney97/jp-scripts/commit/a265790f5d6ea40633e4b3860a0d572cdb22f63a))
+* split memory/store.py into focused submodules (Phase 4) ([de26c5a](https://github.com/jpsweeney97/jp-scripts/commit/de26c5a29af80955c1b48d1e19c2228c99556b7f))
+
+
+### Documentation
+
+* fix documentation drift across CLI_REFERENCE, HANDBOOK, README ([c567ddc](https://github.com/jpsweeney97/jp-scripts/commit/c567ddc28a4b16763424d4a5064e8cfc4db8ef0b))
+* rewrite ARCHITECTURE.md and harden CI constitution enforcement ([2854ee7](https://github.com/jpsweeney97/jp-scripts/commit/2854ee7d63871fae6ab7c6f6d513086615cd1e18))
+* update ARCHITECTURE.md to reflect package refactors ([ad0334e](https://github.com/jpsweeney97/jp-scripts/commit/ad0334e1c01c76c9a3d1bac15dd009a2bcb5e3d2))
+
+
+### CI/CD
+
+* add release-please for automated releases ([28909a4](https://github.com/jpsweeney97/jp-scripts/commit/28909a4b83a934986b6d476fd0749ca2ca1ea229))
+* remove PyPI publishing from release workflow ([87e1045](https://github.com/jpsweeney97/jp-scripts/commit/87e10451d75acd5d0a6f6d71b78a49f307062eeb))
+
 ## [Unreleased] - Security Hardening & Reliability
 
 ### Security
